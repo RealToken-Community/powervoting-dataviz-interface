@@ -203,14 +203,19 @@ export const useDataStore = defineStore('data', () => {
           if (regAmount <= 0) return
 
           // Determine if V3 or V2
-          // V3 positions have tickLower/tickUpper
-          const isV3 = pos.tickLower !== undefined && pos.tickUpper !== undefined
+          // Les pools V2 transformés ont tickLower: -887200 et tickUpper: 887200 (full range)
+          // Les vrais pools V3 ont des ranges plus petits
+          const tickLower = typeof pos.tickLower === 'number' ? pos.tickLower : parseFloat(String(pos.tickLower || 0))
+          const tickUpper = typeof pos.tickUpper === 'number' ? pos.tickUpper : parseFloat(String(pos.tickUpper || 0))
+          const isV2Transformed = tickLower === -887200 && tickUpper === 887200
+          const isV3 = pos.tickLower !== undefined && pos.tickUpper !== undefined && !isV2Transformed
 
           if (isV3) {
             v3Stats.totalREG += regAmount
             v3Stats.count++
             v3Stats.dexs[dexName] = (v3Stats.dexs[dexName] || 0) + regAmount
           } else {
+            // V2 (transformé ou original)
             v2Stats.totalREG += regAmount
             v2Stats.count++
             v2Stats.dexs[dexName] = (v2Stats.dexs[dexName] || 0) + regAmount
@@ -249,8 +254,12 @@ export const useDataStore = defineStore('data', () => {
               const regAmount = parseFloat(String(pos.equivalentREG || '0'))
               if (regAmount <= 0) return
 
+              // Détecter si c'est un V2 transformé (full range) ou un vrai V3
+              const tickLower = typeof pos.tickLower === 'number' ? pos.tickLower : parseFloat(String(pos.tickLower || 0))
+              const tickUpper = typeof pos.tickUpper === 'number' ? pos.tickUpper : parseFloat(String(pos.tickUpper || 0))
+              const isV2Transformed = tickLower === -887200 && tickUpper === 887200
               const poolType: 'v2' | 'v3' =
-                pos.tickLower !== undefined && pos.tickUpper !== undefined ? 'v3' : 'v2'
+                (pos.tickLower !== undefined && pos.tickUpper !== undefined && !isV2Transformed) ? 'v3' : 'v2'
 
               positions.push({
                 ...pos,
@@ -349,7 +358,7 @@ export const useDataStore = defineStore('data', () => {
           boostMultiplier,
         }
       })
-      .filter((item) => item.powerVoting > 0)
+      .filter((item) => item.poolLiquidityREG > 0) // Inclure toutes les adresses avec des pools, même si powerVoting est 0
       .sort((a, b) => b.poolLiquidityREG - a.poolLiquidityREG)
   })
 

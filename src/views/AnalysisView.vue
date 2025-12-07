@@ -89,12 +89,13 @@ const analyzeSnapshotPools = (balancesArray: any[], powerVotingArray: any[]) => 
           if (regAmount <= 0) return
           
           hasPools = true
-          // Détecter V3 : utiliser EXACTEMENT la même logique que analyzePoolPositions
-          // V3 si tickLower/tickUpper sont présents (même si null/false, la présence de la propriété compte)
-          // Note: Les snapshots historiques peuvent ne pas avoir ces propriétés (structure de données différente)
+          // Détecter V3 : les pools V2 transformés ont tickLower: -887200 et tickUpper: 887200
+          const tickLower = typeof pos.tickLower === 'number' ? pos.tickLower : parseFloat(String(pos.tickLower || 0))
+          const tickUpper = typeof pos.tickUpper === 'number' ? pos.tickUpper : parseFloat(String(pos.tickUpper || 0))
+          const isV2Transformed = tickLower === -887200 && tickUpper === 887200
           const hasTickLower = pos.tickLower !== undefined
           const hasTickUpper = pos.tickUpper !== undefined
-          const isV3 = hasTickLower && hasTickUpper
+          const isV3 = hasTickLower && hasTickUpper && !isV2Transformed
           
           // Si on trouve au moins une position avec tickLower/tickUpper, les données V3 sont disponibles
           if (hasTickLower || hasTickUpper) {
@@ -197,7 +198,11 @@ const analyzePoolPositions = (walletData: any) => {
         const regAmount = parseFloat(String(pos.equivalentREG || '0'))
         if (regAmount <= 0) return
 
-        const isV3 = pos.tickLower !== undefined && pos.tickUpper !== undefined
+        // Détecter V2 transformé vs vrai V3
+        const tickLower = typeof pos.tickLower === 'number' ? pos.tickLower : parseFloat(String(pos.tickLower || 0))
+        const tickUpper = typeof pos.tickUpper === 'number' ? pos.tickUpper : parseFloat(String(pos.tickUpper || 0))
+        const isV2Transformed = tickLower === -887200 && tickUpper === 887200
+        const isV3 = pos.tickLower !== undefined && pos.tickUpper !== undefined && !isV2Transformed
         const isActive = pos.isActive !== undefined ? pos.isActive : (isV3 ? false : true)
 
         totalRegInPools += regAmount
@@ -1175,7 +1180,11 @@ const poolPowerChartData = computed(() => {
   const correlation = dataStore.poolPowerCorrelation
   if (!correlation || correlation.length === 0) return null
 
-  const topEntries = correlation.slice(0, 25)
+  // Filtrer pour ne garder que les entrées avec des pools et un powerVoting > 0 pour le graphique
+  const entriesWithPower = correlation.filter((entry) => entry.poolLiquidityREG > 0 && entry.powerVoting > 0)
+  if (entriesWithPower.length === 0) return null
+
+  const topEntries = entriesWithPower.slice(0, 25)
   const labels = topEntries.map((entry) => formatAddress(entry.address))
 
   const ratioPools = topEntries.map((entry) => {
@@ -1648,24 +1657,24 @@ const poolPowerChartOptions = {
               :key="`${profile.address}-${position.poolAddress || 'pool'}-${position.dex}-${position.regAmount}`"
             >
               <div class="position-pill-header">
-                <span class="pill-dex">{{ position.dex }} • {{ position.poolType.toUpperCase() }}</span>
-                <span class="pill-pool">
-                  {{ position.poolAddress ? formatAddress(position.poolAddress) : 'N/A' }}
-                </span>
+              <span class="pill-dex">{{ position.dex }} • {{ position.poolType.toUpperCase() }}</span>
+              <span class="pill-pool">
+                {{ position.poolAddress ? formatAddress(position.poolAddress) : 'N/A' }}
+              </span>
               </div>
               <div class="position-pill-details">
-                <span class="pill-value">{{ formatNumber(position.regAmount) }} REG</span>
+              <span class="pill-value">{{ formatNumber(position.regAmount) }} REG</span>
                 <span class="pill-power" v-if="getPositionPowerAndMultiplier(position, profile).power > 0">
                   Power: {{ formatNumber(getPositionPowerAndMultiplier(position, profile).power) }}
                 </span>
                 <span class="pill-multiplier" v-if="getPositionPowerAndMultiplier(position, profile).multiplier > 0">
                   ×{{ getPositionPowerAndMultiplier(position, profile).multiplier.toFixed(2) }}
                 </span>
-              </div>
             </div>
           </div>
         </div>
       </div>
+    </div>
 
       <div v-if="addressSearchResults.length === 0 && !isSearchingAddress && searchAddress.trim()" class="no-results">
         <p>Aucun résultat trouvé pour cette adresse.</p>
@@ -1688,13 +1697,13 @@ const poolPowerChartOptions = {
             placeholder="Entrez une adresse (0x...)"
             class="search-input"
           />
-          <button
+        <button
             @click="searchAddressAcrossSnapshots"
             :disabled="isSearchingAddress || !searchAddress.trim()"
             class="btn btn-primary search-btn"
-          >
+        >
             {{ isSearchingAddress ? 'Recherche...' : 'Rechercher' }}
-          </button>
+        </button>
         </div>
       </div>
 
@@ -1711,12 +1720,12 @@ const poolPowerChartOptions = {
               <span v-if="result.isCurrent" class="current-badge">Actuel</span>
               <span v-else class="snapshot-date">{{ result.date }}</span>
               <span class="snapshot-date-formatted">{{ result.dateFormatted }}</span>
-            </div>
+              </div>
 
             <div class="result-col-reg">
               <span class="result-label">REG Total</span>
               <span class="result-value">{{ result.found ? formatNumber(result.reg) : '–' }}</span>
-            </div>
+              </div>
 
             <div class="result-col-power">
               <span class="result-label">Power Voting</span>
@@ -1726,7 +1735,7 @@ const poolPowerChartOptions = {
             <div class="result-col-pools" v-if="result.poolAnalysis">
               <span class="result-label">Nb Pools</span>
               <span class="result-value">{{ formatInteger(result.poolAnalysis.totalPools) }}</span>
-            </div>
+              </div>
 
             <div class="result-col-percentage" v-if="result.poolAnalysis">
               <span class="result-label">% REG en Pools</span>
@@ -1743,8 +1752,8 @@ const poolPowerChartOptions = {
               >
                 {{ isAddressResultExpanded(result.date) ? '▼' : '▶' }}
               </button>
+              </div>
             </div>
-          </div>
 
           <!-- Ligne détaillée (expandable) -->
           <div
@@ -1754,11 +1763,11 @@ const poolPowerChartOptions = {
             <div class="detail-item-compact">
               <span class="detail-label-compact">REG en Pools</span>
               <span class="detail-value-compact">{{ formatNumber(result.poolAnalysis.regInPools) }}</span>
-            </div>
+              </div>
             <div class="detail-item-compact">
               <span class="detail-label-compact">In Range</span>
               <span class="detail-value-compact">{{ formatInteger(result.poolAnalysis.poolsInRange) }} pools / {{ formatNumber(result.poolAnalysis.regInRange) }} REG</span>
-            </div>
+              </div>
             <div class="detail-item-compact">
               <span class="detail-label-compact">Out Range</span>
               <span class="detail-value-compact">{{ formatInteger(result.poolAnalysis.poolsOutOfRange) }} pools / {{ formatNumber(result.poolAnalysis.regOutOfRange) }} REG</span>
@@ -1770,8 +1779,8 @@ const poolPowerChartOptions = {
             <div class="detail-item-compact">
               <span class="detail-label-compact">DEX</span>
               <span class="detail-value-compact">{{ formatInteger(result.poolAnalysis.dexCount) }}</span>
-            </div>
           </div>
+        </div>
         </div>
       </div>
 
@@ -1789,20 +1798,20 @@ const poolPowerChartOptions = {
     <!-- Top Holders -->
     <div class="top-holders-section">
       <h2 class="top-holders-title">Listes des meilleurs adresses</h2>
-      <div class="top-holders-grid">
-        <div class="top-card">
-          <h3>🏆 Top 10 Balances REG</h3>
-          <div class="top-list">
-            <div
-              v-for="(holder, index) in dataStore.topBalanceHolders"
-              :key="holder.address"
-              class="top-item"
-            >
-              <span class="rank">{{ index + 1 }}</span>
+    <div class="top-holders-grid">
+      <div class="top-card">
+        <h3>🏆 Top 10 Balances REG</h3>
+        <div class="top-list">
+          <div
+            v-for="(holder, index) in dataStore.topBalanceHolders"
+            :key="holder.address"
+            class="top-item"
+          >
+            <span class="rank">{{ index + 1 }}</span>
               <span class="address" @click="copyAddress(holder.address)" :title="holder.address">
                 {{ formatAddress(holder.address) }}
               </span>
-              <span class="value">{{ formatNumber(holder.balance) }}</span>
+            <span class="value">{{ formatNumber(holder.balance) }}</span>
               <button
                 @click="copyAddress(holder.address)"
                 class="btn-copy-address"
@@ -1810,23 +1819,23 @@ const poolPowerChartOptions = {
               >
                 📋
               </button>
-            </div>
           </div>
         </div>
+      </div>
 
-        <div class="top-card">
-          <h3>⚡ Top 10 Power Voting</h3>
-          <div class="top-list">
-            <div
-              v-for="(voter, index) in dataStore.topPowerVoters"
-              :key="voter.address"
-              class="top-item"
-            >
-              <span class="rank">{{ index + 1 }}</span>
+      <div class="top-card">
+        <h3>⚡ Top 10 Power Voting</h3>
+        <div class="top-list">
+          <div
+            v-for="(voter, index) in dataStore.topPowerVoters"
+            :key="voter.address"
+            class="top-item"
+          >
+            <span class="rank">{{ index + 1 }}</span>
               <span class="address" @click="copyAddress(voter.address)" :title="voter.address">
                 {{ formatAddress(voter.address) }}
               </span>
-              <span class="value">{{ formatNumber(voter.power) }}</span>
+            <span class="value">{{ formatNumber(voter.power) }}</span>
               <button
                 @click="copyAddress(voter.address)"
                 class="btn-copy-address"

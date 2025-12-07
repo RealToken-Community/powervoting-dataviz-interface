@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
+import { transformCSVToJSON, transformPowerVotingCSV } from '@/utils/csvTransformer'
 import Papa from 'papaparse'
 
 const router = useRouter()
@@ -28,12 +29,12 @@ const handleFileChange = (event: Event, type: 'balances' | 'powerVoting') => {
 
 const setFile = (file: File, type: 'balances' | 'powerVoting') => {
   // Créer une nouvelle référence pour forcer la réactivité Vue
-  if (type === 'balances') {
-    balancesFile.value = file
-  } else {
-    powerVotingFile.value = file
-  }
-  error.value = ''
+    if (type === 'balances') {
+      balancesFile.value = file
+    } else {
+      powerVotingFile.value = file
+    }
+    error.value = ''
   // Forcer la mise à jour de l'affichage
   console.log(`File ${type} set:`, file.name)
 }
@@ -81,7 +82,7 @@ const handleDrop = (event: DragEvent, type: 'balances' | 'powerVoting') => {
   }
 }
 
-const parseFile = async (file: File): Promise<any> => {
+const parseFile = async (file: File, type: 'balances' | 'powerVoting'): Promise<any> => {
   const extension = file.name.split('.').pop()?.toLowerCase()
 
   if (extension === 'json') {
@@ -91,8 +92,24 @@ const parseFile = async (file: File): Promise<any> => {
     return new Promise((resolve, reject) => {
       Papa.parse(file, {
         header: true,
-        dynamicTyping: true,
-        complete: (results) => resolve(results.data),
+        dynamicTyping: false, // Garder les valeurs comme strings pour la transformation
+        skipEmptyLines: true,
+        complete: (results) => {
+          try {
+            // Transformer les données CSV en structure JSON
+            if (type === 'balances') {
+              const transformed = transformCSVToJSON(results.data as any[])
+              // Envelopper dans la structure result.balances pour correspondre au format JSON
+              resolve({ result: { balances: transformed } })
+            } else {
+              const transformed = transformPowerVotingCSV(results.data as any[])
+              // Envelopper dans la structure result.powerVoting pour correspondre au format JSON
+              resolve({ result: { powerVoting: transformed } })
+            }
+          } catch (err) {
+            reject(err)
+          }
+        },
         error: (err) => reject(err),
       })
     })
@@ -112,8 +129,8 @@ const handleUpload = async () => {
 
   try {
     const [balancesData, powerVotingData] = await Promise.all([
-      parseFile(balancesFile.value),
-      parseFile(powerVotingFile.value),
+      parseFile(balancesFile.value, 'balances'),
+      parseFile(powerVotingFile.value, 'powerVoting'),
     ])
 
     dataStore.setBalancesData(balancesData)

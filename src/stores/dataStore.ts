@@ -247,29 +247,107 @@ export const useDataStore = defineStore('data', () => {
           const dexs = networkValue?.dexs
           if (!dexs) return
 
-          Object.entries(dexs).forEach(([dexName, rawPositions]: [string, any]) => {
-            if (!Array.isArray(rawPositions)) return
+        Object.entries(dexs).forEach(([dexName, rawPositions]: [string, any]) => {
+          if (!Array.isArray(rawPositions)) return
 
-            rawPositions.forEach((pos: PoolPosition) => {
-              const regAmount = parseFloat(String(pos.equivalentREG || '0'))
-              if (regAmount <= 0) return
+          // Grouper les positions par positionId pour les pools V3 (qui ont 2 tokens par position)
+          const positionsByPositionId = new Map<string, any[]>()
+          const v2Positions: any[] = []
+          
+          rawPositions.forEach((pos: PoolPosition) => {
+            const regAmount = parseFloat(String(pos.equivalentREG || '0'))
+            
+            // Détecter si c'est un V2 transformé (full range) ou un vrai V3
+            const tickLower = typeof pos.tickLower === 'number' ? pos.tickLower : parseFloat(String(pos.tickLower || 0))
+            const tickUpper = typeof pos.tickUpper === 'number' ? pos.tickUpper : parseFloat(String(pos.tickUpper || 0))
+            const isV2Transformed = tickLower === -887200 && tickUpper === 887200
+            const poolType: 'v2' | 'v3' =
+              (pos.tickLower !== undefined && pos.tickUpper !== undefined && !isV2Transformed) ? 'v3' : 'v2'
 
-              // Détecter si c'est un V2 transformé (full range) ou un vrai V3
-              const tickLower = typeof pos.tickLower === 'number' ? pos.tickLower : parseFloat(String(pos.tickLower || 0))
-              const tickUpper = typeof pos.tickUpper === 'number' ? pos.tickUpper : parseFloat(String(pos.tickUpper || 0))
-              const isV2Transformed = tickLower === -887200 && tickUpper === 887200
-              const poolType: 'v2' | 'v3' =
-                (pos.tickLower !== undefined && pos.tickUpper !== undefined && !isV2Transformed) ? 'v3' : 'v2'
-
-              positions.push({
+            // Pour V3, grouper par positionId (une position = 2 tokens, même si un token a 0 REG)
+            // Vérifier que positionId existe et n'est pas null/0
+            const positionIdValue = pos.positionId !== undefined && pos.positionId !== null 
+              ? (typeof pos.positionId === 'string' ? parseInt(pos.positionId, 10) : Number(pos.positionId))
+              : null
+            const hasPositionId = positionIdValue !== null && !isNaN(positionIdValue) && positionIdValue !== 0
+            
+            if (poolType === 'v3' && hasPositionId) {
+              // Utiliser positionId + poolAddress comme clé pour éviter de regrouper des positions de pools différents
+              const poolAddress = pos.poolAddress || 'unknown'
+              const positionKey = `${positionIdValue}-${poolAddress}`
+              if (!positionsByPositionId.has(positionKey)) {
+                positionsByPositionId.set(positionKey, [])
+              }
+              positionsByPositionId.get(positionKey)!.push({
                 ...pos,
                 dex: dexName,
                 network: networkName,
                 poolType,
                 regAmount,
               })
+            } else {
+              // Pour V2 ou positions sans positionId, traiter comme une position unique
+              // Filtrer seulement celles avec regAmount > 0
+              if (regAmount > 0) {
+                v2Positions.push({
+                  ...pos,
+                  dex: dexName,
+                  network: networkName,
+                  poolType,
+                  regAmount,
+                })
+              }
+            }
+          })
+
+          // Pour les positions V3 groupées, créer une seule position agrégée
+          positionsByPositionId.forEach((tokens) => {
+            if (tokens.length === 0) return
+
+            // Agréger le regAmount de tous les tokens de cette position (même ceux avec 0)
+            const totalRegAmount = tokens.reduce((sum, token) => sum + token.regAmount, 0)
+            
+            // Filtrer les positions avec total REG <= 0
+            if (totalRegAmount <= 0) return
+
+            // Prendre la première entrée comme base (elle contient toutes les infos de la position)
+            const basePos = tokens[0]
+            
+            // Trouver le token avec le plus de REG pour les infos d'affichage
+            const mainToken = tokens.reduce((max, token) => 
+              token.regAmount > max.regAmount ? token : max
+            )
+
+            // Agréger aussi les tokenBalance pour afficher le total si nécessaire
+            const totalTokenBalance = tokens.reduce((sum, token) => {
+              const balance = parseFloat(String(token.tokenBalance || '0'))
+              return sum + balance
+            }, 0)
+
+            // Stocker les détails de tous les tokens pour l'affichage
+            const tokenDetails = tokens
+              .filter(token => parseFloat(String(token.tokenBalance || '0')) > 0)
+              .map(token => ({
+                tokenSymbol: token.tokenSymbol || 'UNKNOWN',
+                tokenBalance: String(token.tokenBalance || '0'),
+                equivalentREG: String(token.equivalentREG || '0'),
+              }))
+
+            positions.push({
+              ...basePos,
+              regAmount: totalRegAmount,
+              // Utiliser les infos du token principal pour l'affichage, mais avec le total
+              tokenBalance: totalTokenBalance > 0 ? totalTokenBalance.toString() : mainToken.tokenBalance,
+              tokenSymbol: mainToken.tokenSymbol,
+              equivalentREG: totalRegAmount.toString(),
+              // Stocker les détails de tous les tokens
+              tokens: tokenDetails.length > 0 ? tokenDetails : undefined,
             })
           })
+
+          // Ajouter les positions V2
+          positions.push(...v2Positions)
+        })
         })
 
         if (positions.length === 0) return null
@@ -503,6 +581,12 @@ interface AddressPoolPosition extends PoolPosition {
   network: string
   poolType: 'v2' | 'v3'
   regAmount: number
+  // Pour les positions V3 regroupées, stocker les détails de tous les tokens
+  tokens?: Array<{
+    tokenSymbol: string
+    tokenBalance: string
+    equivalentREG: string
+  }>
 }
 
 interface AddressPoolProfile {

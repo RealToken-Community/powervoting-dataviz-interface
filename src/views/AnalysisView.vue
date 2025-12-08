@@ -1290,7 +1290,7 @@ const poolPowerChartData = computed(() => {
         spanGaps: false, // Ne pas connecter les points null - la courbe s'arrête après V2
       },
       {
-        label: 'Multiplicateur moyen global V2',
+        label: 'Multiplicateur global V2 (Power total ÷ REG total)',
         data: [...v2RatioTotal, ...new Array(v3Labels.length).fill(null)],
         borderColor: 'rgba(59, 130, 246, 1)',
         backgroundColor: 'rgba(59, 130, 246, 0.15)',
@@ -1313,7 +1313,7 @@ const poolPowerChartData = computed(() => {
         spanGaps: false, // Ne pas connecter les points null - la courbe commence à V3
       },
       {
-        label: 'Multiplicateur moyen global V3',
+        label: 'Multiplicateur global V3 (Power total ÷ REG total)',
         data: [...new Array(v2Labels.length).fill(null), ...v3RatioTotal],
         borderColor: 'rgba(236, 72, 153, 1)',
         backgroundColor: 'rgba(236, 72, 153, 0.15)',
@@ -1635,23 +1635,55 @@ const poolPowerChartOptions = {
 
     <div class="chart-explainer">
       <p>
-        Cette visualisation trace les ratios de boost pour les <strong>30 plus gros wallets utilisant des DEX V2 et V3</strong> :
-        <strong>Boost pools</strong> (power réellement issu des pools ÷ REG en pool),
-        <strong>Power total ÷ REG total</strong> (power total ÷ (REG wallet + REG en pool)) par rapport à la
+        Cette visualisation trace les ratios de boost pour les <strong>30 plus gros wallets utilisant des DEX V2 et V3</strong>.
+        Le graphique compare deux types de multiplicateurs par rapport à la <strong>ligne de référence 1 : 1</strong> :
+      </p>
+      <ul style="margin: 1rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
+        <li style="margin-bottom: 0.75rem;">
+          <strong>Traits pleins (bleu/vert)</strong> : <strong>Boost pools</strong> = Power issu des pools ÷ REG en pools
+          <br />
+          <span style="font-size: 0.9em; opacity: 0.8;">
+            → Mesure l'efficacité spécifique des positions LP : combien de Power on obtient par REG mis en pool.
+          </span>
+        </li>
+        <li style="margin-bottom: 0.75rem;">
+          <strong>Traits pointillés (bleu/rose)</strong> : <strong>Multiplicateur global</strong> = Power total ÷ REG total (wallet + pools)
+          <br />
+          <span style="font-size: 0.9em; opacity: 0.8;">
+            → Mesure l'efficacité globale du wallet en combinant REG direct (en wallet) + REG en pools. 
+            Ce n'est pas une moyenne, mais un ratio qui prend en compte l'ensemble du REG détenu par le wallet.
+          </span>
+        </li>
+      </ul>
+      <p style="margin-top: 1rem;">
+        <strong>Interprétation</strong> : 
+        <ul style="margin: 0.5rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
+          <li><strong>Au-dessus de 1x</strong> → Le wallet obtient plus de Power que sa simple mise en REG (boost actif)</li>
+          <li><strong>En dessous de 1x</strong> → La position est en pénalité (cela est encore inexistent pour l'instant)</li>
+          <li><strong>Différence entre traits pleins et pointillés</strong> : 
+            <br />- Si le trait plein est <em>au-dessus</em> du pointillé → Les pools apportent un boost supérieur au ratio global (le REG en wallet dilue le boost)
+            <br />- Si le trait plein est <em>en dessous</em> du pointillé → Le REG en wallet dilue encore plus le boost des pools
+            <br />- Si les deux sont proches → Le wallet a peu ou pas de REG direct, donc le boost des pools domine
+          </li>
+        </ul>
+      </p>
+      <p class="axis-note" style="margin-top: 1rem;"> (power total ÷ (REG wallet + REG en pool)) par rapport à la
         <strong>ligne de référence 1 : 1</strong>. Lorsque les courbes bleue ou rose passent
         <em>au-dessus</em> de 1 : 1, cela signifie qu'une adresse obtient plus de pouvoir de vote
         que sa simple mise en REG (boost). Si elles sont <em>en dessous</em>, la position est moins
         efficace qu’un dépôt direct (décote / inéligibilité partielle). Les adresses sont triées par
         liquidité décroissante pour faciliter la comparaison.
       </p>
-      <p class="axis-note">
-        L'axe vertical (à gauche) représente ce multiplicateur (1x = parité parfaite).
-        <strong>Lignes bleues (pleines et pointillées)</strong> : multiplicateurs pour les wallets V2 (boost pools et moyen global).
-        <strong>Lignes vertes/roses (pleines et pointillées)</strong> : multiplicateurs pour les wallets V3 (boost pools et moyen global).
-        Au-dessus de 1x → boost, en dessous → performance réduite.
+      <p class="axis-note" style="margin-top: 1rem;">
+        <strong>Légende des couleurs</strong> :
+        <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu (plein)</strong> : Boost pools V2
+        <br />• <strong style="color: rgba(59, 130, 246, 1);">Bleu (pointillé)</strong> : Multiplicateur global V2 (Power total ÷ REG total)
+        <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert (plein)</strong> : Boost pools V3
+        <br />• <strong style="color: rgba(236, 72, 153, 1);">Rose (pointillé)</strong> : Multiplicateur global V3 (Power total ÷ REG total)
+        <br />• <strong style="color: rgba(148, 163, 184, 0.8);">Gris (pointillé)</strong> : Référence 1:1 (parité)
       </p>
       <p class="axis-note">
-        <strong>Note</strong> : Seuls les wallets avec des positions LP actives sont affichés. Les 30 plus gros wallets de chaque catégorie (V2 et V3) sont représentés pour visualiser le niveau de boost apporté par le LP REG.
+        <strong>Note</strong> : Seuls les wallets avec des positions LP actives sont affichés. Les 30 plus gros wallets de chaque catégorie (V2 et V3) sont représentés pour visualiser le niveau de boost apporté par le LP REG. Les adresses sont triées par liquidité décroissante.
       </p>
     </div>
 
@@ -1766,6 +1798,18 @@ const poolPowerChartOptions = {
               </div>
               <div class="position-pill-details">
               <span class="pill-value">{{ formatNumber(position.regAmount) }} REG</span>
+              <!-- Afficher les détails des tokens multiples pour les positions V3 regroupées -->
+              <div v-if="position.tokens && position.tokens.length > 1" class="position-tokens-breakdown" style="font-size: 0.85em; color: var(--text-secondary); margin-top: 0.25rem;">
+                <span v-for="(token, idx) in position.tokens" :key="idx" style="margin-right: 0.75rem;">
+                  <span v-if="token.tokenSymbol !== 'REG'">
+                    {{ formatNumber(parseFloat(token.tokenBalance)) }} {{ token.tokenSymbol }}
+                    <span style="opacity: 0.7;">({{ formatNumber(parseFloat(token.equivalentREG)) }} REG)</span>
+                  </span>
+                  <span v-else>
+                    {{ formatNumber(parseFloat(token.tokenBalance)) }} {{ token.tokenSymbol }}
+                  </span>
+                </span>
+              </div>
                 <span class="pill-power" v-if="getPositionPowerAndMultiplier(position, profile).power > 0">
                   Power: {{ formatNumber(getPositionPowerAndMultiplier(position, profile).power) }}
                 </span>

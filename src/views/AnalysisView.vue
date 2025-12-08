@@ -1184,47 +1184,114 @@ const poolPowerChartData = computed(() => {
   const entriesWithPower = correlation.filter((entry) => entry.poolLiquidityREG > 0 && entry.powerVoting > 0)
   if (entriesWithPower.length === 0) return null
 
-  const topEntries = entriesWithPower.slice(0, 25)
-  const labels = topEntries.map((entry) => formatAddress(entry.address))
+  // Séparer les wallets V2 et V3
+  const v2Wallets = entriesWithPower.filter((entry) => {
+    const hasV2 = entry.positions && entry.positions.some((pos: any) => pos.poolType === 'v2')
+    return hasV2
+  })
 
-  const ratioPools = topEntries.map((entry) => {
+  const v3Wallets = entriesWithPower.filter((entry) => {
+    const hasV3 = entry.positions && entry.positions.some((pos: any) => pos.poolType === 'v3')
+    return hasV3
+  })
+
+  // Prendre les 30 plus gros de chaque catégorie, triés par liquidité décroissante
+  const topV2 = v2Wallets
+    .sort((a, b) => b.poolLiquidityREG - a.poolLiquidityREG)
+    .slice(0, 30)
+
+  const topV3 = v3Wallets
+    .sort((a, b) => b.poolLiquidityREG - a.poolLiquidityREG)
+    .slice(0, 30)
+
+  // Créer des labels et données séparés pour V2 et V3
+  // Regrouper V2 d'abord, puis V3, pour que les courbes soient continues dans chaque section
+  const v2Labels = topV2.map((entry) => formatAddress(entry.address))
+  const v3Labels = topV3.map((entry) => formatAddress(entry.address))
+
+  // Créer les données pour V2 (seulement pour les wallets V2)
+  const v2RatioPools = topV2.map((entry) => {
     if (entry.poolLiquidityREG <= 0) return 0
     return entry.poolVotingShare / entry.poolLiquidityREG
   })
 
-  const ratioTotal = topEntries.map((entry) => {
+  const v2RatioTotal = topV2.map((entry) => {
     const totalREG = entry.walletDirectREG + entry.poolLiquidityREG
     if (totalREG <= 0) return 0
-    // Option A: Ratio total sur REG total (wallet + pools) pour montrer le multiplicateur moyen
     return entry.powerVoting / totalREG
   })
 
-  const baseline = topEntries.map((entry) => (entry.poolLiquidityREG > 0 ? 1 : 0))
+  // Créer les données pour V3 (seulement pour les wallets V3)
+  const v3RatioPools = topV3.map((entry) => {
+    if (entry.poolLiquidityREG <= 0) return 0
+    return entry.poolVotingShare / entry.poolLiquidityREG
+  })
+
+  const v3RatioTotal = topV3.map((entry) => {
+    const totalREG = entry.walletDirectREG + entry.poolLiquidityREG
+    if (totalREG <= 0) return 0
+    return entry.powerVoting / totalREG
+  })
+
+  // Créer les baselines pour chaque catégorie
+  const v2Baseline = v2Labels.map(() => 1)
+  const v3Baseline = v3Labels.map(() => 1)
+  
+  // Combiner les labels : V2 d'abord, puis V3 (pour que les courbes soient continues)
+  const allLabels = [...v2Labels, ...v3Labels]
 
   return {
-    labels,
+    labels: allLabels, // V2 d'abord, puis V3
     datasets: [
       {
-        label: 'Boost pools (Power ÷ REG)',
-        data: ratioPools,
+        label: 'Boost pools V2 (Power ÷ REG)',
+        data: [...v2RatioPools, ...new Array(v3Labels.length).fill(null)], // V2 data + nulls pour V3
+        borderColor: 'rgba(74, 144, 226, 1)',
+        backgroundColor: 'rgba(74, 144, 226, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        spanGaps: false, // Ne pas connecter les points null - la courbe s'arrête après V2
+      },
+      {
+        label: 'Multiplicateur moyen global V2',
+        data: [...v2RatioTotal, ...new Array(v3Labels.length).fill(null)],
         borderColor: 'rgba(59, 130, 246, 1)',
         backgroundColor: 'rgba(59, 130, 246, 0.15)',
         tension: 0.25,
         fill: false,
         pointRadius: 4,
+        pointHoverRadius: 6,
+        borderDash: [5, 5],
+        spanGaps: false,
       },
       {
-        label: 'Multiplicateur moyen global (wallet 1:1 + pools boostés)',
-        data: ratioTotal,
+        label: 'Boost pools V3 (Power ÷ REG)',
+        data: [...new Array(v2Labels.length).fill(null), ...v3RatioPools], // nulls pour V2 + V3 data
+        borderColor: 'rgba(34, 197, 94, 1)',
+        backgroundColor: 'rgba(34, 197, 94, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        spanGaps: false, // Ne pas connecter les points null - la courbe commence à V3
+      },
+      {
+        label: 'Multiplicateur moyen global V3',
+        data: [...new Array(v2Labels.length).fill(null), ...v3RatioTotal],
         borderColor: 'rgba(236, 72, 153, 1)',
         backgroundColor: 'rgba(236, 72, 153, 0.15)',
         tension: 0.25,
         fill: false,
         pointRadius: 4,
+        pointHoverRadius: 6,
+        borderDash: [5, 5],
+        spanGaps: false,
       },
       {
         label: 'Référence 1:1',
-        data: baseline,
+        data: [...v2Baseline, ...v3Baseline],
         borderColor: 'rgba(148, 163, 184, 0.8)',
         borderDash: [8, 6],
         tension: 0,
@@ -1533,9 +1600,9 @@ const poolPowerChartOptions = {
 
     <div class="chart-explainer">
       <p>
-        Cette visualisation trace trois ratios :
+        Cette visualisation trace les ratios de boost pour les <strong>30 plus gros wallets utilisant des DEX V2 et V3</strong> :
         <strong>Boost pools</strong> (power réellement issu des pools ÷ REG en pool),
-        <strong>Power total ÷ REG total</strong> (power total ÷ (REG wallet + REG en pool)) et la
+        <strong>Power total ÷ REG total</strong> (power total ÷ (REG wallet + REG en pool)) par rapport à la
         <strong>ligne de référence 1 : 1</strong>. Lorsque les courbes bleue ou rose passent
         <em>au-dessus</em> de 1 : 1, cela signifie qu'une adresse obtient plus de pouvoir de vote
         que sa simple mise en REG (boost). Si elles sont <em>en dessous</em>, la position est moins
@@ -1544,12 +1611,12 @@ const poolPowerChartOptions = {
       </p>
       <p class="axis-note">
         L'axe vertical (à gauche) représente ce multiplicateur (1x = parité parfaite).
-        <strong>Ligne bleue</strong> : multiplicateur des pools uniquement (power pools ÷ REG en pool).
-        <strong>Ligne rose</strong> : multiplicateur moyen sur tout le REG (power total ÷ REG total).
+        <strong>Lignes bleues (pleines et pointillées)</strong> : multiplicateurs pour les wallets V2 (boost pools et moyen global).
+        <strong>Lignes vertes/roses (pleines et pointillées)</strong> : multiplicateurs pour les wallets V3 (boost pools et moyen global).
         Au-dessus de 1x → boost, en dessous → performance réduite.
       </p>
       <p class="axis-note">
-        Rappel : avec la normalisation du boost V3, pour 1 REG dans un pool concentré, le boost final est de 5 (si MaxBoost = 5 et MinBoost = 1). Pour un range large, le boost est de 4 (équivalent au boost V2). Les deux courbes devraient être similaires car le wallet direct est à 1:1 (pas de boost), donc seul le boost des pools est visible.
+        <strong>Note</strong> : Seuls les wallets avec des positions LP actives sont affichés. Les 30 plus gros wallets de chaque catégorie (V2 et V3) sont représentés pour visualiser le niveau de boost apporté par le LP REG.
       </p>
     </div>
 

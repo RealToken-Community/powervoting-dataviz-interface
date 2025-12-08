@@ -1176,13 +1176,14 @@ const dexsDistributionChartData = computed(() => {
   }
 })
 
-const poolPowerChartData = computed(() => {
+// Computed pour récupérer les wallets affichés dans le graphique (réutilisable pour la table)
+const chartWallets = computed(() => {
   const correlation = dataStore.poolPowerCorrelation
-  if (!correlation || correlation.length === 0) return null
+  if (!correlation || correlation.length === 0) return []
 
-  // Filtrer pour ne garder que les entrées avec des pools et un powerVoting > 0 pour le graphique
+  // Filtrer pour ne garder que les entrées avec des pools et un powerVoting > 0
   const entriesWithPower = correlation.filter((entry) => entry.poolLiquidityREG > 0 && entry.powerVoting > 0)
-  if (entriesWithPower.length === 0) return null
+  if (entriesWithPower.length === 0) return []
 
   // Séparer les wallets V2 et V3
   const v2Wallets = entriesWithPower.filter((entry) => {
@@ -1203,6 +1204,40 @@ const poolPowerChartData = computed(() => {
   const topV3 = v3Wallets
     .sort((a, b) => b.poolLiquidityREG - a.poolLiquidityREG)
     .slice(0, 30)
+
+  // Combiner V2 et V3, triés par liquidité totale, limiter à 30 uniques
+  const allWallets = [...topV2, ...topV3]
+  // Dédupliquer par adresse et trier par liquidité
+  const uniqueWallets = new Map<string, any>()
+  allWallets.forEach((wallet) => {
+    const addr = wallet.address.toLowerCase()
+    if (!uniqueWallets.has(addr) || wallet.poolLiquidityREG > (uniqueWallets.get(addr)?.poolLiquidityREG || 0)) {
+      uniqueWallets.set(addr, wallet)
+    }
+  })
+  
+  return Array.from(uniqueWallets.values())
+    .sort((a, b) => b.poolLiquidityREG - a.poolLiquidityREG)
+    .slice(0, 30)
+})
+
+const poolPowerChartData = computed(() => {
+  const wallets = chartWallets.value
+  if (wallets.length === 0) return null
+
+  // Séparer les wallets V2 et V3 pour le graphique
+  const v2Wallets = wallets.filter((entry) => {
+    const hasV2 = entry.positions && entry.positions.some((pos: any) => pos.poolType === 'v2')
+    return hasV2
+  })
+
+  const v3Wallets = wallets.filter((entry) => {
+    const hasV3 = entry.positions && entry.positions.some((pos: any) => pos.poolType === 'v3')
+    return hasV3
+  })
+
+  const topV2 = v2Wallets
+  const topV3 = v3Wallets
 
   // Créer des labels et données séparés pour V2 et V3
   // Regrouper V2 d'abord, puis V3, pour que les courbes soient continues dans chaque section
@@ -1650,11 +1685,11 @@ const poolPowerChartOptions = {
 
     <div
       class="correlation-table"
-      v-if="dataStore.poolPowerCorrelation && dataStore.poolPowerCorrelation.length"
+      v-if="chartWallets && chartWallets.length > 0"
     >
       <div
         class="correlation-row"
-        v-for="profile in dataStore.poolPowerCorrelation.slice(0, 15)"
+        v-for="profile in chartWallets"
         :key="profile.address"
       >
         <div class="row-main">

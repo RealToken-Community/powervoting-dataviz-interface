@@ -1565,6 +1565,251 @@ const dexBoostChartOptions = {
     },
   },
 }
+
+const powerBreakdownChartData = computed(() => {
+  // Utiliser les mêmes wallets que le premier graphique
+  const wallets = chartWallets.value
+  if (wallets.length === 0) return null
+
+  // Séparer les wallets V2 et V3 pour le graphique
+  const v2Wallets = wallets.filter((entry) => {
+    const hasV2 = entry.positions && entry.positions.some((pos: any) => pos.poolType === 'v2')
+    return hasV2
+  })
+
+  const v3Wallets = wallets.filter((entry) => {
+    const hasV3 = entry.positions && entry.positions.some((pos: any) => pos.poolType === 'v3')
+    return hasV3
+  })
+
+  // Créer des labels séparés pour V2 et V3
+  const v2Labels = v2Wallets.map((entry) => formatAddress(entry.address))
+  const v3Labels = v3Wallets.map((entry) => formatAddress(entry.address))
+
+  // Fonction helper pour calculer le power issu de l'apport REG direct vs equivalent REG
+  const calculatePoolPowerBreakdown = (entry: any) => {
+    const poolVotingShare = entry.poolVotingShare || 0
+    if (poolVotingShare <= 0) {
+      return { powerFromRegDeposit: 0, powerFromEquivalent: 0 }
+    }
+
+    // Calculer le total de REG directement déposé dans les pools
+    let totalRegDeposit = 0
+    let totalEquivalentREG = 0
+
+    if (entry.positions && entry.positions.length > 0) {
+      entry.positions.forEach((pos: any) => {
+        // Pour les positions V3, examiner les tokens individuels
+        if (pos.tokens && pos.tokens.length > 0) {
+          pos.tokens.forEach((token: any) => {
+            const equivalentREG = parseFloat(token.equivalentREG || '0')
+            if (token.tokenSymbol === 'REG') {
+              // Token REG direct
+              totalRegDeposit += equivalentREG
+            } else if (equivalentREG > 0) {
+              // Token non-REG avec equivalent REG
+              totalEquivalentREG += equivalentREG
+            }
+          })
+        } else {
+          // Pour les positions V2 (ou positions sans tokens), vérifier le tokenSymbol de la position
+          // Si c'est REG, c'est du REG direct, sinon c'est de l'equivalent REG
+          const posRegAmount = pos.regAmount || 0
+          if (pos.tokenSymbol === 'REG') {
+            totalRegDeposit += posRegAmount
+          } else {
+            // Pour V2, regAmount vient de equivalentREG, donc c'est de l'equivalent REG
+            totalEquivalentREG += posRegAmount
+          }
+        }
+      })
+    }
+
+    const totalPoolLiquidity = totalRegDeposit + totalEquivalentREG
+    
+    // Si on n'a pas de liquidité totale, utiliser poolLiquidityREG comme fallback
+    const poolLiquidityREG = entry.poolLiquidityREG || totalPoolLiquidity
+    
+    if (poolLiquidityREG <= 0) {
+      return { powerFromRegDeposit: 0, powerFromEquivalent: 0 }
+    }
+
+    // Répartir le poolVotingShare proportionnellement
+    const regDepositRatio = totalRegDeposit > 0 ? totalRegDeposit / poolLiquidityREG : 0
+    const powerFromRegDeposit = poolVotingShare * regDepositRatio
+    const powerFromEquivalent = poolVotingShare - powerFromRegDeposit
+
+    return { powerFromRegDeposit, powerFromEquivalent }
+  }
+
+  // Calculer les données pour V2
+  const v2PowerTotal = v2Wallets.map((entry) => entry.powerVoting || 0)
+  const v2PowerFromPoolsRegDeposit = v2Wallets.map((entry) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    return breakdown.powerFromRegDeposit
+  })
+  const v2PowerFromPoolsEquivalent = v2Wallets.map((entry) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    return breakdown.powerFromEquivalent
+  })
+  const v2PowerFromDirect = v2Wallets.map((entry) => {
+    // Power issu du REG direct en wallet = Power total - Power des pools
+    return (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
+  })
+
+  // Calculer les données pour V3
+  const v3PowerTotal = v3Wallets.map((entry) => entry.powerVoting || 0)
+  const v3PowerFromPoolsRegDeposit = v3Wallets.map((entry) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    return breakdown.powerFromRegDeposit
+  })
+  const v3PowerFromPoolsEquivalent = v3Wallets.map((entry) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    return breakdown.powerFromEquivalent
+  })
+  const v3PowerFromDirect = v3Wallets.map((entry) => {
+    // Power issu du REG direct en wallet = Power total - Power des pools
+    return (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
+  })
+
+  // Combiner les labels : V2 d'abord, puis V3
+  const allLabels = [...v2Labels, ...v3Labels]
+
+  return {
+    labels: allLabels, // V2 d'abord, puis V3
+    datasets: [
+      {
+        label: 'Power Voting Total (V2)',
+        data: [...v2PowerTotal, ...new Array(v3Labels.length).fill(null)],
+        borderColor: 'rgba(74, 144, 226, 1)', // Bleu pour V2
+        backgroundColor: 'rgba(74, 144, 226, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        spanGaps: false,
+      },
+      {
+        label: 'Power issu de l\'apport REG dans les pools (V2)',
+        data: [...v2PowerFromPoolsRegDeposit, ...new Array(v3Labels.length).fill(null)],
+        borderColor: 'rgba(59, 130, 246, 1)', // Bleu clair pour V2 pools REG
+        backgroundColor: 'rgba(59, 130, 246, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        borderDash: [5, 5],
+        spanGaps: false,
+      },
+      {
+        label: 'Power issu de l\'equivalent REG dans les pools (V2)',
+        data: [...v2PowerFromPoolsEquivalent, ...new Array(v3Labels.length).fill(null)],
+        borderColor: 'rgba(244, 114, 182, 1)', // Rose clair pour V2 pools equivalent
+        backgroundColor: 'rgba(244, 114, 182, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        borderDash: [8, 4],
+        spanGaps: false,
+      },
+      {
+        label: 'Power issu du REG direct en wallet (V2)',
+        data: [...v2PowerFromDirect, ...new Array(v3Labels.length).fill(null)],
+        borderColor: 'rgba(96, 165, 250, 1)', // Bleu très clair pour V2 direct
+        backgroundColor: 'rgba(96, 165, 250, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        borderDash: [2, 2],
+        spanGaps: false,
+      },
+      {
+        label: 'Power Voting Total (V3)',
+        data: [...new Array(v2Labels.length).fill(null), ...v3PowerTotal],
+        borderColor: 'rgba(34, 197, 94, 1)', // Vert pour V3
+        backgroundColor: 'rgba(34, 197, 94, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        spanGaps: false,
+      },
+      {
+        label: 'Power issu de l\'apport REG dans les pools (V3)',
+        data: [...new Array(v2Labels.length).fill(null), ...v3PowerFromPoolsRegDeposit],
+        borderColor: 'rgba(74, 222, 128, 1)', // Vert clair pour V3 pools REG
+        backgroundColor: 'rgba(74, 222, 128, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        borderDash: [5, 5],
+        spanGaps: false,
+      },
+      {
+        label: 'Power issu de l\'equivalent REG dans les pools (V3)',
+        data: [...new Array(v2Labels.length).fill(null), ...v3PowerFromPoolsEquivalent],
+        borderColor: 'rgba(244, 114, 182, 1)', // Rose clair pour V3 pools equivalent
+        backgroundColor: 'rgba(244, 114, 182, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        borderDash: [8, 4],
+        spanGaps: false,
+      },
+      {
+        label: 'Power issu du REG direct (V3)',
+        data: [...new Array(v2Labels.length).fill(null), ...v3PowerFromDirect],
+        borderColor: 'rgba(134, 239, 172, 1)', // Vert très clair pour V3 direct
+        backgroundColor: 'rgba(134, 239, 172, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        borderDash: [2, 2],
+        spanGaps: false,
+      },
+    ],
+  }
+})
+
+const powerBreakdownChartOptions = {
+  ...chartOptions,
+  interaction: { mode: 'index', intersect: false },
+  scales: {
+    x: {
+      ticks: {
+        color: '#cbd5e1',
+        maxRotation: 45,
+        minRotation: 45,
+      },
+      grid: {
+        color: 'rgba(51, 65, 85, 0.3)',
+      },
+    },
+    y: {
+      beginAtZero: true,
+      ticks: {
+        color: '#cbd5e1',
+      },
+      grid: {
+        color: 'rgba(51, 65, 85, 0.25)',
+      },
+      title: {
+        display: true,
+        text: 'Power Voting',
+        color: '#cbd5e1',
+        font: {
+          size: 14,
+          weight: 'bold',
+        },
+      },
+    },
+  },
+}
 </script>
 
 <template>
@@ -1858,6 +2103,77 @@ const dexBoostChartOptions = {
         <strong>Note</strong> : Ce graphique montre les 30 plus gros wallets V2 et V3 (par liquidité en pools) ayant des dépôts DEX, 
         identiques au graphique "Efficacité des positions LP". Le ratio est calculé sans inclure les equivalentREG des positions LP, 
         uniquement le totalBalanceREG du wallet. Les wallets sont séparés visuellement par type de pool (V2 en bleu, V3 en vert).
+      </p>
+    </div>
+
+    <div class="section-header" style="margin-top: 3rem;">
+      <h2>📊 Décomposition du Power Voting</h2>
+      <p>
+        Vue détaillée du Power Voting par source : Power total, Power issu des pools, et Power issu du REG direct.
+        Ce graphique combine les informations des deux graphiques précédents pour offrir une vue complète de la répartition du pouvoir de vote.
+      </p>
+    </div>
+
+    <div class="charts-grid correlation-grid">
+      <div class="chart-card full-width">
+        <h3>📊 Power Voting : Total, Pools et REG direct</h3>
+        <div class="chart-container" v-if="powerBreakdownChartData">
+          <Line :data="powerBreakdownChartData" :options="powerBreakdownChartOptions" />
+        </div>
+        <div class="chart-empty" v-else>
+          <p>Aucun wallet avec dépôt DEX n'a été détecté.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-explainer" style="margin-top: 1rem;">
+      <p>
+        Ce graphique présente la <strong>décomposition du Power Voting</strong> pour les wallets ayant des dépôts de REG sur un DEX.
+        Il montre trois composantes du pouvoir de vote : le Power total, le Power issu des pools, et le Power issu du REG direct en wallet.
+        Il utilise les <strong>mêmes adresses</strong> que les graphiques précédents pour faciliter la comparaison.
+      </p>
+      <ul style="margin: 1rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
+        <li style="margin-bottom: 0.75rem;">
+          <strong>Power Voting Total</strong> : Le pouvoir de vote total du wallet (somme de toutes les sources)
+        </li>
+        <li style="margin-bottom: 0.75rem;">
+          <strong>Power issu de l'apport REG dans les pools</strong> : Le pouvoir de vote généré par le REG directement déposé dans les positions LP
+        </li>
+        <li style="margin-bottom: 0.75rem;">
+          <strong>Power issu de l'equivalent REG dans les pools</strong> : Le pouvoir de vote généré par les tokens non-REG (avec equivalent REG) dans les positions LP
+        </li>
+        <li style="margin-bottom: 0.75rem;">
+          <strong>Power issu du REG direct en wallet</strong> : Le pouvoir de vote généré par le REG détenu directement en wallet (hors pools)
+        </li>
+        <li style="margin-bottom: 0.75rem;">
+          <strong>Adresses affichées</strong> : Les 30 plus gros wallets V2 et V3 (mêmes que les graphiques précédents), triés par liquidité décroissante.
+        </li>
+        <li style="margin-bottom: 0.75rem;">
+          <strong>Légende des couleurs</strong> :
+          <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu (plein)</strong> : Power Voting Total V2
+          <br />• <strong style="color: rgba(59, 130, 246, 1);">Bleu (pointillé moyen)</strong> : Power issu de l'apport REG dans les pools V2
+          <br />• <strong style="color: rgba(244, 114, 182, 1);">Rose clair (pointillé large)</strong> : Power issu de l'equivalent REG dans les pools V2
+          <br />• <strong style="color: rgba(96, 165, 250, 1);">Bleu clair (pointillé fin)</strong> : Power issu du REG direct en wallet V2
+          <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert (plein)</strong> : Power Voting Total V3
+          <br />• <strong style="color: rgba(74, 222, 128, 1);">Vert (pointillé moyen)</strong> : Power issu de l'apport REG dans les pools V3
+          <br />• <strong style="color: rgba(244, 114, 182, 1);">Rose clair (pointillé large)</strong> : Power issu de l'equivalent REG dans les pools V3
+          <br />• <strong style="color: rgba(134, 239, 172, 1);">Vert clair (pointillé fin)</strong> : Power issu du REG direct en wallet V3
+        </li>
+      </ul>
+      <p style="margin-top: 1rem;">
+        <strong>Interprétation</strong> : 
+        <ul style="margin: 0.5rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
+          <li><strong>Power Total</strong> → Représente le pouvoir de vote complet du wallet, somme de toutes les sources</li>
+          <li><strong>Power Apport REG vs Equivalent REG</strong> → Permet de visualiser la contribution relative du REG directement déposé versus les tokens avec equivalent REG dans les pools</li>
+          <li><strong>Power Pools vs Power Direct</strong> → Permet de visualiser la contribution relative des positions LP par rapport au REG direct en wallet</li>
+          <li><strong>Différence V2/V3</strong> → Les wallets V2 et V3 sont séparés visuellement pour comparer l'impact des différents types de pools</li>
+        </ul>
+      </p>
+      <p class="axis-note" style="margin-top: 1rem;">
+        <strong>Note</strong> : Ce graphique montre les 30 plus gros wallets V2 et V3 (par liquidité en pools) ayant des dépôts DEX, 
+        identiques aux graphiques précédents. Le Power issu des pools est divisé en deux composantes : l'apport REG direct et l'equivalent REG.
+        Le Power issu du REG direct en wallet est calculé comme la différence entre le Power total et le Power des pools.
+        Les wallets sont séparés visuellement par type de pool (V2 en bleu, V3 en vert).
       </p>
     </div>
 

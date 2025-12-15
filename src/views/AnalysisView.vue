@@ -1455,43 +1455,72 @@ const poolPowerChartOptions = {
 
 // Graphique synthétique : Power Voting ÷ totalBalanceREG pour les wallets avec dépôts DEX
 const dexBoostChartData = computed(() => {
-  const correlation = dataStore.poolPowerCorrelation
-  if (!correlation || correlation.length === 0) return null
+  // Utiliser les mêmes wallets que le premier graphique
+  const wallets = chartWallets.value
+  if (wallets.length === 0) return null
 
-  // Filtrer uniquement les wallets avec des dépôts DEX (poolLiquidityREG > 0)
-  const walletsWithDex = correlation
-    .filter((entry) => entry.poolLiquidityREG > 0 && entry.walletREG > 0)
-    .sort((a, b) => b.walletREG - a.walletREG) // Trier par totalBalanceREG décroissant
-    .slice(0, 50) // Limiter à 50 wallets pour la lisibilité
+  // Séparer les wallets V2 et V3 pour le graphique
+  const v2Wallets = wallets.filter((entry) => {
+    const hasV2 = entry.positions && entry.positions.some((pos: any) => pos.poolType === 'v2')
+    return hasV2
+  })
 
-  if (walletsWithDex.length === 0) return null
+  const v3Wallets = wallets.filter((entry) => {
+    const hasV3 = entry.positions && entry.positions.some((pos: any) => pos.poolType === 'v3')
+    return hasV3
+  })
 
-  // Calculer le ratio Power Voting ÷ totalBalanceREG pour chaque wallet
-  const labels = walletsWithDex.map((entry) => formatAddress(entry.address))
-  const ratios = walletsWithDex.map((entry) => {
+  // Créer des labels séparés pour V2 et V3
+  const v2Labels = v2Wallets.map((entry) => formatAddress(entry.address))
+  const v3Labels = v3Wallets.map((entry) => formatAddress(entry.address))
+
+  // Calculer le ratio Power Voting ÷ totalBalanceREG pour V2
+  const v2Ratios = v2Wallets.map((entry) => {
     if (entry.walletREG <= 0) return 0
     return entry.powerVoting / entry.walletREG
   })
 
-  // Ligne de référence 1:1
-  const baseline = labels.map(() => 1)
+  // Calculer le ratio Power Voting ÷ totalBalanceREG pour V3
+  const v3Ratios = v3Wallets.map((entry) => {
+    if (entry.walletREG <= 0) return 0
+    return entry.powerVoting / entry.walletREG
+  })
+
+  // Créer les baselines pour chaque catégorie
+  const v2Baseline = v2Labels.map(() => 1)
+  const v3Baseline = v3Labels.map(() => 1)
+
+  // Combiner les labels : V2 d'abord, puis V3
+  const allLabels = [...v2Labels, ...v3Labels]
 
   return {
-    labels,
+    labels: allLabels, // V2 d'abord, puis V3
     datasets: [
       {
-        label: 'Power Voting ÷ totalBalanceREG',
-        data: ratios,
-        borderColor: 'rgba(139, 92, 246, 1)', // Violet pour distinguer
-        backgroundColor: 'rgba(139, 92, 246, 0.15)',
+        label: 'Power Voting ÷ totalBalanceREG (V2)',
+        data: [...v2Ratios, ...new Array(v3Labels.length).fill(null)], // V2 data + nulls pour V3
+        borderColor: 'rgba(74, 144, 226, 1)', // Bleu pour V2
+        backgroundColor: 'rgba(74, 144, 226, 0.15)',
         tension: 0.25,
         fill: false,
         pointRadius: 4,
         pointHoverRadius: 6,
+        spanGaps: false, // Ne pas connecter les points null
+      },
+      {
+        label: 'Power Voting ÷ totalBalanceREG (V3)',
+        data: [...new Array(v2Labels.length).fill(null), ...v3Ratios], // nulls pour V2 + V3 data
+        borderColor: 'rgba(34, 197, 94, 1)', // Vert pour V3
+        backgroundColor: 'rgba(34, 197, 94, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        spanGaps: false, // Ne pas connecter les points null
       },
       {
         label: 'Référence 1:1',
-        data: baseline,
+        data: [...v2Baseline, ...v3Baseline],
         borderColor: 'rgba(148, 163, 184, 0.8)',
         borderDash: [8, 6],
         tension: 0,
@@ -1775,7 +1804,8 @@ const dexBoostChartOptions = {
       <h2>⚡ Impact du Boost DEX</h2>
       <p>
         Vue synthétique du ratio Power Voting ÷ totalBalanceREG pour les wallets ayant des dépôts de REG sur un DEX.
-        Ce graphique montre l'impact global du boost DEX sur le pouvoir de vote.
+        Ce graphique montre l'impact global du boost DEX sur le pouvoir de vote. 
+        Il utilise les mêmes adresses que le graphique précédent, avec une différenciation par type de pool (V2 en bleu, V3 en vert).
       </p>
     </div>
 
@@ -1795,6 +1825,7 @@ const dexBoostChartOptions = {
       <p>
         Ce graphique présente le <strong>ratio Power Voting ÷ totalBalanceREG</strong> pour les wallets ayant des dépôts de REG sur un DEX.
         Contrairement au graphique précédent qui décompose les ratios par type de pool, celui-ci offre une <strong>vue synthétique</strong> de l'impact du boost DEX.
+        Il utilise les <strong>mêmes adresses</strong> que le graphique "Efficacité des positions LP" pour faciliter la comparaison.
       </p>
       <ul style="margin: 1rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
         <li style="margin-bottom: 0.75rem;">
@@ -1806,10 +1837,13 @@ const dexBoostChartOptions = {
           </span>
         </li>
         <li style="margin-bottom: 0.75rem;">
-          <strong>Filtrage</strong> : Seuls les wallets avec <code>poolLiquidityREG > 0</code> sont affichés (wallets ayant des dépôts DEX).
+          <strong>Adresses affichées</strong> : Les 30 plus gros wallets V2 et V3 (mêmes que le graphique précédent), triés par liquidité décroissante.
         </li>
         <li style="margin-bottom: 0.75rem;">
-          <strong>Tri</strong> : Les wallets sont triés par totalBalanceREG décroissant (les plus gros détenteurs en premier).
+          <strong>Légende des couleurs</strong> :
+          <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu</strong> : Wallets avec positions V2 (Power Voting ÷ totalBalanceREG)
+          <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert</strong> : Wallets avec positions V3 (Power Voting ÷ totalBalanceREG)
+          <br />• <strong style="color: rgba(148, 163, 184, 0.8);">Gris (pointillé)</strong> : Référence 1:1 (parité)
         </li>
       </ul>
       <p style="margin-top: 1rem;">
@@ -1821,8 +1855,9 @@ const dexBoostChartOptions = {
         </ul>
       </p>
       <p class="axis-note" style="margin-top: 1rem;">
-        <strong>Note</strong> : Ce graphique montre les 50 plus gros wallets (par totalBalanceREG) ayant des dépôts DEX. 
-        Le ratio est calculé sans inclure les equivalentREG des positions LP, uniquement le totalBalanceREG du wallet.
+        <strong>Note</strong> : Ce graphique montre les 30 plus gros wallets V2 et V3 (par liquidité en pools) ayant des dépôts DEX, 
+        identiques au graphique "Efficacité des positions LP". Le ratio est calculé sans inclure les equivalentREG des positions LP, 
+        uniquement le totalBalanceREG du wallet. Les wallets sont séparés visuellement par type de pool (V2 en bleu, V3 en vert).
       </p>
     </div>
 

@@ -1452,6 +1452,90 @@ const poolPowerChartOptions = {
     },
   },
 }
+
+// Graphique synthétique : Power Voting ÷ totalBalanceREG pour les wallets avec dépôts DEX
+const dexBoostChartData = computed(() => {
+  const correlation = dataStore.poolPowerCorrelation
+  if (!correlation || correlation.length === 0) return null
+
+  // Filtrer uniquement les wallets avec des dépôts DEX (poolLiquidityREG > 0)
+  const walletsWithDex = correlation
+    .filter((entry) => entry.poolLiquidityREG > 0 && entry.walletREG > 0)
+    .sort((a, b) => b.walletREG - a.walletREG) // Trier par totalBalanceREG décroissant
+    .slice(0, 50) // Limiter à 50 wallets pour la lisibilité
+
+  if (walletsWithDex.length === 0) return null
+
+  // Calculer le ratio Power Voting ÷ totalBalanceREG pour chaque wallet
+  const labels = walletsWithDex.map((entry) => formatAddress(entry.address))
+  const ratios = walletsWithDex.map((entry) => {
+    if (entry.walletREG <= 0) return 0
+    return entry.powerVoting / entry.walletREG
+  })
+
+  // Ligne de référence 1:1
+  const baseline = labels.map(() => 1)
+
+  return {
+    labels,
+    datasets: [
+      {
+        label: 'Power Voting ÷ totalBalanceREG',
+        data: ratios,
+        borderColor: 'rgba(139, 92, 246, 1)', // Violet pour distinguer
+        backgroundColor: 'rgba(139, 92, 246, 0.15)',
+        tension: 0.25,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+      },
+      {
+        label: 'Référence 1:1',
+        data: baseline,
+        borderColor: 'rgba(148, 163, 184, 0.8)',
+        borderDash: [8, 6],
+        tension: 0,
+        fill: false,
+        pointRadius: 0,
+      },
+    ],
+  }
+})
+
+const dexBoostChartOptions = {
+  ...chartOptions,
+  interaction: { mode: 'index', intersect: false },
+  scales: {
+    x: {
+      ticks: {
+        color: '#cbd5e1',
+        maxRotation: 45,
+        minRotation: 45,
+      },
+      grid: {
+        color: 'rgba(51, 65, 85, 0.3)',
+      },
+    },
+    y: {
+      beginAtZero: true,
+      ticks: {
+        color: '#cbd5e1',
+      },
+      grid: {
+        color: 'rgba(51, 65, 85, 0.25)',
+      },
+      title: {
+        display: true,
+        text: 'Ratio Power ÷ REG',
+        color: '#cbd5e1',
+        font: {
+          size: 14,
+          weight: 'bold',
+        },
+      },
+    },
+  },
+}
 </script>
 
 <template>
@@ -1668,10 +1752,10 @@ const poolPowerChartOptions = {
         </ul>
       </p>
       <p class="axis-note" style="margin-top: 1rem;"> (power total ÷ (REG wallet + REG en pool)) par rapport à la
-        <strong>ligne de référence 1 : 1</strong>. Lorsque les courbes bleue ou rose passent
-        <em>au-dessus</em> de 1 : 1, cela signifie qu'une adresse obtient plus de pouvoir de vote
+        <strong>ligne de référence 1 : 1</strong>. Lorsque les courbes bleue ou rose passent
+        <em>au-dessus</em> de 1 : 1, cela signifie qu'une adresse obtient plus de pouvoir de vote
         que sa simple mise en REG (boost). Si elles sont <em>en dessous</em>, la position est moins
-        efficace qu’un dépôt direct (décote / inéligibilité partielle). Les adresses sont triées par
+        efficace qu'un dépôt direct (décote / inéligibilité partielle). Les adresses sont triées par
         liquidité décroissante pour faciliter la comparaison.
       </p>
       <p class="axis-note" style="margin-top: 1rem;">
@@ -1685,6 +1769,89 @@ const poolPowerChartOptions = {
       <p class="axis-note">
         <strong>Note</strong> : Seuls les wallets avec des positions LP actives sont affichés. Les 30 plus gros wallets de chaque catégorie (V2 et V3) sont représentés pour visualiser le niveau de boost apporté par le LP REG. Les adresses sont triées par liquidité décroissante.
       </p>
+    </div>
+
+    <div class="section-header" style="margin-top: 3rem;">
+      <h2>⚡ Impact du Boost DEX</h2>
+      <p>
+        Vue synthétique du ratio Power Voting ÷ totalBalanceREG pour les wallets ayant des dépôts de REG sur un DEX.
+        Ce graphique montre l'impact global du boost DEX sur le pouvoir de vote.
+      </p>
+    </div>
+
+    <div class="charts-grid correlation-grid">
+      <div class="chart-card full-width">
+        <h3>📊 Boost DEX : Power Voting ÷ totalBalanceREG (wallets avec dépôts DEX)</h3>
+        <div class="chart-container" v-if="dexBoostChartData">
+          <Line :data="dexBoostChartData" :options="dexBoostChartOptions" />
+        </div>
+        <div class="chart-empty" v-else>
+          <p>Aucun wallet avec dépôt DEX n'a été détecté.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-explainer" style="margin-top: 1rem;">
+      <p>
+        Ce graphique présente le <strong>ratio Power Voting ÷ totalBalanceREG</strong> pour les wallets ayant des dépôts de REG sur un DEX.
+        Contrairement au graphique précédent qui décompose les ratios par type de pool, celui-ci offre une <strong>vue synthétique</strong> de l'impact du boost DEX.
+      </p>
+      <ul style="margin: 1rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
+        <li style="margin-bottom: 0.75rem;">
+          <strong>Formule</strong> : <code>Power Voting ÷ totalBalanceREG</code>
+          <br />
+          <span style="font-size: 0.9em; opacity: 0.8;">
+            → Le totalBalanceREG inclut le REG en wallet + le REG en pools (mais sans les equivalentREG des positions LP).
+            Ce ratio montre l'efficacité globale du boost DEX sur le pouvoir de vote.
+          </span>
+        </li>
+        <li style="margin-bottom: 0.75rem;">
+          <strong>Filtrage</strong> : Seuls les wallets avec <code>poolLiquidityREG > 0</code> sont affichés (wallets ayant des dépôts DEX).
+        </li>
+        <li style="margin-bottom: 0.75rem;">
+          <strong>Tri</strong> : Les wallets sont triés par totalBalanceREG décroissant (les plus gros détenteurs en premier).
+        </li>
+      </ul>
+      <p style="margin-top: 1rem;">
+        <strong>Interprétation</strong> : 
+        <ul style="margin: 0.5rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
+          <li><strong>Au-dessus de 1:1</strong> → Le wallet obtient plus de Power que sa simple détention de REG grâce au boost DEX</li>
+          <li><strong>À 1:1</strong> → Pas de boost, le Power est égal au REG détenu</li>
+          <li><strong>En dessous de 1:1</strong> → Le wallet obtient moins de Power que son REG (cas rare, possible pénalité)</li>
+        </ul>
+      </p>
+      <p class="axis-note" style="margin-top: 1rem;">
+        <strong>Note</strong> : Ce graphique montre les 50 plus gros wallets (par totalBalanceREG) ayant des dépôts DEX. 
+        Le ratio est calculé sans inclure les equivalentREG des positions LP, uniquement le totalBalanceREG du wallet.
+      </p>
+    </div>
+
+    <div class="pool-wallet-summary" v-if="dataStore.poolWalletBreakdown">
+      <div class="summary-item">
+        <span class="summary-label">Wallets V2</span>
+        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v2Wallets) }}</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Wallets V3</span>
+        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v3Wallets) }}</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Wallets V2 &amp; V3</span>
+        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.both) }}</span>
+      </div>
+    </div>
+
+    <div class="multiplier-info" style="margin: 1.5rem 0; padding: 1rem; background: var(--card-bg, rgba(255, 255, 255, 0.05)); border-radius: 8px; border-left: 3px solid var(--primary-color, #4a90e2);">
+      <p style="margin: 0 0 0.75rem 0; font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">
+        BETA Les multiplicateurs :
+      </p>
+      <ul style="margin: 0; padding-left: 1.5rem; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.6;">
+        <li><strong>Sushiswap V2</strong> : ×1.5</li>
+        <li><strong>Honeyswap V2</strong> : ×1.3</li>
+        <li><strong>Balancer V2</strong> : ×1.4</li>
+        <li><strong>Sushiswap V3 actif</strong> : ×2.5</li>
+        <li><strong>Sushiswap V3 inactif</strong> : ×1</li>
+      </ul>
     </div>
 
     <div class="pool-wallet-summary" v-if="dataStore.poolWalletBreakdown">
@@ -1738,396 +1905,16 @@ const poolPowerChartOptions = {
             <span class="metric-value">{{ formatNumber(profile.powerVoting) }}</span>
           </div>
           <div class="metric">
-            <span class="metric-label">Boost vs 1:1</span>
-            <span class="metric-value">
-              {{ getAveragePoolMultiplier(profile) ? getAveragePoolMultiplier(profile).toFixed(2) + 'x' : '–' }}
-            </span>
+            <span class="metric-label">REG en wallet</span>
+            <span class="metric-value">{{ formatNumber(profile.walletDirectREG) }}</span>
           </div>
-          <div class="metric positions-count">
-            <span class="metric-label">Positions</span>
-            <div class="metric-value" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-              <span>{{ profile.positions.length }}</span>
-              <div v-if="getPositionCounts(profile).v2 > 0 || getPositionCounts(profile).v3 > 0" class="position-type-breakdown" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                <span v-if="getPositionCounts(profile).v2 > 0" class="position-badge position-badge-v2" style="display: inline-flex; align-items: center; padding: 0.25rem 0.5rem; background: rgba(74, 144, 226, 0.15); border: 1px solid rgba(74, 144, 226, 0.3); border-radius: 0.375rem; font-size: 0.75rem; font-weight: 600; color: #60a5fa;">
-                  V2: {{ getPositionCounts(profile).v2 }}
-                </span>
-                <span v-if="getPositionCounts(profile).v3 > 0" class="position-badge position-badge-v3" style="display: inline-flex; align-items: center; padding: 0.25rem 0.5rem; background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 0.375rem; font-size: 0.75rem; font-weight: 600; color: #4ade80;">
-                  V3: {{ getPositionCounts(profile).v3 }}
-                </span>
-              </div>
-            </div>
-          </div>
-          <button
-            class="positions-toggle"
-            @click="toggleWalletPositions(profile.address)"
-          >
-            {{ isWalletExpanded(profile.address) ? 'Masquer les détails' : 'Afficher les détails' }}
-          </button>
-        </div>
-        <div class="row-details" v-if="isWalletExpanded(profile.address)">
-          <div class="detail-metrics">
-            <div class="metric">
-              <span class="metric-label">Power (attribué pools)</span>
-              <span class="metric-value">
-                {{ formatNumber(profile.poolVotingShare) }}
-                <span v-if="getPowerByPoolType(profile).v2 > 0 || getPowerByPoolType(profile).v3 > 0" class="power-type-breakdown" style="display: block; font-size: 0.75em; color: var(--text-secondary); margin-top: 0.25rem;">
-                  V2: {{ formatNumber(getPowerByPoolType(profile).v2) }}, V3: {{ formatNumber(getPowerByPoolType(profile).v3) }}
-                </span>
-              </span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Wallet hors pools</span>
-              <span class="metric-value">{{ formatNumber(profile.walletDirectREG) }}</span>
-            </div>
-          </div>
-          <div class="positions-list">
-            <div
-              class="position-pill"
-              :class="{
-                'position-active': position.poolType === 'v3' && isPositionActive(position) === true,
-                'position-inactive': position.poolType === 'v3' && isPositionActive(position) === false
-              }"
-              v-for="position in profile.positions"
-              :key="`${profile.address}-${position.poolAddress || 'pool'}-${position.dex}-${position.regAmount}`"
-            >
-              <div class="position-pill-header">
-              <span class="pill-dex">{{ position.dex }} • {{ position.poolType.toUpperCase() }}</span>
-              <span class="pill-pool">
-                {{ position.poolAddress ? formatAddress(position.poolAddress) : 'N/A' }}
-              </span>
-              </div>
-              <div class="position-pill-details">
-              <span class="pill-value">{{ formatNumber(position.regAmount) }} REG</span>
-              <!-- Afficher les détails des tokens multiples pour les positions V3 regroupées -->
-              <div v-if="position.tokens && position.tokens.length > 1" class="position-tokens-breakdown" style="font-size: 0.85em; color: var(--text-secondary); margin-top: 0.25rem;">
-                <span v-for="(token, idx) in position.tokens" :key="idx" style="margin-right: 0.75rem;">
-                  <span v-if="token.tokenSymbol !== 'REG'">
-                    {{ formatNumber(parseFloat(token.tokenBalance)) }} {{ token.tokenSymbol }}
-                    <span style="opacity: 0.7;">({{ formatNumber(parseFloat(token.equivalentREG)) }} REG)</span>
-                  </span>
-                  <span v-else>
-                    {{ formatNumber(parseFloat(token.tokenBalance)) }} {{ token.tokenSymbol }}
-                  </span>
-                </span>
-              </div>
-                <span class="pill-power" v-if="getPositionPowerAndMultiplier(position, profile).power > 0">
-                  Power: {{ formatNumber(getPositionPowerAndMultiplier(position, profile).power) }}
-                </span>
-                <span class="pill-multiplier" v-if="getPositionPowerAndMultiplier(position, profile).multiplier > 0">
-                  ×{{ getPositionPowerAndMultiplier(position, profile).multiplier.toFixed(2) }}
-                </span>
-            </div>
+          <div class="metric">
+            <span class="metric-label">Boost multiplicateur</span>
+            <span class="metric-value">{{ formatNumber(profile.boostMultiplier) }}×</span>
           </div>
         </div>
       </div>
     </div>
-
-      <div v-if="addressSearchResults.length === 0 && !isSearchingAddress && searchAddress.trim()" class="no-results">
-        <p>Aucun résultat trouvé pour cette adresse.</p>
-      </div>
-    </div>
-
-    <!-- Address Search Across Snapshots -->
-    <div class="section-header">
-      <h2>🔍 Recherche d'adresse sur tous les snapshots</h2>
-      <p>Analysez l'évolution d'une adresse sur tous les snapshots historiques</p>
-    </div>
-
-    <div class="address-search-section">
-      <div class="search-controls">
-        <div class="search-input-group">
-          <input
-            v-model="searchAddress"
-            @keyup.enter="searchAddressAcrossSnapshots"
-            type="text"
-            placeholder="Entrez une adresse (0x...)"
-            class="search-input"
-          />
-        <button
-            @click="searchAddressAcrossSnapshots"
-            :disabled="isSearchingAddress || !searchAddress.trim()"
-            class="btn btn-primary search-btn"
-        >
-            {{ isSearchingAddress ? 'Recherche...' : 'Rechercher' }}
-        </button>
-        </div>
-      </div>
-
-      <div v-if="addressSearchResults.length > 0" class="address-results-container">
-        <div
-          v-for="result in addressSearchResults"
-          :key="result.date"
-          class="address-result-card"
-          :class="{ 'current-snapshot': result.isCurrent, 'not-found': !result.found }"
-        >
-          <!-- Ligne principale -->
-          <div class="result-main-row">
-            <div class="result-col-snapshot">
-              <span v-if="result.isCurrent" class="current-badge">Actuel</span>
-              <span v-else class="snapshot-date">{{ result.date }}</span>
-              <span class="snapshot-date-formatted">{{ result.dateFormatted }}</span>
-              </div>
-
-            <div class="result-col-reg">
-              <span class="result-label">REG Total</span>
-              <span class="result-value">{{ result.found ? formatNumber(result.reg) : '–' }}</span>
-              </div>
-
-            <div class="result-col-power">
-              <span class="result-label">Power Voting</span>
-              <span class="result-value">{{ result.found ? formatNumber(result.powerVoting) : '–' }}</span>
-            </div>
-
-            <div class="result-col-pools" v-if="result.poolAnalysis">
-              <span class="result-label">Nb Pools</span>
-              <span class="result-value">{{ formatInteger(result.poolAnalysis.totalPools) }}</span>
-              </div>
-
-            <div class="result-col-percentage" v-if="result.poolAnalysis">
-              <span class="result-label">% REG en Pools</span>
-              <span class="result-value">{{ formatNumber(result.poolAnalysis.poolRegPercentage) }}%</span>
-            </div>
-
-            <div class="result-col-status">
-              <span v-if="result.found" class="status-found">✓</span>
-              <span v-else class="status-not-found">✗</span>
-              <button
-                v-if="result.found && result.poolAnalysis"
-                @click="toggleAddressResultDetails(result.date)"
-                class="btn-expand-details"
-              >
-                {{ isAddressResultExpanded(result.date) ? '▼' : '▶' }}
-              </button>
-              </div>
-            </div>
-
-          <!-- Ligne détaillée (expandable) -->
-          <div
-            v-if="isAddressResultExpanded(result.date) && result.poolAnalysis"
-            class="result-details-row"
-          >
-            <div class="detail-item-compact">
-              <span class="detail-label-compact">REG en Pools</span>
-              <span class="detail-value-compact">{{ formatNumber(result.poolAnalysis.regInPools) }}</span>
-              </div>
-            <div class="detail-item-compact">
-              <span class="detail-label-compact">In Range</span>
-              <span class="detail-value-compact">{{ formatInteger(result.poolAnalysis.poolsInRange) }} pools / {{ formatNumber(result.poolAnalysis.regInRange) }} REG</span>
-              </div>
-            <div class="detail-item-compact">
-              <span class="detail-label-compact">Out Range</span>
-              <span class="detail-value-compact">{{ formatInteger(result.poolAnalysis.poolsOutOfRange) }} pools / {{ formatNumber(result.poolAnalysis.regOutOfRange) }} REG</span>
-            </div>
-            <div class="detail-item-compact">
-              <span class="detail-label-compact">V2 / V3</span>
-              <span class="detail-value-compact">{{ formatInteger(result.poolAnalysis.v2Pools) }} / {{ formatInteger(result.poolAnalysis.v3Pools) }}</span>
-            </div>
-            <div class="detail-item-compact">
-              <span class="detail-label-compact">DEX</span>
-              <span class="detail-value-compact">{{ formatInteger(result.poolAnalysis.dexCount) }}</span>
-          </div>
-        </div>
-        </div>
-      </div>
-
-      <!-- Graphique d'évolution -->
-      <div v-if="addressSearchResults.length > 0 && addressSearchResults.some(r => r.found)" class="address-evolution-chart">
-        <h3 style="margin-bottom: 1.5rem; color: var(--text-primary); font-weight: 600;">📈 Évolution de l'adresse {{ formatAddress(searchAddress) }}</h3>
-        <Line
-          :data="addressEvolutionChartData"
-          :options="addressEvolutionChartOptions"
-          style="max-height: 400px;"
-        />
-      </div>
-    </div>
-
-    <!-- Top Holders -->
-    <div class="top-holders-section">
-      <h2 class="top-holders-title">Listes des meilleurs adresses</h2>
-    <div class="top-holders-grid">
-      <div class="top-card">
-        <h3>🏆 Top 10 Balances REG</h3>
-        <div class="top-list">
-          <div
-            v-for="(holder, index) in dataStore.topBalanceHolders"
-            :key="holder.address"
-            class="top-item"
-          >
-            <span class="rank">{{ index + 1 }}</span>
-              <span class="address" @click="copyAddress(holder.address)" :title="holder.address">
-                {{ formatAddress(holder.address) }}
-              </span>
-            <span class="value">{{ formatNumber(holder.balance) }}</span>
-              <button
-                @click="copyAddress(holder.address)"
-                class="btn-copy-address"
-                :title="`Copier ${holder.address}`"
-              >
-                📋
-              </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="top-card">
-        <h3>⚡ Top 10 Power Voting</h3>
-        <div class="top-list">
-          <div
-            v-for="(voter, index) in dataStore.topPowerVoters"
-            :key="voter.address"
-            class="top-item"
-          >
-            <span class="rank">{{ index + 1 }}</span>
-              <span class="address" @click="copyAddress(voter.address)" :title="voter.address">
-                {{ formatAddress(voter.address) }}
-              </span>
-            <span class="value">{{ formatNumber(voter.power) }}</span>
-              <button
-                @click="copyAddress(voter.address)"
-                class="btn-copy-address"
-                :title="`Copier ${voter.address}`"
-              >
-                📋
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Snapshots Comparison Table -->
-    <div class="section-header" style="margin-top: 4rem;">
-      <h2>📸 Snapshots historiques ({{ snapshotStats.length }})</h2>
-      <p>Comparaison de tous les snapshots disponibles, y compris le snapshot actuel</p>
-    </div>
-
-    <div class="snapshots-table-container">
-      <div class="snapshots-table">
-        <div
-          v-for="(stat, index) in snapshotStats"
-          :key="stat.date"
-          class="snapshot-row"
-          :class="{ 'current-snapshot-row': stat.isCurrent }"
-        >
-          <div class="snapshot-row-main">
-            <div class="snapshot-date-col">
-              <span v-if="stat.isCurrent" class="current-badge">Actuel</span>
-              <span v-else class="snapshot-date">{{ stat.date }}</span>
-              <span v-if="!stat.isCurrent" class="snapshot-date-formatted">{{ stat.dateFormatted }}</span>
-            </div>
-            
-            <div class="snapshot-stat-col">
-            <span class="stat-icon">👥</span>
-            <span class="stat-value">{{ formatInteger(stat.wallets) }}</span>
-            <span v-if="stat.walletsDiff !== undefined" class="stat-diff" :class="{ 'positive': stat.walletsDiff > 0, 'negative': stat.walletsDiff < 0 }">
-              {{ stat.walletsDiff > 0 ? '+' : '' }}{{ formatInteger(stat.walletsDiff) }}
-            </span>
-              <span class="stat-label">wallets</span>
-            </div>
-            
-            <div class="snapshot-stat-col">
-              <span class="stat-icon">💰</span>
-              <span class="stat-value">{{ formatNumber(stat.reg) }}</span>
-              <span v-if="stat.regDiff !== undefined" class="stat-diff" :class="{ 'positive': stat.regDiff > 0, 'negative': stat.regDiff < 0 }">
-                {{ stat.regDiff > 0 ? '+' : '' }}{{ formatNumber(stat.regDiff) }}
-              </span>
-              <span class="stat-label">REG</span>
-            </div>
-            
-            <div class="snapshot-stat-col">
-              <span class="stat-icon">⚡</span>
-              <span class="stat-value">{{ formatNumber(stat.power) }}</span>
-              <span v-if="stat.powerDiff !== undefined" class="stat-diff" :class="{ 'positive': stat.powerDiff > 0, 'negative': stat.powerDiff < 0 }">
-                {{ stat.powerDiff > 0 ? '+' : '' }}{{ formatNumber(stat.powerDiff) }}
-              </span>
-              <span class="stat-label">Power</span>
-            </div>
-            
-            <div class="snapshot-details-toggle">
-              <button
-                @click="toggleSnapshotDetails(stat.date)"
-                class="btn-expand-snapshot"
-                :title="isSnapshotExpanded(stat.date) ? 'Masquer les détails' : 'Afficher les détails'"
-              >
-                {{ isSnapshotExpanded(stat.date) ? '▼' : '▶' }}
-              </button>
-            </div>
-          </div>
-          
-          <!-- Dropdown avec les métriques détaillées -->
-          <div
-            v-if="isSnapshotExpanded(stat.date) && stat.poolMetrics"
-            class="snapshot-details-dropdown"
-          >
-            <div class="pool-metrics-grid">
-              <div class="pool-metric-item">
-                <span class="metric-label">Pools V2</span>
-                <span class="metric-value">{{ formatInteger(stat.poolMetrics.v2Pools) }}</span>
-              </div>
-              <div class="pool-metric-item">
-                <span class="metric-label">Pools V3</span>
-                <span class="metric-value">
-                  {{ stat.poolMetrics.v3DataAvailable === false ? 'N/A' : formatInteger(stat.poolMetrics.v3Pools) }}
-                </span>
-              </div>
-              <div class="pool-metric-item">
-                <span class="metric-label">V3 Actives</span>
-                <span class="metric-value">
-                  {{ stat.poolMetrics.v3DataAvailable === false ? 'N/A' : formatInteger(stat.poolMetrics.v3Active) }}
-                </span>
-              </div>
-              <div class="pool-metric-item">
-                <span class="metric-label">V3 Inactives</span>
-                <span class="metric-value">
-                  {{ stat.poolMetrics.v3DataAvailable === false ? 'N/A' : formatInteger(stat.poolMetrics.v3Inactive) }}
-                </span>
-              </div>
-              <div class="pool-metric-item">
-                <span class="metric-label">Wallets avec pools</span>
-                <span class="metric-value">{{ formatInteger(stat.poolMetrics.walletsWithPools) }}</span>
-              </div>
-              <div class="pool-metric-item concentration-item">
-                <div class="concentration-header">
-                  <span class="metric-label">
-                    Concentration Power
-                    <span class="concentration-explanation-inline">
-                      (Top X% détient Y% de la supply du power voting)
-                    </span>
-                  </span>
-                </div>
-                <div class="concentration-values">
-                  <div class="concentration-row">
-                    <span class="concentration-label">Top 10%:</span>
-                    <span class="concentration-value">{{ formatNumber(stat.poolMetrics.powerConcentration.top10) }}%</span>
-                  </div>
-                  <div class="concentration-row">
-                    <span class="concentration-label">Top 15%:</span>
-                    <span class="concentration-value">{{ formatNumber(stat.poolMetrics.powerConcentration.top15) }}%</span>
-                  </div>
-                  <div class="concentration-row">
-                    <span class="concentration-label">Top 20%:</span>
-                    <span class="concentration-value">{{ formatNumber(stat.poolMetrics.powerConcentration.top20) }}%</span>
-                  </div>
-                  <div class="concentration-row">
-                    <span class="concentration-label">Top 25%:</span>
-                    <span class="concentration-value">{{ formatNumber(stat.poolMetrics.powerConcentration.top25) }}%</span>
-                  </div>
-                  <div class="concentration-row">
-                    <span class="concentration-label">Top 50%:</span>
-                    <span class="concentration-value">{{ formatNumber(stat.poolMetrics.powerConcentration.top50) }}%</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div v-else class="no-data">
-    <p>Aucune donnée disponible. Veuillez charger des fichiers.</p>
-    <button @click="router.push('/')" class="btn btn-primary">Retour à l'upload</button>
   </div>
 </template>
 

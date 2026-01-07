@@ -358,6 +358,36 @@ const deleteFile = async (filename: string) => {
   }
 }
 
+// Fonction pour télécharger un fichier
+const downloadFile = async (file: { name: string; url: string }) => {
+  try {
+    // file.url est déjà au format /generated/filename
+    // En développement, Vite proxy vers le backend, donc on utilise directement l'URL
+    // En production, l'URL sera relative et fonctionnera aussi
+    const response = await fetch(file.url, {
+      method: 'GET',
+    })
+    if (!response.ok) {
+      throw new Error(`Erreur lors du téléchargement: ${response.status} ${response.statusText}`)
+    }
+    
+    const blob = await response.blob()
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = file.name
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(downloadUrl)
+    
+    success.value = `✅ Fichier ${file.name} téléchargé avec succès`
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Erreur lors du téléchargement'
+  }
+}
+
+// Ancienne fonction gardée pour compatibilité (non utilisée)
 const useFile = async (file: { name: string; url: string }) => {
   isLoading.value = true
   error.value = ''
@@ -703,11 +733,11 @@ onUnmounted(() => {
           </div>
           <div class="file-actions">
             <button
-              @click="useFile(file)"
+              @click="downloadFile(file)"
               :disabled="isLoading"
               class="btn btn-small btn-primary"
             >
-              📤 Utiliser
+              ⬇️ Download
             </button>
             <button
               @click="deleteFile(file.name)"

@@ -246,8 +246,9 @@ const startLogsStream = (processId: string) => {
       // Envoyer les logs à xterm.js au lieu de l'ancien système
       if (xtermTerminal.value) {
         if (log.type === 'stdout' || log.type === 'stderr' || log.type === 'info') {
-          // Écrire directement dans le terminal xterm
-          xtermTerminal.value.write(log.message + '\r\n')
+          // Écrire directement dans le terminal xterm avec les données brutes (codes ANSI inclus)
+          // Ne pas ajouter \r\n car les données peuvent déjà contenir des codes de contrôle
+          xtermTerminal.value.write(log.message)
         }
       } else {
         // Fallback vers l'ancien système si xterm n'est pas initialisé
@@ -483,13 +484,25 @@ const initXterm = async () => {
     fontFamily: 'Courier New, monospace',
     cursorBlink: true,
     cursorStyle: 'block',
+    allowProposedApi: true,
+    allowTransparency: false,
+    convertEol: true, // Convertir \n en \r\n pour un meilleur rendu
+    disableStdin: false,
+    scrollback: 1000,
   })
   
   const fit = new FitAddon()
   terminal.loadAddon(fit)
   
   terminal.open(terminalContainer.value)
-  fit.fit()
+  
+  // Attendre un peu pour que le terminal soit complètement monté avant d'ajuster la taille
+  await nextTick()
+  setTimeout(() => {
+    fit.fit()
+    // Forcer un redraw pour s'assurer que tout est bien affiché
+    terminal.refresh(0, terminal.rows - 1)
+  }, 100)
   
   // Gérer les entrées utilisateur
   terminal.onData(async (data) => {

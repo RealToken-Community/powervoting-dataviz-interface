@@ -5,7 +5,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import dotenv from 'dotenv';
 
 const execAsync = promisify(exec);
@@ -109,19 +109,43 @@ app.post('/api/balance-calculator/answer/:processId', (req, res) => {
   const { answer } = req.body;
   
   const processData = activeProcesses.get(processId);
-  if (processData && processData.proc && !processData.proc.stdin.destroyed) {
-    try {
-      // Pour les checkbox, on envoie les indices séparés par des espaces puis Enter
-      // Pour les autres, on envoie directement la valeur
+  if (!processData) {
+    return res.status(404).json({ error: 'Processus non trouvé' });
+  }
+  
+  if (!processData.proc) {
+    return res.status(404).json({ error: 'Processus non initialisé' });
+  }
+  
+  if (processData.proc.stdin.destroyed) {
+    return res.status(404).json({ error: 'Processus terminé' });
+  }
+  
+  try {
+    // Si la réponse contient des codes ANSI (flèches), on les envoie directement sans \n
+    // Si c'est juste \n, on l'envoie tel quel (Enter pour valider)
+    // Sinon, on ajoute \n pour Enter
+    if (answer.startsWith('\x1b[') || answer === '\x1b[A' || answer === '\x1b[B' || answer === '\x1b[C' || answer === '\x1b[D') {
+      // C'est une touche spéciale (flèche), on l'envoie telle quelle
+      processData.proc.stdin.write(answer);
+    } else if (answer === '\n' || answer === '\r' || answer === '\r\n') {
+      // C'est juste Enter, on l'envoie tel quel
+      processData.proc.stdin.write('\n');
+    } else {
+      // C'est une réponse normale (texte), on ajoute \n pour Enter
       processData.proc.stdin.write(answer + '\n');
-      processData.addLog('info', `➡️ Réponse envoyée: ${answer || '(Enter)'}`);
-      res.json({ message: 'Réponse envoyée' });
-    } catch (error) {
-      processData.addLog('error', `❌ Erreur lors de l'envoi de la réponse: ${error.message}`);
-      res.status(500).json({ error: error.message });
     }
-  } else {
-    res.status(404).json({ error: 'Processus non trouvé ou inactif' });
+    
+    // Ne pas logger les réponses pour éviter la duplication
+    // Les logs sont déjà affichés dans le terminal
+    
+    res.json({ message: 'Réponse envoyée' });
+  } catch (error) {
+    console.error('Erreur lors de l\'envoi de la réponse:', error);
+    if (processData.addLog) {
+      processData.addLog('error', `❌ Erreur lors de l'envoi de la réponse: ${error.message}`);
+    }
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -160,6 +184,24 @@ app.get('/api/balance-calculator/logs/:processId', (req, res) => {
   }
 });
 
+// Fonction pour obtenir toutes les tâches disponibles depuis balance-calculator
+const getAvailableTasks = () => {
+  try {
+    const tasksDir = path.join(balanceCalculatorPath, 'src', 'tasks');
+    if (!existsSync(tasksDir)) {
+      return [];
+    }
+    const taskFiles = readdirSync(tasksDir);
+    return taskFiles
+      .filter((file) => file.endsWith('.ts') || file.endsWith('.js'))
+      .map((file) => path.basename(file, path.extname(file)))
+      .filter((taskName) => taskName !== 'index'); // Exclure index.ts/js s'il existe
+  } catch (error) {
+    console.error('Erreur lors de la lecture des tâches:', error);
+    return [];
+  }
+};
+
 // Générer balances REG
 // Endpoint générique pour lancer balance-calculator (toutes les tâches)
 app.post('/api/balance-calculator/start', async (req, res) => {
@@ -186,6 +228,9 @@ app.post('/api/balance-calculator/start', async (req, res) => {
         processData.logs.shift();
       }
     };
+    
+    // Variable pour suivre si on a déjà affiché les options du prompt "Quelle tâche"
+    let taskOptionsDisplayed = false;
     
     // Envoyer la réponse avec l'ID du processus
     res.json({ 
@@ -244,17 +289,12 @@ app.post('/api/balance-calculator/start', async (req, res) => {
     
     processData.proc = proc;
     
-    // Mode interactif : détecter les prompts et attendre les réponses de l'utilisateur
-    let currentPrompt = null; // Prompt actuel en attente de réponse
-    let optionsTimeout = null; // Timeout pour envoyer les options après collecte
-    let optionsBuffer = []; // Buffer pour collecter les lignes après un prompt (pour extraire les options)
-    let collectingOptions = false; // Flag pour savoir si on est en train de collecter des options
+    // Mode interactif simplifié : juste envoyer tous les logs en temps réel
+    // L'utilisateur tape directement dans le terminal, pas besoin de détecter les prompts
+    // On supprime toute la logique de détection de prompts - c'est beaucoup plus simple !
     
     addLog('info', '🚀 Démarrage de la génération des balances...');
-    addLog('info', '💡 Mode interactif activé - Répondez aux questions ci-dessous');
-    
-    // Buffer pour accumuler les lignes (inquirer peut envoyer plusieurs lignes)
-    let outputBuffer = '';
+    addLog('info', '💡 Mode interactif activé - Utilisez le terminal ci-dessous');
     
     // Fonction pour analyser le buffer et extraire les options
     const analyzeOptionsBuffer = () => {
@@ -412,207 +452,12 @@ app.post('/api/balance-calculator/start', async (req, res) => {
     };
 
     proc.stdout.on('data', (data) => {
-      outputBuffer += data.toString();
-      const lines = outputBuffer.split('\n');
+      const rawData = data.toString();
       
-      // Garder la dernière ligne incomplète dans le buffer
-      outputBuffer = lines.pop() || '';
-      
-      lines.forEach(line => {
-        // IMPORTANT: Garder la ligne originale pour le buffer (avant nettoyage)
-        const originalLine = line.trim();
-        
-        // Nettoyer les codes ANSI (couleurs, curseur, etc.)
-        const cleaned = line.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\[[0-9;]*m/g, '');
-        const trimmed = cleaned.trim();
-        if (!trimmed) return;
-        
-        addLog('stdout', trimmed);
-        console.log('Balance calculator output:', trimmed);
-        
-        // Détecter les prompts inquirer et les envoyer à l'interface
-        // Les prompts inquirer peuvent avoir plusieurs formats:
-        // - "? Question" (format standard)
-        // - "Question ?" avec "Use arrow keys" (select/checkbox)
-        // - Lignes contenant des mots-clés spécifiques
-        
-        // Détecter un prompt select/checkbox (avec "Use arrow keys")
-        if (trimmed.includes('?') && trimmed.includes('Use arrow keys') && !currentPrompt) {
-          // C'est un prompt select ou checkbox, on va attendre les options
-          // Détecter si c'est un checkbox (permet sélection multiple) ou select (sélection unique)
-          const isCheckbox = trimmed.includes('réseaux') || trimmed.includes('DEX') || trimmed.includes('checkbox');
-          const isTaskPrompt = trimmed.includes('tâche') || trimmed.includes('task');
-          
-          // Tous les prompts sont maintenant interactifs, y compris "Quelle tâche"
-          
-          currentPrompt = {
-            type: isCheckbox ? 'checkbox' : 'select',
-            question: trimmed.replace(/\?.*$/, '').replace(/Use arrow keys.*$/, '').trim() || trimmed,
-            options: [],
-            detected: true,
-            optionsComplete: false
-          };
-          // Commencer à collecter les lignes suivantes pour extraire les options
-          collectingOptions = true;
-          optionsBuffer = [];
-          console.log('🔍 Prompt détecté, collecte des options...', currentPrompt.question);
-          
-          // Programmer un timeout pour analyser le buffer et envoyer le prompt
-          if (optionsTimeout) {
-            clearTimeout(optionsTimeout);
-          }
-          optionsTimeout = setTimeout(() => {
-            if (currentPrompt && !currentPrompt.optionsComplete && collectingOptions) {
-              // Analyser le buffer pour extraire les options
-              analyzeOptionsBuffer();
-            }
-          }, 3000); // Attendre 3 secondes pour collecter toutes les options
-        }
-        // Si on est en train de collecter des options, ajouter la ligne au buffer
-        // MAIS ne pas ajouter la ligne du prompt lui-même
-        if (collectingOptions && currentPrompt && !currentPrompt.optionsComplete) {
-          // Ignorer la ligne du prompt et les lignes de contrôle
-          const isPromptLine = trimmed.includes('?') && trimmed.includes('Use arrow keys');
-          if (!isPromptLine && !trimmed.includes('[?25') && trimmed.length > 0) {
-            // Ajouter la ligne originale (avant nettoyage) pour garder le ❯
-            optionsBuffer.push(originalLine);
-            console.log('📝 Ligne ajoutée au buffer (originale):', originalLine.substring(0, 60));
-            console.log('📝 Ligne ajoutée au buffer (nettoyée):', trimmed.substring(0, 60));
-            // Réinitialiser le timeout à chaque nouvelle ligne
-            if (optionsTimeout) {
-              clearTimeout(optionsTimeout);
-            }
-            optionsTimeout = setTimeout(() => {
-              console.log('⏰ Timeout déclenché, analyse du buffer avec', optionsBuffer.length, 'lignes...');
-              if (currentPrompt && !currentPrompt.optionsComplete && collectingOptions) {
-                analyzeOptionsBuffer();
-              }
-            }, 3000); // Attendre 3 secondes après la dernière ligne pour s'assurer d'avoir toutes les options
-          } else if (isPromptLine) {
-            console.log('⏭️ Ligne du prompt ignorée (ne pas ajouter au buffer)');
-          }
-        }
-        
-        // Détecter les options dans un prompt select/checkbox (ancienne méthode - gardée en fallback)
-        if (currentPrompt && (currentPrompt.type === 'select' || currentPrompt.type === 'checkbox') && currentPrompt.detected && !currentPrompt.optionsComplete && !collectingOptions) {
-          // Ignorer les lignes de contrôle ANSI et les lignes vides
-          if (trimmed.includes('Use arrow keys') || trimmed.includes('[?25') || trimmed.length === 0) {
-            // Ignorer
-          } 
-          // Détecter les lignes avec indicateur de sélection (❯ ou >)
-          else if (trimmed.includes('❯') || trimmed.match(/^[\s>]+[A-Z]/)) {
-            // Ligne avec indicateur de sélection, extraire l'option
-            // Nettoyer : enlever ❯, espaces, >, et codes ANSI
-            let option = trimmed.replace(/^[❯\s>]+/, '').replace(/\[.*?\]/g, '').trim();
-            // Enlever aussi les virgules en fin de ligne (comme "GetAddressOwnRealToken,")
-            option = option.replace(/,$/, '').trim();
-            if (option && option.length > 0 && !option.startsWith('\x1b') && !currentPrompt.options.includes(option) && option.length < 100) {
-              currentPrompt.options.push(option);
-              console.log('✅ Option détectée (avec ❯):', option, 'Total:', currentPrompt.options.length);
-              // Annuler le timeout précédent et en programmer un nouveau
-              if (optionsTimeout) {
-                clearTimeout(optionsTimeout);
-              }
-              optionsTimeout = setTimeout(() => {
-                if (currentPrompt && !currentPrompt.optionsComplete && currentPrompt.options.length > 0) {
-                  currentPrompt.optionsComplete = true;
-                  console.log('Envoi du prompt avec options:', currentPrompt.options);
-                  addLog('prompt', JSON.stringify({
-                    type: currentPrompt.type,
-                    question: currentPrompt.question,
-                    options: currentPrompt.options
-                  }));
-                }
-              }, 1000); // Attendre 1 seconde après la dernière option
-            }
-          } 
-          // Détecter les options simples (lignes qui commencent par une majuscule, sans ? ni Use arrow)
-          else if (trimmed.match(/^[A-Z][a-zA-Z0-9]+/) && !trimmed.includes('?') && !trimmed.includes('Use arrow') && !trimmed.includes('[') && !trimmed.match(/^\d+$/)) {
-            // Option simple (sans indicateur) - doit commencer par une majuscule suivie de lettres/chiffres
-            let cleanOption = trimmed.replace(/\[.*?\]/g, '').trim();
-            // Enlever aussi les virgules en fin de ligne
-            cleanOption = cleanOption.replace(/,$/, '').trim();
-            // Vérifier que c'est bien une option valide (pas un message d'erreur ou autre)
-            if (cleanOption && cleanOption.length > 2 && cleanOption.length < 100 && !currentPrompt.options.includes(cleanOption)) {
-              currentPrompt.options.push(cleanOption);
-              console.log('✅ Option détectée (simple):', cleanOption, 'Total:', currentPrompt.options.length);
-              // Annuler le timeout précédent et en programmer un nouveau
-              if (optionsTimeout) {
-                clearTimeout(optionsTimeout);
-              }
-              optionsTimeout = setTimeout(() => {
-                if (currentPrompt && !currentPrompt.optionsComplete && currentPrompt.options.length > 0) {
-                  currentPrompt.optionsComplete = true;
-                  console.log('Envoi du prompt avec options:', currentPrompt.options);
-                  addLog('prompt', JSON.stringify({
-                    type: currentPrompt.type,
-                    question: currentPrompt.question,
-                    options: currentPrompt.options
-                  }));
-                }
-              }, 1000);
-            }
-          }
-        }
-        // Détecter un prompt confirm (Y/n)
-        else if ((trimmed.includes('(Y/n)') || trimmed.includes('(y/N)') || 
-                 (trimmed.includes('Voulez-vous') && trimmed.includes('?')) ||
-                 (trimmed.includes('Souhaitez-vous') && trimmed.includes('?')) ||
-                 (trimmed.includes('Utiliser des données de test mock') && trimmed.includes('?'))) && !currentPrompt) {
-          currentPrompt = {
-            type: 'confirm',
-            question: trimmed,
-            detected: true
-          };
-          addLog('prompt', JSON.stringify({
-            type: 'confirm',
-            question: currentPrompt.question
-          }));
-        }
-        // Détecter un prompt input (date, texte, etc.)
-        else if ((trimmed.includes('Entrez la date') || trimmed.includes('Enter the date') ||
-                 trimmed.includes('Entrez le timestamp') || trimmed.includes('Enter the snapshot time') ||
-                 (trimmed.match(/^\? .+/) && !trimmed.includes('Use arrow keys'))) && !currentPrompt) {
-          currentPrompt = {
-            type: 'input',
-            question: trimmed.replace(/^\? /, '').trim() || trimmed,
-            detected: true
-          };
-          addLog('prompt', JSON.stringify({
-            type: 'input',
-            question: currentPrompt.question
-          }));
-        }
-        // Si un prompt a été complété (ligne avec "✔"), réinitialiser pour le prochain
-        else if (trimmed.match(/^✔ .+\?/)) {
-          // Si on était en train de collecter des options, analyser le buffer maintenant
-          if (collectingOptions && currentPrompt && !currentPrompt.optionsComplete) {
-            analyzeOptionsBuffer();
-          }
-          // Si on avait un prompt en cours qui n'a pas été envoyé, l'envoyer maintenant
-          if (currentPrompt && !currentPrompt.optionsComplete && currentPrompt.options.length > 0) {
-            if (optionsTimeout) {
-              clearTimeout(optionsTimeout);
-            }
-            currentPrompt.optionsComplete = true;
-            collectingOptions = false;
-            addLog('prompt', JSON.stringify({
-              type: currentPrompt.type,
-              question: currentPrompt.question,
-              options: currentPrompt.options
-            }));
-          }
-          // Réinitialiser pour le prochain prompt
-          currentPrompt = null;
-          collectingOptions = false;
-          optionsBuffer = [];
-          if (optionsTimeout) {
-            clearTimeout(optionsTimeout);
-            optionsTimeout = null;
-          }
-          addLog('info', `✅ Prompt complété`);
-        }
-      });
+      // Avec xterm.js, on envoie les données brutes avec tous les codes ANSI
+      // xterm.js peut gérer nativement les codes ANSI, donc pas besoin de nettoyer
+      addLog('stdout', rawData);
+      console.log('Balance calculator output (raw):', rawData.substring(0, 200));
     });
 
     proc.stderr.on('data', (data) => {

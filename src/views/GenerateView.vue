@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDataStore } from '@/stores/dataStore'
 import { transformCSVToJSON, transformPowerVotingCSV } from '@/utils/csvTransformer'
 import Papa from 'papaparse'
+import { Terminal } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import '@xterm/xterm/css/xterm.css'
 
 const router = useRouter()
 const dataStore = useDataStore()
@@ -32,6 +35,12 @@ const pendingPrompt = ref<{
 } | null>(null)
 const promptAnswer = ref<string>('')
 const promptAnswers = ref<string[]>([]) // Pour les checkbox (sélection multiple)
+const terminalInput = ref<string>('')
+const terminalOutput = ref<HTMLElement | null>(null)
+const terminalInputRef = ref<HTMLInputElement | null>(null)
+const terminalContainer = ref<HTMLElement | null>(null)
+const xtermTerminal = ref<Terminal | null>(null)
+const fitAddon = ref<FitAddon | null>(null)
 
 // Paramètres pour la génération des balances
 const balancesParams = ref({
@@ -85,69 +94,129 @@ const closeBalancesModal = () => {
   promptAnswers.value = []
 }
 
-const sendPromptAnswer = async () => {
-  if (!currentProcessId.value || !pendingPrompt.value) return
+// Fonction pour envoyer une commande au terminal
+const sendTerminalInput = async () => {
+  if (!currentProcessId.value) {
+    return
+  }
   
-  let answer = ''
+  const input = terminalInput.value.trim()
   
-  if (pendingPrompt.value.type === 'select') {
-    // Pour select simple, on envoie directement la valeur
-    answer = promptAnswer.value
-  } else if (pendingPrompt.value.type === 'checkbox') {
-    // Pour checkbox, on envoie les indices séparés par des espaces
-    const selectedIndices = promptAnswers.value
-      .map(option => pendingPrompt.value!.options!.indexOf(option))
-      .filter(idx => idx >= 0)
-      .map(idx => idx.toString())
-    answer = selectedIndices.join(' ')
-  } else if (pendingPrompt.value.type === 'confirm') {
-    // Pour confirm, on envoie 'y' ou 'n'
-    answer = promptAnswer.value === 'true' || promptAnswer.value === 'y' || promptAnswer.value === 'Y' ? 'y' : 'n'
-  } else {
-    // Pour input, on envoie directement la valeur
-    answer = promptAnswer.value
+  // Si l'input est vide, on envoie juste Enter (pour valider une sélection avec les flèches)
+  if (!input) {
+    await sendKeyToProcess('\n', false) // false = ne pas afficher dans les logs
+    return
+  }
+  
+  // Afficher la commande dans le terminal (seulement pour les réponses textuelles)
+  balancesLogs.value.push({
+    type: 'info',
+    message: `$ ${input}`,
+    timestamp: new Date().toISOString(),
+  })
+  
+  // Envoyer au serveur
+  try {
+    const response = await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: input }),
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json()
+      error.value = errorData.error || 'Erreur lors de l\'envoi de la commande'
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Erreur lors de l\'envoi de la commande'
+  }
+  
+  // Vider l'input
+  terminalInput.value = ''
+  
+  // Faire défiler vers le bas
+  setTimeout(() => {
+    if (terminalOutput.value) {
+      terminalOutput.value.scrollTop = terminalOutput.value.scrollHeight
+    }
+    // Remettre le focus sur l'input
+    if (terminalInputRef.value) {
+      terminalInputRef.value.focus()
+    }
+  }, 100)
+}
+
+// Gérer les touches spéciales dans le terminal
+const handleTerminalKeydown = async (event: KeyboardEvent) => {
+  if (!currentProcessId.value) {
+    return
+  }
+  
+  // Flèches pour naviguer dans les prompts inquirer
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    await sendKeyToProcess('\x1b[A') // Code ANSI pour flèche haut
+    return
+  }
+  
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    await sendKeyToProcess('\x1b[B') // Code ANSI pour flèche bas
+    return
+  }
+  
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    await sendKeyToProcess('\x1b[D') // Code ANSI pour flèche gauche
+    return
+  }
+  
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    await sendKeyToProcess('\x1b[C') // Code ANSI pour flèche droite
+    return
+  }
+  
+  // Ctrl+C pour arrêter (optionnel)
+  if (event.ctrlKey && event.key === 'c') {
+    event.preventDefault()
+    // TODO: Implémenter l'arrêt du processus
+  }
+}
+
+// Fonction pour envoyer une touche spéciale au processus
+const sendKeyToProcess = async (key: string, showInLogs = true) => {
+  if (!currentProcessId.value) {
+    return
   }
   
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer }),
+      body: JSON.stringify({ answer: key }),
     })
     
-    if (response.ok) {
-      const wasCheckbox = pendingPrompt.value && pendingPrompt.value.type === 'checkbox'
-      
-      pendingPrompt.value = null
-      promptAnswer.value = ''
-      promptAnswers.value = []
-      balancesLogs.value.push({
-        type: 'info',
-        message: `📤 Réponse envoyée: ${answer}`,
-        timestamp: new Date().toISOString(),
-      })
-      
-      // Si c'était un checkbox, on doit aussi envoyer Enter pour confirmer la sélection
-      if (wasCheckbox) {
-        setTimeout(async () => {
-          try {
-            await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ answer: '' }),
-            })
-          } catch (err) {
-            console.error('Erreur lors de l\'envoi de Enter pour checkbox:', err)
-          }
-        }, 300)
-      }
-    } else {
+    if (!response.ok) {
       const errorData = await response.json()
-      error.value = errorData.error || 'Erreur lors de l\'envoi de la réponse'
+      console.error('Erreur lors de l\'envoi de la touche:', errorData.error)
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Erreur lors de l\'envoi de la réponse'
+    console.error('Erreur lors de l\'envoi de la touche:', err)
   }
+  
+  // Remettre le focus sur l'input après l'envoi d'une touche
+  setTimeout(() => {
+    if (terminalInputRef.value) {
+      terminalInputRef.value.focus()
+    }
+  }, 50)
+}
+
+const sendPromptAnswer = async () => {
+  // Ancienne fonction gardée pour compatibilité mais non utilisée
+  // On utilise maintenant sendTerminalInput
+  await sendTerminalInput()
 }
 
 const startLogsStream = (processId: string) => {
@@ -158,40 +227,34 @@ const startLogsStream = (processId: string) => {
   
   balancesLogs.value = []
   currentProcessId.value = processId
+  terminalInput.value = ''
   
   // Créer un nouveau EventSource pour les logs
   eventSource.value = new EventSource(`${API_BASE}/balance-calculator/logs/${processId}`)
+  
+  // Focus sur le terminal xterm après un court délai
+  setTimeout(() => {
+    if (xtermTerminal.value) {
+      xtermTerminal.value.focus()
+    }
+  }, 500)
   
   eventSource.value.onmessage = (event) => {
     try {
       const log = JSON.parse(event.data)
       
-      // Détecter les prompts interactifs
-      if (log.type === 'prompt') {
-        try {
-          const promptData = typeof log.message === 'string' ? JSON.parse(log.message) : log.message
-          pendingPrompt.value = {
-            type: promptData.type || 'select',
-            question: promptData.question || 'Question',
-            options: promptData.options || []
-          }
-          promptAnswer.value = ''
-          promptAnswers.value = []
-          console.log('Prompt détecté:', pendingPrompt.value)
-        } catch (err) {
-          console.error('Erreur parsing prompt:', err, log.message)
+      // Envoyer les logs à xterm.js au lieu de l'ancien système
+      if (xtermTerminal.value) {
+        if (log.type === 'stdout' || log.type === 'stderr' || log.type === 'info') {
+          // Écrire directement dans le terminal xterm
+          xtermTerminal.value.write(log.message + '\r\n')
         }
       } else {
-        balancesLogs.value.push(log)
-      }
-      
-      // Faire défiler automatiquement vers le bas
-      setTimeout(() => {
-        const logsContainer = document.getElementById('balances-logs-container')
-        if (logsContainer) {
-          logsContainer.scrollTop = logsContainer.scrollHeight
+        // Fallback vers l'ancien système si xterm n'est pas initialisé
+        if (log.type !== 'prompt' && log.type !== 'prompt-completed') {
+          balancesLogs.value.push(log)
         }
-      }, 100)
+      }
     } catch (err) {
       console.error('Error parsing log:', err)
     }
@@ -215,6 +278,9 @@ const startBalanceCalculator = async () => {
   // Ouvrir le modal si ce n'est pas déjà fait
   if (!showBalancesModal.value) {
     showBalancesModal.value = true
+    // Attendre que le modal soit monté avant d'initialiser xterm
+    await nextTick()
+    await initXterm()
   }
   
   isLoading.value = true
@@ -224,6 +290,7 @@ const startBalanceCalculator = async () => {
   pendingPrompt.value = null
   promptAnswer.value = ''
   promptAnswers.value = []
+  terminalInput.value = ''
 
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/start`, {
@@ -367,6 +434,85 @@ const formatDate = (date: Date) => {
 }
 
 
+// Initialiser xterm.js
+const initXterm = async () => {
+  if (!terminalContainer.value || xtermTerminal.value) {
+    return
+  }
+  
+  await nextTick()
+  
+  const terminal = new Terminal({
+    theme: {
+      background: '#1e1e1e',
+      foreground: '#d4d4d4',
+      cursor: '#4ec9b0',
+      selection: '#264f78',
+    },
+    fontSize: 14,
+    fontFamily: 'Courier New, monospace',
+    cursorBlink: true,
+    cursorStyle: 'block',
+  })
+  
+  const fit = new FitAddon()
+  terminal.loadAddon(fit)
+  
+  terminal.open(terminalContainer.value)
+  fit.fit()
+  
+  // Gérer les entrées utilisateur
+  terminal.onData(async (data) => {
+    if (!currentProcessId.value) {
+      return
+    }
+    
+    // Envoyer les données au backend
+    try {
+      await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answer: data }),
+      })
+    } catch (err) {
+      console.error('Erreur lors de l\'envoi des données:', err)
+    }
+  })
+  
+  xtermTerminal.value = terminal
+  fitAddon.value = fit
+  
+  // Ajuster la taille quand la fenêtre change
+  const resizeObserver = new ResizeObserver(() => {
+    if (fitAddon.value) {
+      fitAddon.value.fit()
+    }
+  })
+  
+  if (terminalContainer.value) {
+    resizeObserver.observe(terminalContainer.value)
+  }
+}
+
+// Nettoyer xterm.js
+const cleanupXterm = () => {
+  if (xtermTerminal.value) {
+    xtermTerminal.value.dispose()
+    xtermTerminal.value = null
+    fitAddon.value = null
+  }
+}
+
+// Surveiller l'ouverture du modal pour initialiser xterm
+watch(showBalancesModal, async (isOpen) => {
+  if (isOpen) {
+    await nextTick()
+    initXterm()
+  } else {
+    cleanupXterm()
+  }
+})
+
 onMounted(() => {
   loadFiles()
   // Recharger les fichiers toutes les 5 secondes
@@ -376,6 +522,7 @@ onMounted(() => {
 // Nettoyer les EventSource à la destruction du composant
 onUnmounted(() => {
   stopLogsStream()
+  cleanupXterm()
 })
 </script>
 
@@ -442,27 +589,18 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <!-- Zone de logs en temps réel -->
+          <!-- Terminal interactif avec xterm.js -->
           <div class="form-group">
-            <label>📋 Logs en temps réel</label>
-            <div id="balances-logs-container" class="logs-container">
-              <div
-                v-for="(log, index) in balancesLogs"
-                :key="index"
-                class="log-line"
-                :class="`log-${log.type}`"
-              >
-                <span class="log-timestamp">{{ new Date(log.timestamp).toLocaleTimeString('fr-FR') }}</span>
-                <span class="log-message">{{ log.message }}</span>
-              </div>
-              <div v-if="balancesLogs.length === 0" class="log-empty">
-                En attente des logs...
-              </div>
-            </div>
+            <label>💻 Terminal interactif</label>
+            <div 
+              ref="terminalContainer" 
+              class="xterm-terminal-container"
+              style="width: 100%; height: 500px; background: #1e1e1e; border-radius: 0.5rem; padding: 1rem; overflow: hidden;"
+            ></div>
           </div>
 
-          <!-- Zone de prompt interactif -->
-          <div v-if="pendingPrompt" class="prompt-container">
+          <!-- Zone de prompt interactif (désactivée - on utilise le terminal maintenant) -->
+          <div v-if="false && pendingPrompt" class="prompt-container">
             <div class="prompt-header">
               <span>💡 Question interactive</span>
             </div>
@@ -1026,6 +1164,95 @@ onUnmounted(() => {
   font-style: italic;
   text-align: center;
   padding: 2rem;
+}
+
+/* Terminal interactif */
+.terminal-container {
+  background: #1e1e1e;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  font-family: 'Courier New', monospace;
+}
+
+.terminal-output {
+  height: 400px;
+  overflow-y: auto;
+  padding: 1rem;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.terminal-line {
+  margin-bottom: 0.25rem;
+  word-break: break-word;
+}
+
+.terminal-line.terminal-stdout {
+  color: #d4d4d4;
+}
+
+.terminal-line.terminal-stderr {
+  color: #f48771;
+}
+
+.terminal-line.terminal-info {
+  color: #4ec9b0;
+}
+
+.terminal-line.terminal-success {
+  color: #4ec9b0;
+}
+
+.terminal-line.terminal-error {
+  color: #f48771;
+  font-weight: 600;
+}
+
+.terminal-message {
+  white-space: pre-wrap;
+}
+
+.terminal-empty {
+  color: #858585;
+  font-style: italic;
+  text-align: center;
+  padding: 2rem;
+}
+
+.terminal-input-container {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: #252526;
+  border-top: 1px solid var(--border-color);
+}
+
+.terminal-prompt {
+  color: #4ec9b0;
+  margin-right: 0.5rem;
+  font-weight: 600;
+}
+
+.terminal-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.terminal-input::placeholder {
+  color: #858585;
+}
+
+.terminal-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Prompt interactif */

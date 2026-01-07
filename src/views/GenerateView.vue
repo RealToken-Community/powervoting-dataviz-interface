@@ -249,6 +249,27 @@ const startLogsStream = (processId: string) => {
           // Écrire directement dans le terminal xterm avec les données brutes (codes ANSI inclus)
           // Ne pas ajouter \r\n car les données peuvent déjà contenir des codes de contrôle
           xtermTerminal.value.write(log.message)
+          
+          // Garder un peu d'espace en bas (environ 1/4 de la hauteur visible) pour éviter que les options soient cachées
+          // On scroll légèrement vers le haut pour laisser de l'espace en bas
+          setTimeout(() => {
+            if (xtermTerminal.value) {
+              const buffer = xtermTerminal.value.buffer.active
+              const rows = xtermTerminal.value.rows
+              // Calculer le nombre de lignes à garder visibles en bas (environ 1/4 de la hauteur = 25%)
+              const linesToKeepVisible = Math.floor(rows * 0.25)
+              // Calculer la position maximale de scroll pour garder l'espace en bas
+              const totalLines = buffer.length
+              const maxScrollPosition = Math.max(0, totalLines - rows + linesToKeepVisible)
+              
+              // Si on est trop bas, scroller vers le haut
+              if (buffer.baseY > maxScrollPosition) {
+                const linesToScrollUp = buffer.baseY - maxScrollPosition
+                // Scroller vers le haut (valeur négative)
+                xtermTerminal.value.scrollLines(-linesToScrollUp)
+              }
+            }
+          }, 50)
         }
       } else {
         // Fallback vers l'ancien système si xterm n'est pas initialisé
@@ -638,7 +659,7 @@ onUnmounted(() => {
             <div 
               ref="terminalContainer" 
               class="xterm-terminal-container"
-              style="width: 100%; height: 500px; background: #1e1e1e; border-radius: 0.5rem; padding: 1rem; overflow: hidden;"
+              style="width: 100%; height: 600px; background: #1e1e1e; border-radius: 0.5rem; padding: 1rem; overflow: hidden;"
             ></div>
           </div>
 

@@ -26,12 +26,12 @@ const balancesLogs = ref<Array<{ type: string; message: string; timestamp: strin
 const currentProcessId = ref<string | null>(null)
 const eventSource = ref<EventSource | null>(null)
 const pendingPrompt = ref<{
-  type: 'select' | 'input' | 'confirm'
+  type: 'select' | 'checkbox' | 'input' | 'confirm'
   question: string
   options?: string[]
-  default?: string | boolean
 } | null>(null)
 const promptAnswer = ref<string>('')
+const promptAnswers = ref<string[]>([]) // Pour les checkbox (sélection multiple)
 
 // Paramètres pour la génération des balances
 const balancesParams = ref({
@@ -68,20 +68,86 @@ const loadFiles = async () => {
   }
 }
 
-const openBalancesModal = () => {
-  // Initialiser avec la date d'aujourd'hui
-  const today = new Date().toISOString().split('T')[0]
-  balancesParams.value.startDate = today
-  balancesParams.value.endDate = today
-  showBalancesModal.value = true
-}
+// Fonction supprimée - le modal s'ouvre maintenant directement depuis startBalanceCalculator
 
 const closeBalancesModal = () => {
+  // Ne pas fermer si un processus est en cours
+  if (currentProcessId.value) {
+    if (!confirm('Un processus est en cours. Voulez-vous vraiment fermer ? Les logs seront interrompus.')) {
+      return
+    }
+  }
   stopLogsStream()
   showBalancesModal.value = false
   isLoading.value = false
   pendingPrompt.value = null
   promptAnswer.value = ''
+  promptAnswers.value = []
+}
+
+const sendPromptAnswer = async () => {
+  if (!currentProcessId.value || !pendingPrompt.value) return
+  
+  let answer = ''
+  
+  if (pendingPrompt.value.type === 'select') {
+    // Pour select simple, on envoie directement la valeur
+    answer = promptAnswer.value
+  } else if (pendingPrompt.value.type === 'checkbox') {
+    // Pour checkbox, on envoie les indices séparés par des espaces
+    const selectedIndices = promptAnswers.value
+      .map(option => pendingPrompt.value!.options!.indexOf(option))
+      .filter(idx => idx >= 0)
+      .map(idx => idx.toString())
+    answer = selectedIndices.join(' ')
+  } else if (pendingPrompt.value.type === 'confirm') {
+    // Pour confirm, on envoie 'y' ou 'n'
+    answer = promptAnswer.value === 'true' || promptAnswer.value === 'y' || promptAnswer.value === 'Y' ? 'y' : 'n'
+  } else {
+    // Pour input, on envoie directement la valeur
+    answer = promptAnswer.value
+  }
+  
+  try {
+    const response = await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer }),
+    })
+    
+    if (response.ok) {
+      const wasCheckbox = pendingPrompt.value && pendingPrompt.value.type === 'checkbox'
+      
+      pendingPrompt.value = null
+      promptAnswer.value = ''
+      promptAnswers.value = []
+      balancesLogs.value.push({
+        type: 'info',
+        message: `📤 Réponse envoyée: ${answer}`,
+        timestamp: new Date().toISOString(),
+      })
+      
+      // Si c'était un checkbox, on doit aussi envoyer Enter pour confirmer la sélection
+      if (wasCheckbox) {
+        setTimeout(async () => {
+          try {
+            await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ answer: '' }),
+            })
+          } catch (err) {
+            console.error('Erreur lors de l\'envoi de Enter pour checkbox:', err)
+          }
+        }, 300)
+      }
+    } else {
+      const errorData = await response.json()
+      error.value = errorData.error || 'Erreur lors de l\'envoi de la réponse'
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Erreur lors de l\'envoi de la réponse'
+  }
 }
 
 const startLogsStream = (processId: string) => {
@@ -94,15 +160,30 @@ const startLogsStream = (processId: string) => {
   currentProcessId.value = processId
   
   // Créer un nouveau EventSource pour les logs
-  eventSource.value = new EventSource(`${API_BASE}/generate/balances/logs/${processId}`)
+  eventSource.value = new EventSource(`${API_BASE}/balance-calculator/logs/${processId}`)
   
   eventSource.value.onmessage = (event) => {
     try {
       const log = JSON.parse(event.data)
-      balancesLogs.value.push(log)
       
-      // Détecter les prompts inquirer dans les logs
-      detectPrompt(log.message)
+      // Détecter les prompts interactifs
+      if (log.type === 'prompt') {
+        try {
+          const promptData = typeof log.message === 'string' ? JSON.parse(log.message) : log.message
+          pendingPrompt.value = {
+            type: promptData.type || 'select',
+            question: promptData.question || 'Question',
+            options: promptData.options || []
+          }
+          promptAnswer.value = ''
+          promptAnswers.value = []
+          console.log('Prompt détecté:', pendingPrompt.value)
+        } catch (err) {
+          console.error('Erreur parsing prompt:', err, log.message)
+        }
+      } else {
+        balancesLogs.value.push(log)
+      }
       
       // Faire défiler automatiquement vers le bas
       setTimeout(() => {
@@ -130,76 +211,41 @@ const stopLogsStream = () => {
   currentProcessId.value = null
 }
 
-const generateBalances = async () => {
-  // Valider les paramètres
-  if (!balancesParams.value.startDate || !balancesParams.value.endDate) {
-    error.value = 'Veuillez sélectionner une plage de dates'
-    return
+const startBalanceCalculator = async () => {
+  // Ouvrir le modal si ce n'est pas déjà fait
+  if (!showBalancesModal.value) {
+    showBalancesModal.value = true
   }
-
-  if (balancesParams.value.networks.length === 0) {
-    error.value = 'Veuillez sélectionner au moins un réseau'
-    return
-  }
-
+  
   isLoading.value = true
   error.value = ''
   success.value = ''
   balancesLogs.value = []
+  pendingPrompt.value = null
+  promptAnswer.value = ''
+  promptAnswers.value = []
 
   try {
-    const response = await fetch(`${API_BASE}/generate/balances`, {
+    const response = await fetch(`${API_BASE}/balance-calculator/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(balancesParams.value),
+      body: JSON.stringify({}),
     })
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Erreur lors de la génération' }))
-      throw new Error(errorData.error || 'Erreur lors de la génération')
+      const errorData = await response.json().catch(() => ({ error: 'Erreur lors du lancement' }))
+      throw new Error(errorData.error || 'Erreur lors du lancement')
     }
 
     const data = await response.json()
-    success.value = data.message || 'Génération des balances en cours...'
+    success.value = data.message || 'Balance-calculator lancé...'
     
     // Démarrer le stream de logs
     if (data.processId) {
       startLogsStream(data.processId)
     }
-    
-    // Attendre un peu puis recharger les fichiers
-    setTimeout(() => {
-      loadFiles()
-    }, 3000)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Erreur inconnue'
-    stopLogsStream()
-  } finally {
-    // Ne pas mettre isLoading à false immédiatement, on attend la fin du processus
-  }
-}
-
-const generatePowerVoting = async () => {
-  isLoading.value = true
-  error.value = ''
-  success.value = ''
-
-  try {
-    const response = await fetch(`${API_BASE}/generate/power-voting`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    })
-
-    if (!response.ok) throw new Error('Erreur lors de la génération')
-
-    success.value = 'Génération du power voting en cours...'
-    
-    setTimeout(() => {
-      loadFiles()
-    }, 3000)
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Erreur inconnue'
-  } finally {
+    error.value = err instanceof Error ? err.message : 'Erreur lors du lancement'
     isLoading.value = false
   }
 }
@@ -320,107 +366,6 @@ const formatDate = (date: Date) => {
   })
 }
 
-const detectPrompt = (message: string) => {
-  const trimmed = message.trim()
-  
-  // Détecter les prompts de type select (avec "Use arrow keys" ou "Quelle tâche")
-  if (trimmed.includes('?') && (trimmed.includes('Use arrow keys') || trimmed.includes('Quelle tâche') || trimmed.includes('askTask'))) {
-    // Extraire la question
-    const questionMatch = trimmed.match(/(.+?)\?/)
-    const question = questionMatch ? questionMatch[1] + '?' : trimmed
-    pendingPrompt.value = {
-      type: 'select',
-      question: question,
-      options: [],
-    }
-    return
-  }
-  
-  // Détecter les options de sélection (lignes avec ❯ ou qui sont des options valides)
-  if (pendingPrompt.value?.type === 'select') {
-    // Ignorer les lignes de contrôle inquirer
-    if (trimmed.includes('Use arrow keys') || trimmed.includes('[?25') || trimmed.includes('G[') || trimmed.length === 0) {
-      return
-    }
-    
-    // Détecter une option (peut commencer par ❯, des espaces, ou être directement le nom)
-    const option = trimmed.replace(/^[❯\s>]+/, '').replace(/\[.*?\]/g, '').trim()
-    
-    // Vérifier que c'est une option valide (pas un code ANSI ou une commande)
-    if (option && 
-        option.length > 0 && 
-        !option.startsWith('\x1b') && 
-        !option.match(/^\d+$/) && // Pas juste un nombre
-        !pendingPrompt.value.options?.includes(option)) {
-      pendingPrompt.value.options = [...(pendingPrompt.value.options || []), option]
-    }
-    return
-  }
-  
-  // Détecter les prompts de confirmation (Y/n)
-  if (trimmed.includes('?') && (trimmed.includes('(Y/n)') || trimmed.includes('(y/N)') || trimmed.includes('(yes/no)'))) {
-    const questionMatch = trimmed.match(/(.+?)\?/)
-    const question = questionMatch ? questionMatch[1] + '?' : trimmed
-    pendingPrompt.value = {
-      type: 'confirm',
-      question: question,
-      default: trimmed.includes('(Y/n)') || trimmed.includes('(yes)'),
-    }
-    // Pré-remplir avec la valeur par défaut
-    promptAnswer.value = pendingPrompt.value.default ? 'y' : 'n'
-    return
-  }
-  
-  // Détecter les prompts d'input (question simple avec ?)
-  if (trimmed.includes('?') && 
-      !trimmed.includes('Use arrow keys') && 
-      !trimmed.includes('(Y/n)') && 
-      !trimmed.includes('(y/N)') &&
-      !trimmed.includes('[?25') &&
-      !pendingPrompt.value) {
-    const questionMatch = trimmed.match(/(.+?)\?/)
-    const question = questionMatch ? questionMatch[1] + '?' : trimmed
-    pendingPrompt.value = {
-      type: 'input',
-      question: question,
-    }
-    return
-  }
-}
-
-const sendPromptAnswer = async () => {
-  if (!currentProcessId.value || !pendingPrompt.value) return
-  
-  let answer = ''
-  
-  if (pendingPrompt.value.type === 'select') {
-    answer = promptAnswer.value
-  } else if (pendingPrompt.value.type === 'confirm') {
-    answer = promptAnswer.value === 'true' || promptAnswer.value === 'y' || promptAnswer.value === 'Y' ? 'y' : 'n'
-  } else {
-    answer = promptAnswer.value
-  }
-  
-  try {
-    const response = await fetch(`${API_BASE}/generate/balances/answer/${currentProcessId.value}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer }),
-    })
-    
-    if (response.ok) {
-      pendingPrompt.value = null
-      promptAnswer.value = ''
-      balancesLogs.value.push({
-        type: 'info',
-        message: `📤 Réponse envoyée: ${answer}`,
-        timestamp: new Date().toISOString(),
-      })
-    }
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Erreur lors de l\'envoi de la réponse'
-  }
-}
 
 onMounted(() => {
   loadFiles()
@@ -447,21 +392,12 @@ onUnmounted(() => {
           <h3>Génération</h3>
           <div class="button-group">
             <button
-              @click="openBalancesModal"
+              @click="showBalancesModal = true"
               :disabled="isLoading"
               class="btn btn-primary"
             >
-              <span v-if="!isLoading">📊 Générer Balances REG</span>
-              <span v-else class="loading">⏳ Génération...</span>
-            </button>
-
-            <button
-              @click="generatePowerVoting"
-              :disabled="isLoading"
-              class="btn btn-primary"
-            >
-              <span v-if="!isLoading">⚡ Générer Power Voting</span>
-              <span v-else class="loading">⏳ Génération...</span>
+              <span v-if="!isLoading">🚀 Lancer balance-calculator</span>
+              <span v-else class="loading">⏳ Lancement...</span>
             </button>
           </div>
         </div>
@@ -487,70 +423,23 @@ onUnmounted(() => {
     <div v-if="showBalancesModal" class="modal-overlay" @click.self="closeBalancesModal">
       <div class="modal-content">
         <div class="modal-header">
-          <h3>⚙️ Configuration - Génération Balances REG</h3>
+          <h3>🚀 Balance-calculator - Mode interactif</h3>
           <button @click="closeBalancesModal" class="modal-close">×</button>
         </div>
         
         <div class="modal-body">
-          <div class="form-group">
-            <label>Réseaux</label>
-            <div class="checkbox-group">
-              <label v-for="network in availableNetworks" :key="network" class="checkbox-label">
-                <input
-                  type="checkbox"
-                  :value="network"
-                  v-model="balancesParams.networks"
-                />
-                <span>{{ network }}</span>
-              </label>
-            </div>
-          </div>
-
-          <div v-for="network in balancesParams.networks" :key="network" class="form-group">
-            <label>DEX pour {{ network }}</label>
-            <div v-if="availableDexs[network] && availableDexs[network].length > 0" class="checkbox-group">
-              <label v-for="dex in availableDexs[network]" :key="dex" class="checkbox-label">
-                <input
-                  type="checkbox"
-                  :value="dex"
-                  v-model="balancesParams.dexs[network]"
-                />
-                <span>{{ dex }}</span>
-              </label>
-            </div>
-            <p v-else class="text-muted">Aucun DEX disponible pour ce réseau</p>
-          </div>
-
-          <div class="form-group">
-            <label>Date de début</label>
-            <input type="date" v-model="balancesParams.startDate" class="form-input" />
-          </div>
-
-          <div class="form-group">
-            <label>Date de fin</label>
-            <input type="date" v-model="balancesParams.endDate" class="form-input" />
-          </div>
-
-          <div class="form-group">
-            <label>Heure du snapshot (HH:MM)</label>
-            <input type="time" v-model="balancesParams.snapshotTime" class="form-input" />
-          </div>
-
-          <div class="form-group">
-            <label>Adresse cible</label>
-            <input
-              type="text"
-              v-model="balancesParams.targetAddress"
-              placeholder="0x... ou 'all'"
-              class="form-input"
-            />
-          </div>
-
-          <div class="form-group">
-            <label class="checkbox-label">
-              <input type="checkbox" v-model="balancesParams.useMock" />
-              <span>Utiliser des données mock</span>
-            </label>
+          <!-- Bouton pour lancer balance-calculator -->
+          <div class="form-group" style="margin-bottom: 1.5rem;">
+            <button
+              @click="startBalanceCalculator"
+              :disabled="isLoading || currentProcessId !== null"
+              class="btn btn-primary"
+              style="width: 100%;"
+            >
+              <span v-if="!isLoading && !currentProcessId">🚀 Lancer balance-calculator</span>
+              <span v-else-if="isLoading">⏳ Lancement...</span>
+              <span v-else>✅ Balance-calculator en cours d'exécution</span>
+            </button>
           </div>
 
           <!-- Zone de logs en temps réel -->
@@ -572,27 +461,45 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Prompt interactif -->
+          <!-- Zone de prompt interactif -->
           <div v-if="pendingPrompt" class="prompt-container">
             <div class="prompt-header">
-              <span>❓ Question interactive</span>
+              <span>💡 Question interactive</span>
             </div>
             <div class="prompt-question">{{ pendingPrompt.question }}</div>
             
-            <div v-if="pendingPrompt.type === 'select' && pendingPrompt.options && pendingPrompt.options.length > 0" class="prompt-options">
-              <label
-                v-for="(option, index) in pendingPrompt.options"
-                :key="index"
-                class="prompt-option"
-              >
-                <input
-                  type="radio"
-                  :value="option"
-                  v-model="promptAnswer"
-                  :name="'prompt-option'"
-                />
-                <span>{{ option }}</span>
-              </label>
+            <div v-if="(pendingPrompt.type === 'select' || pendingPrompt.type === 'checkbox') && pendingPrompt.options && pendingPrompt.options.length > 0" class="prompt-options">
+              <!-- Checkbox (sélection multiple) -->
+              <template v-if="pendingPrompt.type === 'checkbox'">
+                <label
+                  v-for="(option, index) in pendingPrompt.options"
+                  :key="index"
+                  class="prompt-option"
+                >
+                  <input
+                    type="checkbox"
+                    :value="option"
+                    v-model="promptAnswers"
+                  />
+                  <span>{{ option }}</span>
+                </label>
+              </template>
+              <!-- Select (sélection unique) -->
+              <template v-else>
+                <label
+                  v-for="(option, index) in pendingPrompt.options"
+                  :key="index"
+                  class="prompt-option"
+                >
+                  <input
+                    type="radio"
+                    :value="option"
+                    v-model="promptAnswer"
+                    name="prompt-option"
+                  />
+                  <span>{{ option }}</span>
+                </label>
+              </template>
             </div>
             
             <div v-else-if="pendingPrompt.type === 'confirm'" class="prompt-options">
@@ -606,7 +513,7 @@ onUnmounted(() => {
               </label>
             </div>
             
-            <div v-else class="prompt-input">
+            <div v-else-if="pendingPrompt.type === 'input'" class="prompt-input">
               <input
                 type="text"
                 v-model="promptAnswer"
@@ -617,7 +524,7 @@ onUnmounted(() => {
             </div>
             
             <div class="prompt-actions">
-              <button @click="sendPromptAnswer" :disabled="!promptAnswer" class="btn btn-primary btn-small">
+              <button @click="sendPromptAnswer" :disabled="pendingPrompt.type === 'checkbox' ? promptAnswers.length === 0 : !promptAnswer" class="btn btn-primary btn-small">
                 📤 Envoyer
               </button>
             </div>
@@ -625,11 +532,7 @@ onUnmounted(() => {
         </div>
 
         <div class="modal-footer">
-          <button @click="closeBalancesModal" class="btn btn-secondary">Annuler</button>
-          <button @click="generateBalances" :disabled="isLoading" class="btn btn-primary">
-            <span v-if="!isLoading">🚀 Générer</span>
-            <span v-else class="loading">⏳ Génération...</span>
-          </button>
+          <button @click="closeBalancesModal" class="btn btn-secondary">Fermer</button>
         </div>
       </div>
     </div>
@@ -1192,6 +1095,17 @@ onUnmounted(() => {
 .prompt-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 768px) {

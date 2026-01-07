@@ -17,6 +17,15 @@ const snapshots = ref<SnapshotInfo[]>([])
 const isLoadingSnapshots = ref(false)
 const isDraggingBalances = ref(false)
 const isDraggingPowerVoting = ref(false)
+const generatedFiles = ref<Array<{
+  name: string
+  size: number
+  created: Date
+  modified: Date
+  type: string
+  url: string
+}>>([])
+const isLoadingGeneratedFiles = ref(false)
 
 const handleFileChange = (event: Event, type: 'balances' | 'powerVoting') => {
   const target = event.target as HTMLInputElement
@@ -168,6 +177,74 @@ const loadMockData = async () => {
   }
 }
 
+const loadGeneratedFiles = async () => {
+  isLoadingGeneratedFiles.value = true
+  try {
+    const response = await fetch('/api/files')
+    if (response.ok) {
+      generatedFiles.value = await response.json()
+    }
+  } catch (err) {
+    console.error('Failed to load generated files:', err)
+  } finally {
+    isLoadingGeneratedFiles.value = false
+  }
+}
+
+const useGeneratedFile = async (file: { name: string; url: string }, type: 'balances' | 'powerVoting') => {
+  isLoading.value = true
+  error.value = ''
+
+  try {
+    const response = await fetch(file.url)
+    if (!response.ok) throw new Error('Erreur lors du chargement du fichier')
+
+    const extension = file.name.split('.').pop()?.toLowerCase()
+    let data: any
+
+    if (extension === 'json') {
+      data = await response.json()
+    } else if (extension === 'csv') {
+      const text = await response.text()
+      data = await new Promise((resolve, reject) => {
+        Papa.parse(text, {
+          header: true,
+          dynamicTyping: false,
+          skipEmptyLines: true,
+          complete: (results) => {
+            try {
+              if (type === 'balances') {
+                const transformed = transformCSVToJSON(results.data as any[])
+                resolve({ result: { balances: transformed } })
+              } else {
+                const transformed = transformPowerVotingCSV(results.data as any[])
+                resolve({ result: { powerVoting: transformed } })
+              }
+            } catch (err) {
+              reject(err)
+            }
+          },
+          error: (err) => reject(err),
+        })
+      })
+    } else {
+      throw new Error('Format de fichier non supporté')
+    }
+
+    if (type === 'balances') {
+      dataStore.setBalancesData(data)
+      balancesFile.value = new File([], file.name) as File
+    } else {
+      dataStore.setPowerVotingData(data)
+      powerVotingFile.value = new File([], file.name) as File
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Erreur inconnue'
+  } finally {
+    isLoading.value = false
+  }
+}
+
 onMounted(async () => {
   isLoadingSnapshots.value = true
   try {
@@ -177,6 +254,7 @@ onMounted(async () => {
   } finally {
     isLoadingSnapshots.value = false
   }
+  loadGeneratedFiles()
 })
 
 const loadSnapshotData = async (snapshot: SnapshotInfo) => {
@@ -314,6 +392,46 @@ const formatDiff = (diff: number, isInteger = false) => {
           <span v-if="!isLoading">🎯 Utiliser les données exemples</span>
           <span v-else class="loading">⏳ Chargement...</span>
         </button>
+      </div>
+    </div>
+
+    <div class="generated-files-section" v-if="generatedFiles.length > 0">
+      <div class="section-header">
+        <h3>⚙️ Fichiers générés ({{ generatedFiles.length }})</h3>
+        <p>Fichiers créés depuis la page Generate</p>
+        <button @click="loadGeneratedFiles" class="btn-refresh" :disabled="isLoadingGeneratedFiles">
+          {{ isLoadingGeneratedFiles ? '⏳' : '🔄' }} Actualiser
+        </button>
+      </div>
+      <div class="generated-files-grid">
+        <div
+          v-for="file in generatedFiles"
+          :key="file.name"
+          class="generated-file-card"
+        >
+          <div class="file-name">{{ file.name }}</div>
+          <div class="file-meta">
+            <span>{{ new Date(file.modified).toLocaleString('fr-FR') }}</span>
+          </div>
+          <div class="file-actions">
+            <button
+              v-if="file.name.includes('balancesREG')"
+              @click="useGeneratedFile(file, 'balances')"
+              :disabled="isLoading"
+              class="btn btn-small btn-primary"
+            >
+              📤 Utiliser pour Balances
+            </button>
+            <button
+              v-if="file.name.includes('powerVoting')"
+              @click="useGeneratedFile(file, 'powerVoting')"
+              :disabled="isLoading"
+              class="btn btn-small btn-primary"
+            >
+              📤 Utiliser pour Power Voting
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -655,6 +773,104 @@ const formatDiff = (diff: number, isInteger = false) => {
   color: var(--text-secondary);
   font-size: 0.95rem;
   line-height: 1.6;
+}
+
+.generated-files-section {
+  margin: 3rem 0;
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 2rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.section-header h3 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.section-header p {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  flex-basis: 100%;
+}
+
+.btn-refresh {
+  padding: 0.5rem 1rem;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.875rem;
+}
+
+.btn-refresh:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--primary-color);
+}
+
+.btn-refresh:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.generated-files-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.generated-file-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  transition: all 0.3s ease;
+}
+
+.generated-file-card:hover {
+  border-color: var(--primary-color);
+  background: var(--bg-tertiary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.generated-file-card .file-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.generated-file-card .file-meta {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+.generated-file-card .file-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-small {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
 }
 
 .snapshots-section {

@@ -38,3 +38,6 @@ __screenshots__/
 .env
 .env.local
 .vscode/
+
+# Balance calculator submodule
+balance-calculator/

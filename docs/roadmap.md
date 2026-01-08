@@ -6,7 +6,9 @@
 
 ## V2.0
 
-- Add configuration OptionModifier replacement in build balance-calculator for generate power voting with good parameter
+- Add log when rebuild (clone balance calculator from github....)
+- Replace balance-calculator project from choice form (balance-calculator from realtoken organization and from realt organization)
+- Replace configuration OptionModifier replacement in build balance-calculator for generate power voting with good parameter
 
 ## Design 
 

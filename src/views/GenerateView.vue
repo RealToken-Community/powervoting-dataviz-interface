@@ -60,6 +60,21 @@ const isLoadingConfig = ref(false)
 const isSavingConfig = ref(false)
 const showConfigSection = ref(false)
 
+// Environnement pour .env
+const envVariables = ref<Record<string, string>>({})
+const isLoadingEnv = ref(false)
+const isUpdatingEnv = ref<Record<string, boolean>>({})
+const isUpdatingAllEnv = ref(false)
+const showEnvSection = ref(false)
+// Variables d'environnement requises (lignes 5-9 du .env)
+const requiredEnvVars = [
+  'THEGRAPH_API_KEY',
+  'API_KEY_GNOSISSCAN',
+  'API_KEY_ETHERSCAN',
+  'API_KEY_POLYGONSCAN',
+  'API_KEY_MORALIS'
+]
+
 // Infos Git de balance-calculator
 const gitInfo = ref<{
   branch: string | null
@@ -184,6 +199,277 @@ const saveOptionsModifiers = async () => {
     error.value = err instanceof Error ? err.message : 'Erreur lors de la sauvegarde'
   } finally {
     isSavingConfig.value = false
+  }
+}
+
+const loadEnv = async () => {
+  isLoadingEnv.value = true
+  error.value = ''
+  
+  try {
+    const response = await fetch(`${API_BASE}/balance-calculator/config/env`)
+    
+    // Vérifier le Content-Type avant de parser
+    const contentType = response.headers.get('content-type')
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await response.text()
+      console.error('Réponse non-JSON reçue:', text.substring(0, 200))
+      throw new Error('Le serveur a retourné une réponse non-JSON. Vérifiez que l\'endpoint existe.')
+    }
+    
+    const data = await response.json()
+    
+    // Si le fichier n'existe pas, c'est OK, on peut le créer
+    if (!response.ok && response.status === 404) {
+      // Initialiser avec des valeurs vides
+      requiredEnvVars.forEach(key => {
+        envVariables.value[key] = ''
+        isUpdatingEnv.value[key] = false
+      })
+      error.value = data.error || 'Fichier .env non trouvé. Vous pouvez le créer en sauvegardant.'
+      return
+    }
+    
+    if (!response.ok) {
+      throw new Error(data.error || 'Erreur lors du chargement de l\'environnement')
+    }
+    
+    // Parser le contenu du .env et extraire uniquement les variables requises
+    const content = data.content || ''
+    const lines = content.split('\n')
+    const parsedVars: Record<string, string> = {}
+    
+    // Initialiser toutes les variables requises avec des valeurs vides
+    requiredEnvVars.forEach(key => {
+      parsedVars[key] = ''
+      isUpdatingEnv.value[key] = false
+    })
+    
+    // Parser les lignes du .env
+    lines.forEach(line => {
+      const trimmed = line.trim()
+      // Ignorer les commentaires et les lignes vides
+      if (trimmed && !trimmed.startsWith('#')) {
+        const match = trimmed.match(/^([^=]+)=(.*)$/)
+        if (match) {
+          const key = match[1].trim()
+          let value = match[2].trim()
+          // Retirer tous les guillemets (simples et doubles) de la valeur
+          value = value.replace(/^["']+|["']+$/g, '').replace(/["']/g, '')
+          // Ne garder que les variables requises
+          if (requiredEnvVars.includes(key)) {
+            parsedVars[key] = value
+          }
+        }
+      }
+    })
+    
+    envVariables.value = parsedVars
+    
+    // Si le fichier n'existe pas mais que la réponse est OK avec un message d'erreur
+    if (data.error && !data.content) {
+      error.value = data.error
+    }
+  } catch (err) {
+    console.error('Erreur lors du chargement de l\'environnement:', err)
+    error.value = err instanceof Error ? err.message : 'Erreur lors du chargement de l\'environnement'
+    // Initialiser avec des valeurs vides en cas d'erreur
+    requiredEnvVars.forEach(key => {
+      envVariables.value[key] = ''
+      isUpdatingEnv.value[key] = false
+    })
+  } finally {
+    isLoadingEnv.value = false
+  }
+}
+
+const updateEnvVariable = async (key: string) => {
+  if (!key) {
+    error.value = 'Clé de variable invalide'
+    return
+  }
+  
+  isUpdatingEnv.value[key] = true
+  error.value = ''
+  success.value = ''
+  
+  try {
+    // Charger d'abord le contenu actuel du .env
+    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`)
+    
+    // Vérifier le Content-Type avant de parser
+    const contentType = loadResponse.headers.get('content-type')
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await loadResponse.text()
+      console.error('Réponse non-JSON reçue lors de la mise à jour:', text.substring(0, 200))
+      throw new Error('Le serveur a retourné une réponse non-JSON. Vérifiez que l\'endpoint existe.')
+    }
+    
+    const loadData = await loadResponse.json()
+    
+    let content = loadData.content || ''
+    // Retirer tous les guillemets de la valeur avant de sauvegarder
+    let value = (envVariables.value[key] || '').trim()
+    // Retirer tous les guillemets (simples et doubles) de la valeur
+    value = value.replace(/^["']+|["']+$/g, '').replace(/["']/g, '')
+    
+    // Si le fichier existe, remplacer la ligne de cette variable
+    if (content) {
+      const lines = content.split('\n')
+      let found = false
+      const updatedLines = lines.map(line => {
+        const trimmed = line.trim()
+        // Si c'est la ligne de cette variable, la remplacer (sans guillemets)
+        // Utiliser une regex pour matcher la clé exacte, peu importe la valeur
+        if (trimmed && !trimmed.startsWith('#')) {
+          const lineMatch = trimmed.match(/^([^=]+)=(.*)$/)
+          if (lineMatch) {
+            const lineKey = lineMatch[1].trim()
+            if (lineKey === key) {
+              found = true
+              return `${key}=${value}`
+            }
+          }
+        }
+        return line
+      })
+      
+      // Si la variable n'existe pas dans le fichier, l'ajouter à la fin
+      if (!found) {
+        updatedLines.push(`${key}=${value}`)
+      }
+      
+      content = updatedLines.join('\n')
+    } else {
+      // Créer un nouveau fichier avec cette variable
+      content = `# Variables d'environnement pour balance-calculator\n# Généré automatiquement depuis l'interface\n\n${key}=${value}`
+    }
+    
+    // Sauvegarder
+    const saveResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: content,
+      }),
+    })
+    
+    if (!saveResponse.ok) {
+      const errorData = await saveResponse.json().catch(() => ({ error: 'Erreur lors de la sauvegarde' }))
+      throw new Error(errorData.error || 'Erreur lors de la sauvegarde')
+    }
+    
+    success.value = `✅ Variable ${key} mise à jour avec succès`
+    
+    // Recharger pour afficher la valeur mise à jour dans le formulaire
+    // Cela garantit que le formulaire reflète exactement ce qui est dans le .env
+    setTimeout(() => {
+      loadEnv()
+    }, 300)
+  } catch (err) {
+    console.error('Erreur lors de la mise à jour de la variable:', err)
+    error.value = err instanceof Error ? err.message : 'Erreur lors de la mise à jour'
+  } finally {
+    isUpdatingEnv.value[key] = false
+  }
+}
+
+const updateAllEnvVariables = async () => {
+  isUpdatingAllEnv.value = true
+  error.value = ''
+  success.value = ''
+  
+  try {
+    // Charger d'abord le contenu actuel du .env
+    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`)
+    
+    // Vérifier le Content-Type avant de parser
+    const contentType = loadResponse.headers.get('content-type')
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await loadResponse.text()
+      console.error('Réponse non-JSON reçue lors de la mise à jour globale:', text.substring(0, 200))
+      throw new Error('Le serveur a retourné une réponse non-JSON. Vérifiez que l\'endpoint existe.')
+    }
+    
+    const loadData = await loadResponse.json()
+    
+    let content = loadData.content || ''
+    const lines = content ? content.split('\n') : []
+    const updatedLines: string[] = []
+    const processedKeys = new Set<string>()
+    
+    // Parcourir les lignes existantes et remplacer les variables requises
+    lines.forEach(line => {
+      const trimmed = line.trim()
+      if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+        const match = trimmed.match(/^([^=]+)=(.*)$/)
+        if (match) {
+          const key = match[1].trim()
+          if (requiredEnvVars.includes(key)) {
+            // Remplacer par la nouvelle valeur (sans guillemets)
+            let value = (envVariables.value[key] || '').trim()
+            // Retirer tous les guillemets (simples et doubles) de la valeur
+            value = value.replace(/^["']+|["']+$/g, '').replace(/["']/g, '')
+            updatedLines.push(`${key}=${value}`)
+            processedKeys.add(key)
+          } else {
+            // Garder les autres variables telles quelles
+            updatedLines.push(line)
+          }
+        } else {
+          updatedLines.push(line)
+        }
+      } else {
+        updatedLines.push(line)
+      }
+    })
+    
+    // Ajouter les variables requises qui n'existent pas encore (sans guillemets)
+    requiredEnvVars.forEach(key => {
+      if (!processedKeys.has(key)) {
+        let value = (envVariables.value[key] || '').trim()
+        // Retirer tous les guillemets (simples et doubles) de la valeur
+        value = value.replace(/^["']+|["']+$/g, '').replace(/["']/g, '')
+        updatedLines.push(`${key}=${value}`)
+      }
+    })
+    
+    content = updatedLines.join('\n')
+    
+    // Si le fichier était vide, ajouter un en-tête
+    if (!loadData.content) {
+      content = `# Variables d'environnement pour balance-calculator\n# Généré automatiquement depuis l'interface\n\n${content}`
+    }
+    
+    // Sauvegarder
+    const saveResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: content,
+      }),
+    })
+    
+    if (!saveResponse.ok) {
+      const errorData = await saveResponse.json().catch(() => ({ error: 'Erreur lors de la sauvegarde' }))
+      throw new Error(errorData.error || 'Erreur lors de la sauvegarde')
+    }
+    
+    success.value = '✅ Toutes les variables d\'environnement mises à jour avec succès'
+    
+    // Recharger pour confirmer la mise à jour
+    setTimeout(() => {
+      loadEnv()
+    }, 500)
+  } catch (err) {
+    console.error('Erreur lors de la mise à jour des variables:', err)
+    error.value = err instanceof Error ? err.message : 'Erreur lors de la mise à jour'
+  } finally {
+    isUpdatingAllEnv.value = false
   }
 }
 
@@ -921,10 +1207,11 @@ onMounted(() => {
   setInterval(() => {
     loadGitInfo()
   }, 30000)
-  // Charger la configuration si balance-calculator existe
+  // Charger la configuration et l'environnement si balance-calculator existe
   setTimeout(() => {
     if (gitInfo.value.exists && gitInfo.value.isGitRepo) {
       loadOptionsModifiers()
+      loadEnv()
     }
   }, 2000)
 })
@@ -933,6 +1220,9 @@ onMounted(() => {
 watch(() => gitInfo.value.exists && gitInfo.value.isGitRepo, (isReady) => {
   if (isReady && showConfigSection.value) {
     loadOptionsModifiers()
+  }
+  if (isReady && showEnvSection.value) {
+    loadEnv()
   }
 })
 
@@ -1044,6 +1334,80 @@ onUnmounted(() => {
                 <span v-if="!isSavingConfig">💾 Update config</span>
                 <span v-else class="loading">⏳ Sauvegarde...</span>
               </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section Environnement -->
+        <div class="action-group">
+          <h3>🌍 Environnement</h3>
+          <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              <button
+                type="button"
+                @click.prevent="showEnvSection = !showEnvSection"
+                class="btn btn-secondary"
+              >
+                {{ showEnvSection ? '▼' : '▶' }} {{ showEnvSection ? 'Masquer' : 'Afficher' }} l'environnement
+              </button>
+              <button
+                v-if="showEnvSection"
+                type="button"
+                @click.prevent="loadEnv"
+                :disabled="isLoadingEnv"
+                class="btn btn-secondary"
+              >
+                <span v-if="!isLoadingEnv">🔄 Recharger</span>
+                <span v-else class="loading">⏳ Chargement...</span>
+              </button>
+            </div>
+            
+            <div v-if="showEnvSection" style="display: flex; flex-direction: column; gap: 1rem;">
+              <div v-if="isLoadingEnv" style="color: var(--text-secondary); font-style: italic;">
+                ⏳ Chargement de l'environnement...
+              </div>
+              <div v-else style="display: flex; flex-direction: column; gap: 1rem;">
+                <div style="font-size: 0.875rem; color: var(--text-secondary);">
+                  Variables d'environnement requises pour balance-calculator
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                  <div v-for="key in requiredEnvVars" :key="key" style="display: flex; align-items: center; gap: 1rem;">
+                    <div style="flex: 1; display: flex; flex-direction: column; gap: 0.25rem;">
+                      <label :for="`env-${key}`" style="font-weight: 600; font-size: 0.875rem;">
+                        {{ key }}
+                      </label>
+                      <input
+                        :id="`env-${key}`"
+                        v-model="envVariables[key]"
+                        type="text"
+                        class="form-input"
+                        style="width: 100%; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-primary); font-family: 'Courier New', monospace;"
+                        :placeholder="`Entrez la valeur pour ${key}`"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      @click.prevent="updateEnvVariable(key)"
+                      :disabled="isUpdatingEnv[key] || isUpdatingAllEnv"
+                      class="btn btn-secondary"
+                      style="margin-top: 1.5rem; white-space: nowrap;"
+                    >
+                      <span v-if="!isUpdatingEnv[key]">💾 Update</span>
+                      <span v-else class="loading">⏳...</span>
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  @click.prevent="updateAllEnvVariables"
+                  :disabled="isUpdatingAllEnv"
+                  class="btn btn-primary"
+                  style="width: 100%;"
+                >
+                  <span v-if="!isUpdatingAllEnv">💾 Update environnement variable global</span>
+                  <span v-else class="loading">⏳ Mise à jour...</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

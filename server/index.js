@@ -759,6 +759,77 @@ app.post('/api/balance-calculator/config/options-modifiers', async (req, res) =>
   }
 });
 
+// Endpoint pour lire le fichier .env de balance-calculator
+app.get('/api/balance-calculator/config/env', async (req, res) => {
+  try {
+    // Vérifier que balance-calculator existe
+    if (!existsSync(balanceCalculatorPath)) {
+      return res.status(404).json({ 
+        error: 'balance-calculator n\'est pas encore cloné',
+        content: '' 
+      });
+    }
+    
+    // Toujours lire directement .env s'il existe
+    const targetEnvPath = path.join(balanceCalculatorPath, '.env');
+    
+    // Si .env existe, le lire directement (ne pas le remplacer)
+    if (existsSync(targetEnvPath)) {
+      const content = readFileSync(targetEnvPath, 'utf-8');
+      return res.json({ content });
+    }
+    
+    // Si .env n'existe pas, chercher .env.local ou .env.example pour l'initialiser
+    let envPath = path.join(balanceCalculatorPath, '.env.local');
+    if (!existsSync(envPath)) {
+      envPath = path.join(balanceCalculatorPath, '.env.example');
+    }
+    
+    // Si on a trouvé .env.local ou .env.example, copier vers .env (seulement la première fois)
+    if (existsSync(envPath)) {
+      const content = readFileSync(envPath, 'utf-8');
+      await fs.writeFile(targetEnvPath, content, 'utf-8');
+      console.log(`Fichier ${path.basename(envPath)} copié vers .env (initialisation)`);
+      return res.json({ content });
+    }
+    
+    // Aucun fichier trouvé
+    console.log(`Aucun fichier .env trouvé dans ${balanceCalculatorPath}`);
+    return res.json({ 
+      error: 'Aucun fichier .env trouvé. Vous pouvez le créer en sauvegardant.',
+      content: '' 
+    });
+  } catch (error) {
+    console.error('Erreur lors de la lecture du fichier .env:', error);
+    res.status(500).json({ error: error.message, content: '' });
+  }
+});
+
+// Endpoint pour sauvegarder le fichier .env de balance-calculator
+app.post('/api/balance-calculator/config/env', async (req, res) => {
+  try {
+    const { content } = req.body || {};
+    
+    if (!content) {
+      return res.status(400).json({ error: 'Le contenu est requis' });
+    }
+    
+    // Vérifier que balance-calculator existe
+    if (!existsSync(balanceCalculatorPath)) {
+      return res.status(404).json({ error: 'balance-calculator n\'est pas encore cloné' });
+    }
+    
+    // Sauvegarder dans .env
+    const envPath = path.join(balanceCalculatorPath, '.env');
+    await fs.writeFile(envPath, content, 'utf-8');
+    
+    res.json({ message: 'Variables d\'environnement sauvegardées avec succès' });
+  } catch (error) {
+    console.error('Erreur lors de la sauvegarde du fichier .env:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Endpoint pour récupérer les informations Git de balance-calculator
 app.get('/api/balance-calculator/git-info', async (req, res) => {
   try {

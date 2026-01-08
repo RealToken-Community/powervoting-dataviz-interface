@@ -6,7 +6,6 @@
 
 ## V2.0
 
-- Replace configuration OptionModifier replacement in build balance-calculator for generate power voting with good parameter
 - Replace ENV variable from form interface for API KEY
 
 - Have snapshot in mockdata (from powervoting-dataviz-interface/public/snapshot) -> cp use in balance-calculator

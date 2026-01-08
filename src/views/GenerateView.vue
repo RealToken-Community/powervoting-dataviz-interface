@@ -54,6 +54,12 @@ const availableBranches = ref<string[]>([])
 const isLoadingBranches = ref(false)
 const rebuildProcessId = ref<string | null>(null)
 
+// Config pour optionsModifiers.ts
+const optionsModifiersContent = ref<string>('')
+const isLoadingConfig = ref(false)
+const isSavingConfig = ref(false)
+const showConfigSection = ref(false)
+
 // Infos Git de balance-calculator
 const gitInfo = ref<{
   branch: string | null
@@ -115,6 +121,69 @@ const loadFiles = async () => {
     files.value = await response.json()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Erreur inconnue'
+  }
+}
+
+const loadOptionsModifiers = async () => {
+  isLoadingConfig.value = true
+  error.value = ''
+  
+  try {
+    const response = await fetch(`${API_BASE}/balance-calculator/config/options-modifiers`)
+    const data = await response.json()
+    
+    // Si le fichier n'existe pas, c'est OK, on peut le créer
+    if (!response.ok && response.status === 404) {
+      optionsModifiersContent.value = ''
+      error.value = data.error || 'Fichier non trouvé. Vous pouvez le créer en sauvegardant.'
+      return
+    }
+    
+    if (!response.ok) {
+      throw new Error(data.error || 'Erreur lors du chargement de la configuration')
+    }
+    
+    optionsModifiersContent.value = data.content || ''
+    
+    // Si le fichier n'existe pas mais que la réponse est OK avec un message d'erreur
+    if (data.error && !data.content) {
+      error.value = data.error
+    }
+  } catch (err) {
+    console.error('Erreur lors du chargement de la configuration:', err)
+    error.value = err instanceof Error ? err.message : 'Erreur lors du chargement de la configuration'
+    optionsModifiersContent.value = ''
+  } finally {
+    isLoadingConfig.value = false
+  }
+}
+
+const saveOptionsModifiers = async () => {
+  isSavingConfig.value = true
+  error.value = ''
+  success.value = ''
+  
+  try {
+    const response = await fetch(`${API_BASE}/balance-calculator/config/options-modifiers`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: optionsModifiersContent.value,
+      }),
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Erreur lors de la sauvegarde' }))
+      throw new Error(errorData.error || 'Erreur lors de la sauvegarde')
+    }
+    
+    success.value = '✅ Configuration sauvegardée avec succès'
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Erreur lors de la sauvegarde'
+  } finally {
+    isSavingConfig.value = false
   }
 }
 
@@ -852,6 +921,19 @@ onMounted(() => {
   setInterval(() => {
     loadGitInfo()
   }, 30000)
+  // Charger la configuration si balance-calculator existe
+  setTimeout(() => {
+    if (gitInfo.value.exists && gitInfo.value.isGitRepo) {
+      loadOptionsModifiers()
+    }
+  }, 2000)
+})
+
+// Watch pour charger la config quand balance-calculator est cloné
+watch(() => gitInfo.value.exists && gitInfo.value.isGitRepo, (isReady) => {
+  if (isReady && showConfigSection.value) {
+    loadOptionsModifiers()
+  }
 })
 
 // Nettoyer les EventSource à la destruction du composant
@@ -913,6 +995,55 @@ onUnmounted(() => {
             </div>
             <div v-else style="font-size: 0.875rem; color: var(--text-secondary); font-style: italic;">
               balance-calculator n'est pas encore cloné
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section Config -->
+      <div class="action-group">
+        <h3>⚙️ Configuration</h3>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+          <div style="display: flex; align-items: center; gap: 1rem;">
+            <button
+              @click="showConfigSection = !showConfigSection"
+              class="btn btn-secondary"
+            >
+              {{ showConfigSection ? '▼' : '▶' }} {{ showConfigSection ? 'Masquer' : 'Afficher' }} la configuration
+            </button>
+            <button
+              v-if="showConfigSection"
+              type="button"
+              @click.prevent="loadOptionsModifiers"
+              :disabled="isLoadingConfig"
+              class="btn btn-secondary"
+            >
+              <span v-if="!isLoadingConfig">🔄 Recharger</span>
+              <span v-else class="loading">⏳ Chargement...</span>
+            </button>
+          </div>
+          
+          <div v-if="showConfigSection" style="display: flex; flex-direction: column; gap: 1rem;">
+            <div v-if="isLoadingConfig" style="color: var(--text-secondary); font-style: italic;">
+              ⏳ Chargement de la configuration...
+            </div>
+            <div v-else style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <label style="font-weight: 600;">📝 optionsModifiers.ts</label>
+              <textarea
+                v-model="optionsModifiersContent"
+                class="form-input"
+                style="width: 100%; min-height: 400px; font-family: 'Courier New', monospace; font-size: 0.875rem; padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-primary); resize: vertical;"
+                placeholder="Le contenu du fichier optionsModifiers.ts apparaîtra ici..."
+              ></textarea>
+              <button
+                type="button"
+                @click.prevent="saveOptionsModifiers"
+                :disabled="isSavingConfig || !optionsModifiersContent"
+                class="btn btn-primary"
+              >
+                <span v-if="!isSavingConfig">💾 Update config</span>
+                <span v-else class="loading">⏳ Sauvegarde...</span>
+              </button>
             </div>
           </div>
         </div>

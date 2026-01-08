@@ -687,6 +687,78 @@ app.post('/api/rebuild', async (req, res) => {
   }
 });
 
+// Endpoint pour lire le fichier optionsModifiers.ts
+app.get('/api/balance-calculator/config/options-modifiers', async (req, res) => {
+  try {
+    // Vérifier que balance-calculator existe
+    if (!existsSync(balanceCalculatorPath)) {
+      return res.status(404).json({ 
+        error: 'balance-calculator n\'est pas encore cloné',
+        content: '' 
+      });
+    }
+    
+    // Le fichier peut être dans src/configs/ ou src/config/ selon le repository
+    let optionsModifiersPath = path.join(balanceCalculatorPath, 'src', 'configs', 'optionsModifiers.ts');
+    if (!existsSync(optionsModifiersPath)) {
+      // Essayer avec config au lieu de configs
+      optionsModifiersPath = path.join(balanceCalculatorPath, 'src', 'config', 'optionsModifiers.ts');
+    }
+    
+    if (!existsSync(optionsModifiersPath)) {
+      console.log(`Fichier non trouvé: ${optionsModifiersPath}`);
+      // Retourner un contenu vide au lieu d'une erreur 404 pour permettre la création
+      return res.json({ 
+        error: 'Fichier optionsModifiers.ts non trouvé. Vous pouvez le créer en sauvegardant.',
+        content: '' 
+      });
+    }
+    
+    const content = readFileSync(optionsModifiersPath, 'utf-8');
+    res.json({ content });
+  } catch (error) {
+    console.error('Erreur lors de la lecture de optionsModifiers.ts:', error);
+    res.status(500).json({ error: error.message, content: '' });
+  }
+});
+
+// Endpoint pour sauvegarder le fichier optionsModifiers.ts
+app.post('/api/balance-calculator/config/options-modifiers', async (req, res) => {
+  try {
+    const { content } = req.body || {};
+    
+    if (!content) {
+      return res.status(400).json({ error: 'Le contenu est requis' });
+    }
+    
+    // Vérifier que balance-calculator existe
+    if (!existsSync(balanceCalculatorPath)) {
+      return res.status(404).json({ error: 'balance-calculator n\'est pas encore cloné' });
+    }
+    
+    // Le fichier peut être dans src/configs/ ou src/config/ selon le repository
+    // Vérifier d'abord quel dossier existe
+    const configsDir = path.join(balanceCalculatorPath, 'src', 'configs');
+    const configDir = path.join(balanceCalculatorPath, 'src', 'config');
+    const targetDir = existsSync(configsDir) ? configsDir : (existsSync(configDir) ? configDir : configsDir);
+    
+    // Créer le dossier s'il n'existe pas
+    if (!existsSync(targetDir)) {
+      await fs.mkdir(targetDir, { recursive: true });
+    }
+    
+    const optionsModifiersPath = path.join(targetDir, 'optionsModifiers.ts');
+    
+    // Sauvegarder le fichier
+    await fs.writeFile(optionsModifiersPath, content, 'utf-8');
+    
+    res.json({ message: 'Configuration sauvegardée avec succès' });
+  } catch (error) {
+    console.error('Erreur lors de la sauvegarde de optionsModifiers.ts:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Endpoint pour récupérer les informations Git de balance-calculator
 app.get('/api/balance-calculator/git-info', async (req, res) => {
   try {

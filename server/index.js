@@ -533,85 +533,210 @@ app.delete('/api/files/:filename', async (req, res) => {
 
 // Rebuild balance-calculator
 app.post('/api/rebuild', async (req, res) => {
-  // Exécuter en arrière-plan pour éviter de bloquer la réponse
-  (async () => {
-    try {
-      const repoUrl = 'https://github.com/RealToken-Community/balance-calculator.git';
-      const branch = 'yohann-test-pool-v3-modeles';
-      
-      // Configurer Git pour accepter le répertoire (nécessaire dans Docker)
-      await execAsync(`git config --global --add safe.directory ${projectRoot}`, { timeout: 5000 }).catch(() => {});
-      await execAsync(`git config --global --add safe.directory ${balanceCalculatorPath}`, { timeout: 5000 }).catch(() => {});
-      
-      const exists = existsSync(balanceCalculatorPath);
-      
-      if (exists) {
-        // Vérifier si c'est un dépôt git valide
-        try {
-          await execAsync(`cd ${balanceCalculatorPath} && git rev-parse --git-dir`, { timeout: 5000 });
-          
-          // Récupérer les branches distantes
-          await execAsync(`cd ${balanceCalculatorPath} && git fetch origin`, { timeout: 30000 });
-          
-          // Vérifier si la branche existe
-          const { stdout: branches } = await execAsync(`cd ${balanceCalculatorPath} && git branch -r`, { timeout: 5000 });
-          const branchExists = branches.includes(`origin/${branch}`);
-          
-          if (branchExists) {
-            // Mettre à jour
-            await execAsync(`cd ${balanceCalculatorPath} && git checkout ${branch} && git pull origin ${branch}`, { timeout: 60000 });
-          } else {
-            console.warn(`⚠️ Branche ${branch} non trouvée, utilisation de la branche par défaut`);
-            await execAsync(`cd ${balanceCalculatorPath} && git pull origin`, { timeout: 60000 });
-          }
-        } catch (gitError) {
-          console.warn('⚠️ Erreur Git, tentative de clonage complet:', gitError.message);
-          // Supprimer et recloner
-          await execAsync(`rm -rf ${balanceCalculatorPath}`, { timeout: 10000 });
-          await execAsync(`git clone -b ${branch} ${repoUrl} ${balanceCalculatorPath}`, { timeout: 120000 }).catch(async () => {
-            // Si la branche n'existe pas, cloner la branche par défaut
-            console.warn(`⚠️ Branche ${branch} non trouvée, clonage de la branche par défaut`);
-            await execAsync(`git clone ${repoUrl} ${balanceCalculatorPath}`, { timeout: 120000 });
-          });
+  try {
+    const { repositoryUrl } = req.body || {};
+    const repoUrl = repositoryUrl || 'https://github.com/RealToken-Community/balance-calculator.git';
+    const branch = 'yohann-test-pool-v3-modeles';
+    const processId = `rebuild-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Créer un objet pour stocker les logs et les listeners
+    const processData = {
+      logs: [],
+      listeners: [],
+    };
+    activeProcesses.set(processId, processData);
+    
+    // Fonction pour ajouter un log
+    const addLog = (type, message) => {
+      // S'assurer que chaque message se termine par un retour à la ligne pour un affichage propre
+      let formattedMessage = message
+      if (!formattedMessage.endsWith('\n') && !formattedMessage.endsWith('\r\n')) {
+        formattedMessage += '\r\n'
+      }
+      const log = { type, message: formattedMessage, timestamp: new Date().toISOString() };
+      processData.logs.push(log);
+      // Envoyer à tous les listeners
+      processData.listeners.forEach(listener => listener(log));
+      // Garder seulement les 1000 derniers logs
+      if (processData.logs.length > 1000) {
+        processData.logs.shift();
+      }
+    };
+    
+    // Envoyer la réponse avec l'ID du processus
+    res.json({ 
+      message: 'Rebuild en cours...', 
+      processId 
+    });
+    
+    // Exécuter le rebuild en arrière-plan
+    (async () => {
+      try {
+        addLog('info', '🔄 Démarrage du rebuild de balance-calculator...');
+        addLog('info', `📦 Repository: ${repoUrl}`);
+        
+        // Configurer Git pour accepter le répertoire (nécessaire dans Docker)
+        await execAsync(`git config --global --add safe.directory ${projectRoot}`, { timeout: 5000 }).catch(() => {});
+        await execAsync(`git config --global --add safe.directory ${balanceCalculatorPath}`, { timeout: 5000 }).catch(() => {});
+        
+        // TOUJOURS supprimer le projet existant et recloner pour garantir un état propre
+        const exists = existsSync(balanceCalculatorPath);
+        
+        if (exists) {
+          addLog('info', '🗑️ Suppression du projet existant...');
+          await execAsync(`rm -rf ${balanceCalculatorPath}`, { timeout: 30000 });
+          addLog('info', '✅ Projet existant supprimé');
         }
-      } else {
-        // Cloner
+        
+        // Cloner le projet avec l'URL choisie
+        addLog('info', '📥 Clonage du dépôt...');
         try {
+          // Essayer de cloner la branche spécifiée
           await execAsync(`git clone -b ${branch} ${repoUrl} ${balanceCalculatorPath}`, { timeout: 120000 });
+          addLog('info', `✅ Dépôt cloné avec succès (branche: ${branch})`);
         } catch (cloneError) {
           // Si la branche n'existe pas, cloner la branche par défaut
-          console.warn(`⚠️ Branche ${branch} non trouvée, clonage de la branche par défaut`);
+          addLog('info', `⚠️ Branche ${branch} non trouvée, clonage de la branche par défaut`);
           await execAsync(`git clone ${repoUrl} ${balanceCalculatorPath}`, { timeout: 120000 });
+          addLog('info', '✅ Dépôt cloné avec succès (branche par défaut)');
         }
+        
+        // Configurer Git pour le nouveau dépôt
         await execAsync(`git config --global --add safe.directory ${balanceCalculatorPath}`, { timeout: 5000 }).catch(() => {});
-      }
-      
-      // Installer les dépendances
-      await execAsync(`cd ${balanceCalculatorPath} && yarn install`, { timeout: 300000 });
-      
-      // Copier le .env du projet principal vers balance-calculator
-      const sourceEnvPath = path.join(projectRoot, '.env');
-      const targetEnvPath = path.join(balanceCalculatorPath, '.env');
-      
-      if (existsSync(sourceEnvPath)) {
-        try {
-          await fs.copyFile(sourceEnvPath, targetEnvPath);
-          console.log('✅ Fichier .env copié vers balance-calculator');
-        } catch (error) {
-          console.warn(`⚠️ Erreur lors de la copie du .env: ${error.message}`);
+        
+        // Installer les dépendances
+        addLog('info', '📦 Installation des dépendances...');
+        await execAsync(`cd ${balanceCalculatorPath} && yarn install`, { timeout: 300000 });
+        
+        // Copier le .env du projet principal vers balance-calculator
+        const sourceEnvPath = path.join(projectRoot, '.env');
+        const targetEnvPath = path.join(balanceCalculatorPath, '.env');
+        
+        if (existsSync(sourceEnvPath)) {
+          try {
+            await fs.copyFile(sourceEnvPath, targetEnvPath);
+            addLog('info', '✅ Fichier .env copié vers balance-calculator');
+          } catch (error) {
+            addLog('error', `⚠️ Erreur lors de la copie du .env: ${error.message}`);
+          }
+        } else {
+          addLog('warning', '⚠️ Fichier .env non trouvé dans le projet principal');
         }
-      } else {
-        console.warn('⚠️ Fichier .env non trouvé dans le projet principal');
+        
+        addLog('info', '✅ Rebuild terminé avec succès');
+        // Envoyer un message spécial pour indiquer que le rebuild est terminé
+        addLog('info', '🔄 Rebuild terminé - Les infos Git seront mises à jour automatiquement');
+      } catch (error) {
+        addLog('error', `❌ Erreur lors du rebuild: ${error.message}`);
+      } finally {
+        // Nettoyer après un délai plus long pour laisser le temps à tous les logs d'être envoyés
+        // Ne pas supprimer immédiatement pour éviter de couper les logs
+        setTimeout(() => {
+          activeProcesses.delete(processId);
+        }, 300000); // Garder les logs pendant 5 minutes pour permettre la consultation complète
       }
-      
-      console.log('✅ Rebuild terminé avec succès');
-    } catch (error) {
-      console.error('❌ Rebuild error:', error);
+    })();
+  } catch (error) {
+    console.error('❌ Rebuild error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint pour récupérer les informations Git de balance-calculator
+app.get('/api/balance-calculator/git-info', async (req, res) => {
+  try {
+    // Vérifier que le dossier existe
+    if (!existsSync(balanceCalculatorPath)) {
+      return res.json({
+        branch: null,
+        remote: null,
+        exists: false,
+        isGitRepo: false,
+      });
     }
-  })();
+    
+    // Vérifier que c'est bien un dépôt Git
+    let isGitRepo = false;
+    try {
+      await execAsync(`cd ${balanceCalculatorPath} && git rev-parse --git-dir`, { timeout: 5000 });
+      isGitRepo = true;
+    } catch (err) {
+      // Ce n'est pas un dépôt Git valide
+      return res.json({
+        branch: null,
+        remote: null,
+        exists: true,
+        isGitRepo: false,
+      });
+    }
+    
+    let branch = null;
+    let remote = null;
+    
+    try {
+      // Récupérer la branche actuelle
+      const { stdout: branchOutput } = await execAsync(`cd ${balanceCalculatorPath} && git rev-parse --abbrev-ref HEAD`, { timeout: 5000 });
+      branch = branchOutput.trim();
+    } catch (err) {
+      console.warn('Erreur lors de la récupération de la branche:', err.message);
+    }
+    
+    try {
+      // Récupérer l'URL du remote origin
+      const { stdout: remoteOutput } = await execAsync(`cd ${balanceCalculatorPath} && git remote get-url origin`, { timeout: 5000 });
+      remote = remoteOutput.trim();
+    } catch (err) {
+      console.warn('Erreur lors de la récupération du remote:', err.message);
+    }
+    
+    res.json({
+      branch,
+      remote,
+      exists: true,
+      isGitRepo: true,
+    });
+  } catch (error) {
+    console.error('Erreur lors de la récupération des infos Git:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint SSE pour les logs du rebuild
+app.get('/api/rebuild/logs/:processId', (req, res) => {
+  const { processId } = req.params;
   
-  // Envoyer la réponse immédiatement
-  res.json({ message: 'Rebuild en cours...' });
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  
+  const processData = activeProcesses.get(processId);
+  
+  if (!processData) {
+    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Processus non trouvé' })}\n\n`);
+    res.end();
+    return;
+  }
+  
+  // Envoyer les logs existants
+  processData.logs.forEach(log => {
+    res.write(`data: ${JSON.stringify(log)}\n\n`);
+  });
+  
+  // Ajouter un listener pour les nouveaux logs
+  const listener = (log) => {
+    res.write(`data: ${JSON.stringify(log)}\n\n`);
+  };
+  
+  processData.listeners.push(listener);
+  
+  // Nettoyer quand la connexion se ferme
+  req.on('close', () => {
+    const index = processData.listeners.indexOf(listener);
+    if (index > -1) {
+      processData.listeners.splice(index, 1);
+    }
+  });
 });
 
 const PORT = process.env.PORT || 3001;

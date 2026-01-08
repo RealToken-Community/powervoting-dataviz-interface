@@ -42,6 +42,28 @@ const terminalContainer = ref<HTMLElement | null>(null)
 const xtermTerminal = ref<Terminal | null>(null)
 const fitAddon = ref<FitAddon | null>(null)
 
+// Refs pour la modale de rebuild
+const showRebuildModal = ref(false)
+const rebuildTerminalContainer = ref<HTMLElement | null>(null)
+const rebuildXtermTerminal = ref<Terminal | null>(null)
+const rebuildFitAddon = ref<FitAddon | null>(null)
+const rebuildEventSource = ref<EventSource | null>(null)
+const selectedRepository = ref<string>('https://github.com/RealToken-Community/balance-calculator.git')
+const rebuildProcessId = ref<string | null>(null)
+
+// Infos Git de balance-calculator
+const gitInfo = ref<{
+  branch: string | null
+  remote: string | null
+  exists: boolean
+  isGitRepo: boolean
+}>({
+  branch: null,
+  remote: null,
+  exists: false,
+  isGitRepo: false,
+})
+
 // Paramètres pour la génération des balances
 const balancesParams = ref({
   networks: ['gnosis'] as string[],
@@ -66,6 +88,22 @@ const availableDexs = {
 }
 
 const API_BASE = '/api'
+
+const loadGitInfo = async () => {
+  try {
+    const response = await fetch(`${API_BASE}/balance-calculator/git-info`)
+    if (!response.ok) throw new Error('Erreur lors de la récupération des infos Git')
+    gitInfo.value = await response.json()
+  } catch (err) {
+    console.error('Erreur lors du chargement des infos Git:', err)
+    gitInfo.value = {
+      branch: null,
+      remote: null,
+      exists: false,
+      isGitRepo: false,
+    }
+  }
+}
 
 const loadFiles = async () => {
   try {
@@ -339,29 +377,202 @@ const startBalanceCalculator = async () => {
   }
 }
 
-const rebuildCalculator = async () => {
+const openRebuildModal = (event?: Event) => {
+  // Empêcher le comportement par défaut (rechargement de page)
+  if (event) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  
+  showRebuildModal.value = true
+  selectedRepository.value = 'https://github.com/RealToken-Community/balance-calculator.git'
+}
+
+const closeRebuildModal = () => {
+  showRebuildModal.value = false
+  stopRebuildLogsStream()
+  if (rebuildXtermTerminal.value) {
+    rebuildXtermTerminal.value.dispose()
+    rebuildXtermTerminal.value = null
+  }
+  if (rebuildFitAddon.value) {
+    rebuildFitAddon.value = null
+  }
+}
+
+const initRebuildXterm = async () => {
+  if (!rebuildTerminalContainer.value || rebuildXtermTerminal.value) {
+    return
+  }
+  
+  await nextTick()
+  
+  const terminal = new Terminal({
+    theme: {
+      background: '#1e1e1e',
+      foreground: '#d4d4d4',
+      cursor: '#4ec9b0',
+      selection: '#264f78',
+    },
+    fontSize: 14,
+    fontFamily: 'Courier New, monospace',
+    cursorBlink: true,
+    cursorStyle: 'block',
+    allowProposedApi: true,
+    allowTransparency: false,
+    convertEol: true,
+    disableStdin: false,
+    scrollback: 1000,
+  })
+  
+  const fit = new FitAddon()
+  terminal.loadAddon(fit)
+  
+  terminal.open(rebuildTerminalContainer.value)
+  
+  await nextTick()
+  setTimeout(() => {
+    fit.fit()
+    terminal.refresh(0, terminal.rows - 1)
+  }, 100)
+  
+  rebuildXtermTerminal.value = terminal
+  rebuildFitAddon.value = fit
+}
+
+const startRebuildLogsStream = (processId: string) => {
+  if (rebuildEventSource.value) {
+    rebuildEventSource.value.close()
+  }
+  
+  rebuildProcessId.value = processId
+  rebuildEventSource.value = new EventSource(`${API_BASE}/rebuild/logs/${processId}`)
+  
+  rebuildEventSource.value.onmessage = (event) => {
+    try {
+      const log = JSON.parse(event.data)
+      
+      if (rebuildXtermTerminal.value) {
+        if (log.type === 'stdout' || log.type === 'stderr' || log.type === 'info' || log.type === 'error') {
+          // S'assurer que chaque message se termine par un retour à la ligne
+          let message = log.message
+          // Si le message ne se termine pas déjà par \n ou \r\n, en ajouter un
+          if (!message.endsWith('\n') && !message.endsWith('\r\n')) {
+            message += '\r\n'
+          }
+          rebuildXtermTerminal.value.write(message)
+          
+          // Détecter la fin du rebuild et rafraîchir les infos Git et les fichiers
+          // On attend que le stream soit complètement terminé avant de rafraîchir
+          if (log.message.includes('✅ Rebuild terminé avec succès') || log.message.includes('Rebuild terminé')) {
+            // Réactiver le bouton immédiatement pour permettre un nouveau rebuild
+            isRebuilding.value = false
+            rebuildProcessId.value = null
+            
+            // Attendre beaucoup plus longtemps pour que tous les logs soient envoyés et que le système de fichiers soit à jour
+            // Ne pas rafraîchir immédiatement pour éviter de couper les logs
+            setTimeout(() => {
+              loadGitInfo()
+              loadFiles() // Rafraîchir aussi la liste des fichiers générés
+            }, 15000) // Augmenter le délai à 15 secondes pour laisser le temps à tous les logs d'arriver
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error parsing rebuild log:', err)
+    }
+  }
+  
+  rebuildEventSource.value.onerror = (err) => {
+    console.error('Rebuild EventSource error:', err)
+  }
+}
+
+const stopRebuildLogsStream = () => {
+  if (rebuildEventSource.value) {
+    rebuildEventSource.value.close()
+    rebuildEventSource.value = null
+  }
+  rebuildProcessId.value = null
+}
+
+const rebuildCalculator = async (event?: Event) => {
+  // Empêcher le comportement par défaut (rechargement de page)
+  if (event) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  
+  // Nettoyer l'état précédent avant de lancer un nouveau rebuild
+  stopRebuildLogsStream()
   isRebuilding.value = true
   error.value = ''
   success.value = ''
 
   try {
+    // Initialiser le terminal si ce n'est pas déjà fait
+    if (!rebuildXtermTerminal.value) {
+      await initRebuildXterm()
+    } else {
+      // Nettoyer le terminal avant de lancer un nouveau rebuild
+      rebuildXtermTerminal.value.clear()
+      rebuildXtermTerminal.value.write('\r\n🔄 Nouveau rebuild en cours...\r\n\r\n')
+    }
+    
+    // Lancer le rebuild avec le repository sélectionné
     const response = await fetch(`${API_BASE}/rebuild`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        repositoryUrl: selectedRepository.value,
+      }),
     })
 
     if (!response.ok) throw new Error('Erreur lors du rebuild')
 
-    success.value = 'Rebuild terminé avec succès'
+    const data = await response.json()
     
+    // Démarrer le stream de logs
+    if (data.processId) {
+      startRebuildLogsStream(data.processId)
+    }
+    
+    // Rafraîchir les infos Git après un délai (pour laisser le temps au rebuild de se terminer)
     setTimeout(() => {
-      loadFiles()
-    }, 2000)
+      loadGitInfo()
+    }, 5000)
+    
+    // Attendre la fin du processus (détecté via les logs ou un message spécial)
+    // Pour l'instant, on laisse l'utilisateur fermer la modale manuellement
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Erreur inconnue'
-  } finally {
+    if (rebuildXtermTerminal.value) {
+      rebuildXtermTerminal.value.write(`\r\n❌ Erreur: ${error.value}\r\n`)
+    }
+    // Réactiver le bouton en cas d'erreur pour permettre de réessayer
     isRebuilding.value = false
+    rebuildProcessId.value = null
   }
 }
+
+// Watch pour initialiser le terminal quand la modale s'ouvre
+watch(showRebuildModal, async (isOpen) => {
+  if (isOpen) {
+    await nextTick()
+    await initRebuildXterm()
+  } else {
+    stopRebuildLogsStream()
+    if (rebuildXtermTerminal.value) {
+      rebuildXtermTerminal.value.dispose()
+      rebuildXtermTerminal.value = null
+    }
+    if (rebuildFitAddon.value) {
+      rebuildFitAddon.value = null
+    }
+  }
+})
 
 const deleteFile = async (filename: string) => {
   if (!confirm(`Êtes-vous sûr de vouloir supprimer ${filename} ?`)) return
@@ -579,8 +790,13 @@ watch(showBalancesModal, async (isOpen) => {
 
 onMounted(() => {
   loadFiles()
+  loadGitInfo()
   // Recharger les fichiers toutes les 5 secondes
   setInterval(loadFiles, 5000)
+  // Rafraîchir les infos Git toutes les 30 secondes
+  setInterval(() => {
+    loadGitInfo()
+  }, 30000)
 })
 
 // Nettoyer les EventSource à la destruction du composant
@@ -615,14 +831,35 @@ onUnmounted(() => {
 
         <div class="action-group">
           <h3>Maintenance</h3>
+          <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
           <button
-            @click="rebuildCalculator"
-            :disabled="isRebuilding"
+            type="button"
+            @click.prevent="openRebuildModal"
             class="btn btn-secondary"
           >
-            <span v-if="!isRebuilding">🔄 Rebuild balance-calculator</span>
-            <span v-else class="loading">⏳ Rebuild en cours...</span>
-          </button>
+              🔄 Rebuild balance-calculator
+            </button>
+            <div v-if="gitInfo.exists && gitInfo.isGitRepo" style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.875rem; color: var(--text-secondary);">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="font-weight: 600;">Branche:</span>
+                <span style="font-family: monospace; background: var(--card-bg); padding: 0.25rem 0.5rem; border-radius: 0.25rem; border: 1px solid var(--border-color);">
+                  {{ gitInfo.branch || 'N/A' }}
+                </span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="font-weight: 600;">Origin:</span>
+                <span style="font-family: monospace; background: var(--card-bg); padding: 0.25rem 0.5rem; border-radius: 0.25rem; border: 1px solid var(--border-color); max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  {{ gitInfo.remote || 'N/A' }}
+                </span>
+              </div>
+            </div>
+            <div v-else-if="gitInfo.exists && !gitInfo.isGitRepo" style="font-size: 0.875rem; color: #ffa500; font-style: italic;">
+              ⚠️ Le dossier existe mais n'est pas un dépôt Git valide
+            </div>
+            <div v-else style="font-size: 0.875rem; color: var(--text-secondary); font-style: italic;">
+              balance-calculator n'est pas encore cloné
+            </div>
+          </div>
         </div>
       </div>
 
@@ -735,6 +972,72 @@ onUnmounted(() => {
 
         <div class="modal-footer">
           <button @click="closeBalancesModal" class="btn btn-secondary">Fermer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modale pour le rebuild de balance-calculator -->
+    <div v-if="showRebuildModal" class="modal-overlay" @click.self="closeRebuildModal">
+      <div class="modal-content" style="max-width: 900px;">
+        <div class="modal-header">
+          <h3>🔄 Rebuild balance-calculator</h3>
+          <button @click="closeRebuildModal" class="modal-close">×</button>
+        </div>
+        
+        <div class="modal-body">
+          <!-- Formulaire de choix du repository -->
+          <div class="form-group" style="margin-bottom: 1.5rem;">
+            <label>📦 Repository source</label>
+            <div class="prompt-options" style="flex-direction: column; gap: 0.5rem;">
+              <label class="prompt-option">
+                <input 
+                  type="radio" 
+                  value="https://github.com/RealToken-Community/balance-calculator.git"
+                  v-model="selectedRepository"
+                  name="repository"
+                />
+                <span>RealToken-Community/balance-calculator</span>
+              </label>
+              <label class="prompt-option">
+                <input 
+                  type="radio" 
+                  value="https://github.com/real-token/balance-calculator.git"
+                  v-model="selectedRepository"
+                  name="repository"
+                />
+                <span>real-token/balance-calculator</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Terminal pour les logs du rebuild -->
+          <div class="form-group">
+            <label>📋 Logs du rebuild</label>
+            <div 
+              ref="rebuildTerminalContainer" 
+              class="xterm-terminal-container"
+              style="width: 100%; height: 500px; background: #1e1e1e; border-radius: 0.5rem; padding: 1rem; overflow: hidden;"
+            ></div>
+          </div>
+
+          <!-- Bouton pour lancer le rebuild -->
+          <div class="form-group" style="margin-top: 1.5rem;">
+            <button
+              type="button"
+              @click.prevent="rebuildCalculator"
+              :disabled="isRebuilding || rebuildProcessId !== null"
+              class="btn btn-primary"
+              style="width: 100%;"
+            >
+              <span v-if="!isRebuilding && !rebuildProcessId">🚀 Lancer le rebuild</span>
+              <span v-else-if="isRebuilding">⏳ Lancement...</span>
+              <span v-else>✅ Rebuild en cours...</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button @click="closeRebuildModal" class="btn btn-secondary">Fermer</button>
         </div>
       </div>
     </div>

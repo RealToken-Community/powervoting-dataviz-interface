@@ -49,6 +49,9 @@ const rebuildXtermTerminal = ref<Terminal | null>(null)
 const rebuildFitAddon = ref<FitAddon | null>(null)
 const rebuildEventSource = ref<EventSource | null>(null)
 const selectedRepository = ref<string>('https://github.com/RealToken-Community/balance-calculator.git')
+const selectedBranch = ref<string>('yohann-test-pool-v3-modeles')
+const availableBranches = ref<string[]>([])
+const isLoadingBranches = ref(false)
 const rebuildProcessId = ref<string | null>(null)
 
 // Infos Git de balance-calculator
@@ -377,7 +380,55 @@ const startBalanceCalculator = async () => {
   }
 }
 
-const openRebuildModal = (event?: Event) => {
+const loadBranches = async (repositoryUrl: string) => {
+  if (!repositoryUrl) {
+    console.warn('Aucun repository URL fourni')
+    return
+  }
+  
+  isLoadingBranches.value = true
+  availableBranches.value = []
+  
+  try {
+    const response = await fetch(`${API_BASE}/repositories/branches`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ repositoryUrl }),
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Erreur lors de la récupération des branches' }))
+      throw new Error(errorData.error || 'Erreur lors de la récupération des branches')
+    }
+    
+    const data = await response.json()
+    availableBranches.value = data.branches || []
+    
+    // Si la branche par défaut existe, la sélectionner, sinon sélectionner la première
+    if (availableBranches.value.includes('yohann-test-pool-v3-modeles')) {
+      selectedBranch.value = 'yohann-test-pool-v3-modeles'
+    } else if (availableBranches.value.includes('main')) {
+      selectedBranch.value = 'main'
+    } else if (availableBranches.value.length > 0) {
+      selectedBranch.value = availableBranches.value[0]
+    } else {
+      // Aucune branche trouvée, utiliser la branche par défaut
+      selectedBranch.value = 'yohann-test-pool-v3-modeles'
+    }
+  } catch (err) {
+    console.error('Erreur lors du chargement des branches:', err)
+    // En cas d'erreur, utiliser la branche par défaut
+    selectedBranch.value = 'yohann-test-pool-v3-modeles'
+    availableBranches.value = []
+    error.value = err instanceof Error ? err.message : 'Erreur lors de la récupération des branches'
+  } finally {
+    isLoadingBranches.value = false
+  }
+}
+
+const openRebuildModal = async (event?: Event) => {
   // Empêcher le comportement par défaut (rechargement de page)
   if (event) {
     event.preventDefault()
@@ -386,6 +437,9 @@ const openRebuildModal = (event?: Event) => {
   
   showRebuildModal.value = true
   selectedRepository.value = 'https://github.com/RealToken-Community/balance-calculator.git'
+  
+  // Charger les branches du repository sélectionné
+  await loadBranches(selectedRepository.value)
 }
 
 const closeRebuildModal = () => {
@@ -527,6 +581,7 @@ const rebuildCalculator = async (event?: Event) => {
       },
       body: JSON.stringify({
         repositoryUrl: selectedRepository.value,
+        branch: selectedBranch.value,
       }),
     })
 
@@ -995,6 +1050,7 @@ onUnmounted(() => {
                   value="https://github.com/RealToken-Community/balance-calculator.git"
                   v-model="selectedRepository"
                   name="repository"
+                  @change="loadBranches(selectedRepository)"
                 />
                 <span>RealToken-Community/balance-calculator</span>
               </label>
@@ -1004,9 +1060,32 @@ onUnmounted(() => {
                   value="https://github.com/real-token/balance-calculator.git"
                   v-model="selectedRepository"
                   name="repository"
+                  @change="loadBranches(selectedRepository)"
                 />
                 <span>real-token/balance-calculator</span>
               </label>
+            </div>
+          </div>
+
+          <!-- Formulaire de choix de la branche -->
+          <div class="form-group" style="margin-bottom: 1.5rem;">
+            <label>🌿 Branche</label>
+            <div v-if="isLoadingBranches" style="color: var(--text-secondary); font-style: italic;">
+              ⏳ Chargement des branches...
+            </div>
+            <select 
+              v-else-if="availableBranches.length > 0"
+              v-model="selectedBranch"
+              class="form-input"
+              style="width: 100%; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-primary);"
+            >
+              <option v-for="branch in availableBranches" :key="branch" :value="branch">
+                {{ branch }}
+              </option>
+            </select>
+            <div v-else style="color: var(--text-secondary); font-style: italic;">
+              <div v-if="error">⚠️ {{ error }}</div>
+              <div v-else>Aucune branche disponible. La branche par défaut sera utilisée.</div>
             </div>
           </div>
 

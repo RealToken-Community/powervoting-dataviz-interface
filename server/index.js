@@ -532,11 +532,56 @@ app.delete('/api/files/:filename', async (req, res) => {
 });
 
 // Rebuild balance-calculator
-app.post('/api/rebuild', async (req, res) => {
+// Endpoint pour récupérer les branches d'un repository
+app.post('/api/repositories/branches', async (req, res) => {
   try {
     const { repositoryUrl } = req.body || {};
+    
+    if (!repositoryUrl) {
+      return res.status(400).json({ error: 'repositoryUrl est requis' });
+    }
+    
+    console.log(`📋 Récupération des branches pour: ${repositoryUrl}`);
+    
+    // Utiliser git ls-remote pour récupérer les branches sans cloner
+    // Échapper l'URL pour éviter les problèmes avec les caractères spéciaux
+    const { stdout, stderr } = await execAsync(`git ls-remote --heads "${repositoryUrl}"`, { timeout: 30000 });
+    
+    if (stderr && !stdout) {
+      console.error('Erreur git ls-remote:', stderr);
+      throw new Error(`Erreur lors de la récupération des branches: ${stderr}`);
+    }
+    
+    // Parser la sortie pour extraire les noms de branches
+    const branches = stdout
+      .split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        // Format: <hash>	refs/heads/<branch-name>
+        const match = line.match(/refs\/heads\/(.+)$/);
+        return match ? match[1] : null;
+      })
+      .filter(branch => branch !== null)
+      .sort(); // Trier les branches par ordre alphabétique
+    
+    console.log(`✅ ${branches.length} branches trouvées:`, branches);
+    
+    res.json({ branches });
+  } catch (error) {
+    console.error('❌ Erreur lors de la récupération des branches:', error);
+    // En cas d'erreur, retourner un tableau vide avec un message d'erreur
+    res.status(500).json({ 
+      error: error.message || 'Erreur lors de la récupération des branches',
+      branches: [] 
+    });
+  }
+});
+
+app.post('/api/rebuild', async (req, res) => {
+  try {
+    const { repositoryUrl, branch: requestedBranch } = req.body || {};
     const repoUrl = repositoryUrl || 'https://github.com/RealToken-Community/balance-calculator.git';
-    const branch = 'yohann-test-pool-v3-modeles';
+    const branch = requestedBranch || 'yohann-test-pool-v3-modeles';
     const processId = `rebuild-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
     // Créer un objet pour stocker les logs et les listeners

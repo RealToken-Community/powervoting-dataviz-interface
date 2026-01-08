@@ -6,13 +6,10 @@
 
 ## V2.0
 
-- Get branch and choose branch per project for clone balance-calculator
-
 - Replace configuration OptionModifier replacement in build balance-calculator for generate power voting with good parameter
 - Replace ENV variable from form interface for API KEY
 
 - Have snapshot in mockdata (from powervoting-dataviz-interface/public/snapshot) -> cp use in balance-calculator
-
 - Add info banner -> never create data for snapshot from this interface (this interface is only for testing data)
 
 ## Design 

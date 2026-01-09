@@ -96,7 +96,27 @@ const parseFile = async (file: File, type: 'balances' | 'powerVoting'): Promise<
 
   if (extension === 'json') {
     const text = await file.text()
-    return JSON.parse(text)
+    
+    // Vérifier que le fichier n'est pas vide
+    if (!text || text.trim().length === 0) {
+      throw new Error('Le fichier JSON est vide')
+    }
+    
+    try {
+      const parsed = JSON.parse(text)
+      
+      // Vérifier que le JSON parsé n'est pas vide
+      if (!parsed || (typeof parsed === 'object' && Object.keys(parsed).length === 0)) {
+        throw new Error('Le fichier JSON ne contient aucune donnée')
+      }
+      
+      return parsed
+    } catch (parseError) {
+      if (parseError instanceof SyntaxError) {
+        throw new Error(`Erreur de syntaxe JSON: ${parseError.message}. Vérifiez que le fichier est un JSON valide.`)
+      }
+      throw parseError
+    }
   } else if (extension === 'csv') {
     return new Promise((resolve, reject) => {
       Papa.parse(file, {
@@ -105,21 +125,39 @@ const parseFile = async (file: File, type: 'balances' | 'powerVoting'): Promise<
         skipEmptyLines: true,
         complete: (results) => {
           try {
+            // Vérifier que le CSV contient des données
+            if (!results.data || results.data.length === 0) {
+              reject(new Error('Le fichier CSV est vide ou ne contient aucune donnée'))
+              return
+            }
+            
             // Transformer les données CSV en structure JSON
             if (type === 'balances') {
               const transformed = transformCSVToJSON(results.data as any[])
+              // Vérifier que la transformation a produit des données
+              if (!transformed || transformed.length === 0) {
+                reject(new Error('Aucune donnée de balances trouvée dans le fichier CSV'))
+                return
+              }
               // Envelopper dans la structure result.balances pour correspondre au format JSON
               resolve({ result: { balances: transformed } })
             } else {
               const transformed = transformPowerVotingCSV(results.data as any[])
+              // Vérifier que la transformation a produit des données
+              if (!transformed || transformed.length === 0) {
+                reject(new Error('Aucune donnée de power voting trouvée dans le fichier CSV'))
+                return
+              }
               // Envelopper dans la structure result.powerVoting pour correspondre au format JSON
               resolve({ result: { powerVoting: transformed } })
             }
           } catch (err) {
-            reject(err)
+            reject(err instanceof Error ? err : new Error('Erreur lors de la transformation des données CSV'))
           }
         },
-        error: (err) => reject(err),
+        error: (err) => {
+          reject(new Error(`Erreur lors du parsing CSV: ${err.message || 'Format CSV invalide'}`))
+        },
       })
     })
   } else {
@@ -128,25 +166,64 @@ const parseFile = async (file: File, type: 'balances' | 'powerVoting'): Promise<
 }
 
 const handleUpload = async () => {
-  if (!balancesFile.value || !powerVotingFile.value) {
-    error.value = 'Veuillez sélectionner les deux fichiers'
-    return
-  }
-
   isLoading.value = true
   error.value = ''
 
   try {
+    // Vérifier si les données sont déjà dans le store (via useGeneratedFile)
+    // Vérifier les computed properties qui accèdent aux données réelles
+    const hasBalancesData = dataStore.balances && dataStore.balances.length > 0
+    const hasPowerVotingData = dataStore.powerVoting && dataStore.powerVoting.length > 0
+
+    if (hasBalancesData && hasPowerVotingData) {
+      // Les données sont déjà dans le store, rediriger directement
+      console.log('Données déjà chargées dans le store, redirection vers Analysis')
+      await router.push('/analysis')
+      return
+    }
+
+    // Sinon, parser les fichiers uploadés
+    if (!balancesFile.value || !powerVotingFile.value) {
+      error.value = 'Veuillez sélectionner les deux fichiers'
+      isLoading.value = false
+      return
+    }
+
+    console.log('Parsing des fichiers...', {
+      balancesFile: balancesFile.value.name,
+      powerVotingFile: powerVotingFile.value.name
+    })
+
     const [balancesData, powerVotingData] = await Promise.all([
       parseFile(balancesFile.value, 'balances'),
       parseFile(powerVotingFile.value, 'powerVoting'),
     ])
 
+    console.log('Fichiers parsés avec succès:', {
+      balancesDataKeys: Object.keys(balancesData || {}),
+      powerVotingDataKeys: Object.keys(powerVotingData || {})
+    })
+
     dataStore.setBalancesData(balancesData)
     dataStore.setPowerVotingData(powerVotingData)
 
-    router.push('/analysis')
+    // Vérifier que les données sont bien stockées
+    const balancesCount = dataStore.balances.length
+    const powerVotingCount = dataStore.powerVoting.length
+    console.log('Données stockées dans le store:', {
+      balancesCount,
+      powerVotingCount
+    })
+
+    if (balancesCount === 0 || powerVotingCount === 0) {
+      throw new Error(`Données invalides: ${balancesCount} balances, ${powerVotingCount} power voting`)
+    }
+
+    // S'assurer que la navigation se fait après que les données soient stockées
+    console.log('Redirection vers Analysis...')
+    await router.push('/analysis')
   } catch (err) {
+    console.error('Erreur lors du chargement des fichiers:', err)
     error.value = err instanceof Error ? err.message : 'Erreur lors du chargement des fichiers'
   } finally {
     isLoading.value = false
@@ -442,13 +519,9 @@ const formatDiff = (diff: number, isInteger = false) => {
           @click="handleUpload"
           :disabled="!balancesFile || !powerVotingFile || isLoading"
           class="btn btn-primary"
+          style="width: 100%;"
         >
           <span v-if="!isLoading">🚀 Analyser les données</span>
-          <span v-else class="loading">⏳ Chargement...</span>
-        </button>
-
-        <button @click="loadMockData" :disabled="isLoading" class="btn btn-secondary">
-          <span v-if="!isLoading">🎯 Utiliser les données exemples</span>
           <span v-else class="loading">⏳ Chargement...</span>
         </button>
       </div>

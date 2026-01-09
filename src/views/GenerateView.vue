@@ -1242,30 +1242,17 @@ onUnmounted(() => {
       </div>
 
       <div class="actions-section">
+        <!-- Étape 1: Clone -->
         <div class="action-group">
-          <h3>Génération</h3>
-          <div class="button-group">
-            <button
-              @click="showBalancesModal = true"
-              :disabled="isLoading"
-              class="btn btn-primary"
-            >
-              <span v-if="!isLoading">🚀 Lancer balance-calculator</span>
-              <span v-else class="loading">⏳ Lancement...</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="action-group">
-          <h3>Maintenance</h3>
+          <h3><span class="step-number">1</span> Clone</h3>
           <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
           <button
             type="button"
             @click.prevent="openRebuildModal"
             class="btn btn-secondary"
           >
-              🔄 Rebuild balance-calculator
-            </button>
+            🔄 Rebuild balance-calculator
+          </button>
             <div v-if="gitInfo.exists && gitInfo.isGitRepo" style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.875rem; color: var(--text-secondary);">
               <div style="display: flex; align-items: center; gap: 0.5rem;">
                 <span style="font-weight: 600;">Branche:</span>
@@ -1288,59 +1275,10 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Section Config -->
-      <div class="action-group">
-        <h3>⚙️ Configuration</h3>
-        <div style="display: flex; flex-direction: column; gap: 1rem;">
-          <div style="display: flex; align-items: center; gap: 1rem;">
-            <button
-              @click="showConfigSection = !showConfigSection"
-              class="btn btn-secondary"
-            >
-              {{ showConfigSection ? '▼' : '▶' }} {{ showConfigSection ? 'Masquer' : 'Afficher' }} la configuration
-            </button>
-            <button
-              v-if="showConfigSection"
-              type="button"
-              @click.prevent="loadOptionsModifiers"
-              :disabled="isLoadingConfig"
-              class="btn btn-secondary"
-            >
-              <span v-if="!isLoadingConfig">🔄 Recharger</span>
-              <span v-else class="loading">⏳ Chargement...</span>
-            </button>
-          </div>
-          
-          <div v-if="showConfigSection" style="display: flex; flex-direction: column; gap: 1rem;">
-            <div v-if="isLoadingConfig" style="color: var(--text-secondary); font-style: italic;">
-              ⏳ Chargement de la configuration...
-            </div>
-            <div v-else style="display: flex; flex-direction: column; gap: 0.5rem;">
-              <label style="font-weight: 600;">📝 optionsModifiers.ts</label>
-              <textarea
-                v-model="optionsModifiersContent"
-                class="form-input"
-                style="width: 100%; min-height: 400px; font-family: 'Courier New', monospace; font-size: 0.875rem; padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-primary); resize: vertical;"
-                placeholder="Le contenu du fichier optionsModifiers.ts apparaîtra ici..."
-              ></textarea>
-              <button
-                type="button"
-                @click.prevent="saveOptionsModifiers"
-                :disabled="isSavingConfig || !optionsModifiersContent"
-                class="btn btn-primary"
-              >
-                <span v-if="!isSavingConfig">💾 Update config</span>
-                <span v-else class="loading">⏳ Sauvegarde...</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Section Environnement -->
+        <!-- Étape 2: Environnement -->
         <div class="action-group">
-          <h3>🌍 Environnement</h3>
+          <h3><span class="step-number">2</span> Environnement</h3>
           <div style="display: flex; flex-direction: column; gap: 1rem;">
             <div style="display: flex; align-items: center; gap: 1rem;">
               <button
@@ -1409,6 +1347,70 @@ onUnmounted(() => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Étape 3: Configuration -->
+        <div class="action-group">
+          <h3><span class="step-number">3</span> Configuration</h3>
+          <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              <button
+                @click="showConfigSection = !showConfigSection"
+                class="btn btn-secondary"
+              >
+                {{ showConfigSection ? '▼' : '▶' }} {{ showConfigSection ? 'Masquer' : 'Afficher' }} la configuration
+              </button>
+              <button
+                v-if="showConfigSection"
+                type="button"
+                @click.prevent="loadOptionsModifiers"
+                :disabled="isLoadingConfig"
+                class="btn btn-secondary"
+              >
+                <span v-if="!isLoadingConfig">🔄 Recharger</span>
+                <span v-else class="loading">⏳ Chargement...</span>
+              </button>
+            </div>
+            
+            <div v-if="showConfigSection" style="display: flex; flex-direction: column; gap: 1rem;">
+              <div v-if="isLoadingConfig" style="color: var(--text-secondary); font-style: italic;">
+                ⏳ Chargement de la configuration...
+              </div>
+              <div v-else style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="font-weight: 600;">📝 optionsModifiers.ts</label>
+                <textarea
+                  v-model="optionsModifiersContent"
+                  class="form-input"
+                  style="width: 100%; min-height: 400px; font-family: 'Courier New', monospace; font-size: 0.875rem; padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-primary); resize: vertical;"
+                  placeholder="Le contenu du fichier optionsModifiers.ts apparaîtra ici..."
+                ></textarea>
+                <button
+                  type="button"
+                  @click.prevent="saveOptionsModifiers"
+                  :disabled="isSavingConfig || !optionsModifiersContent"
+                  class="btn btn-primary"
+                >
+                  <span v-if="!isSavingConfig">💾 Update config</span>
+                  <span v-else class="loading">⏳ Sauvegarde...</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Étape 4: Lancer balance calculator -->
+        <div class="action-group">
+          <h3><span class="step-number">4</span> Lancer balance calculator</h3>
+          <div class="button-group">
+            <button
+              @click="showBalancesModal = true"
+              :disabled="isLoading"
+              class="btn btn-primary"
+            >
+              <span v-if="!isLoading">🚀 Lancer balance-calculator</span>
+              <span v-else class="loading">⏳ Lancement...</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1707,6 +1709,24 @@ onUnmounted(() => {
   font-size: 1.25rem;
   margin-bottom: 1rem;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+  color: white;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 1rem;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-md);
 }
 
 .button-group {

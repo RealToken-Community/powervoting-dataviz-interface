@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
@@ -295,6 +295,65 @@ const formatInteger = (num: number) => {
   return new Intl.NumberFormat('fr-FR').format(Math.round(num))
 }
 
+// Grouper les fichiers par nom de base (sans extension) pour regrouper CSV et JSON
+const groupFilesByName = (files: typeof generatedFiles.value) => {
+  const groups = new Map<string, typeof generatedFiles.value>()
+  
+  files.forEach(file => {
+    // Extraire le nom de base sans extension
+    const baseName = file.name.replace(/\.(csv|json)$/i, '')
+    
+    if (!groups.has(baseName)) {
+      groups.set(baseName, [])
+    }
+    groups.get(baseName)!.push(file)
+  })
+  
+  // Convertir en tableau et trier par date de modification décroissante
+  return Array.from(groups.values()).sort((a, b) => {
+    // Utiliser la date la plus récente du groupe
+    const dateA = Math.max(...a.map(f => new Date(f.modified).getTime()))
+    const dateB = Math.max(...b.map(f => new Date(f.modified).getTime()))
+    return dateB - dateA
+  })
+}
+
+// Catégoriser et trier les fichiers générés
+const categorizedFiles = computed(() => {
+  const balances: typeof generatedFiles.value = []
+  const powerVoting: typeof generatedFiles.value = []
+  const mock: typeof generatedFiles.value = []
+  const debug: typeof generatedFiles.value = []
+
+  generatedFiles.value.forEach(file => {
+    const name = file.name.toLowerCase()
+    
+    // Priorité 1: Power Voting (si le nom contient "powervoting")
+    if (name.includes('powervoting')) {
+      powerVoting.push(file)
+    }
+    // Priorité 2: Debug (si le nom contient "debug")
+    else if (name.includes('debug')) {
+      debug.push(file)
+    }
+    // Priorité 3: Mock (si le nom contient "mock")
+    else if (name.includes('mock')) {
+      mock.push(file)
+    }
+    // Sinon: Balances (par défaut, comme balancesREG_...)
+    else {
+      balances.push(file)
+    }
+  })
+
+  return {
+    balances: groupFilesByName(balances),
+    powerVoting: groupFilesByName(powerVoting),
+    mock: groupFilesByName(mock),
+    debug: groupFilesByName(debug)
+  }
+})
+
 const getSnapshotDiff = (snapshot: SnapshotInfo) => {
   if (!snapshot.metrics || snapshots.value.length === 0) return null
 
@@ -403,33 +462,173 @@ const formatDiff = (diff: number, isInteger = false) => {
           {{ isLoadingGeneratedFiles ? '⏳' : '🔄' }} Actualiser
         </button>
       </div>
-      <div class="generated-files-grid">
-        <div
-          v-for="file in generatedFiles"
-          :key="file.name"
-          class="generated-file-card"
-        >
-          <div class="file-name">{{ file.name }}</div>
-          <div class="file-meta">
-            <span>{{ new Date(file.modified).toLocaleString('fr-FR') }}</span>
+
+      <!-- Section Balances -->
+      <div v-if="categorizedFiles.balances.length > 0" class="file-category">
+        <h4 class="category-title">💰 Balances ({{ categorizedFiles.balances.length }})</h4>
+        <div class="generated-files-grid">
+          <div
+            v-for="fileGroup in categorizedFiles.balances"
+            :key="fileGroup[0].name"
+            class="generated-file-card"
+          >
+            <div class="file-name">{{ fileGroup[0].name.replace(/\.(csv|json)$/i, '') }}</div>
+            <div class="file-formats">
+              <span
+                v-for="file in fileGroup"
+                :key="file.name"
+                class="file-format-badge"
+                :class="{ 'format-csv': file.name.endsWith('.csv'), 'format-json': file.name.endsWith('.json') }"
+              >
+                {{ file.name.split('.').pop()?.toUpperCase() }}
+              </span>
+            </div>
+            <div class="file-meta">
+              <span>{{ new Date(Math.max(...fileGroup.map(f => new Date(f.modified).getTime()))).toLocaleString('fr-FR') }}</span>
+            </div>
+            <div class="file-actions">
+              <button
+                v-for="file in fileGroup"
+                :key="file.name"
+                @click="useGeneratedFile(file, 'balances')"
+                :disabled="isLoading"
+                class="btn btn-small btn-primary"
+              >
+                📤 Utiliser {{ file.name.endsWith('.csv') ? 'CSV' : 'JSON' }}
+              </button>
+            </div>
           </div>
-          <div class="file-actions">
-            <button
-              v-if="file.name.includes('balancesREG')"
-              @click="useGeneratedFile(file, 'balances')"
-              :disabled="isLoading"
-              class="btn btn-small btn-primary"
-            >
-              📤 Utiliser pour Balances
-            </button>
-            <button
-              v-if="file.name.includes('powerVoting')"
-              @click="useGeneratedFile(file, 'powerVoting')"
-              :disabled="isLoading"
-              class="btn btn-small btn-primary"
-            >
-              📤 Utiliser pour Power Voting
-            </button>
+        </div>
+      </div>
+
+      <!-- Section Power Voting -->
+      <div v-if="categorizedFiles.powerVoting.length > 0" class="file-category">
+        <h4 class="category-title">⚡ Power Voting ({{ categorizedFiles.powerVoting.length }})</h4>
+        <div class="generated-files-grid">
+          <div
+            v-for="fileGroup in categorizedFiles.powerVoting"
+            :key="fileGroup[0].name"
+            class="generated-file-card"
+          >
+            <div class="file-name">{{ fileGroup[0].name.replace(/\.(csv|json)$/i, '') }}</div>
+            <div class="file-formats">
+              <span
+                v-for="file in fileGroup"
+                :key="file.name"
+                class="file-format-badge"
+                :class="{ 'format-csv': file.name.endsWith('.csv'), 'format-json': file.name.endsWith('.json') }"
+              >
+                {{ file.name.split('.').pop()?.toUpperCase() }}
+              </span>
+            </div>
+            <div class="file-meta">
+              <span>{{ new Date(Math.max(...fileGroup.map(f => new Date(f.modified).getTime()))).toLocaleString('fr-FR') }}</span>
+            </div>
+            <div class="file-actions">
+              <button
+                v-for="file in fileGroup"
+                :key="file.name"
+                @click="useGeneratedFile(file, 'powerVoting')"
+                :disabled="isLoading"
+                class="btn btn-small btn-primary"
+              >
+                📤 Utiliser {{ file.name.endsWith('.csv') ? 'CSV' : 'JSON' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section Mock -->
+      <div v-if="categorizedFiles.mock.length > 0" class="file-category">
+        <h4 class="category-title">🎯 Mock ({{ categorizedFiles.mock.length }})</h4>
+        <div class="generated-files-grid">
+          <div
+            v-for="fileGroup in categorizedFiles.mock"
+            :key="fileGroup[0].name"
+            class="generated-file-card"
+          >
+            <div class="file-name">{{ fileGroup[0].name.replace(/\.(csv|json)$/i, '') }}</div>
+            <div class="file-formats">
+              <span
+                v-for="file in fileGroup"
+                :key="file.name"
+                class="file-format-badge"
+                :class="{ 'format-csv': file.name.endsWith('.csv'), 'format-json': file.name.endsWith('.json') }"
+              >
+                {{ file.name.split('.').pop()?.toUpperCase() }}
+              </span>
+            </div>
+            <div class="file-meta">
+              <span>{{ new Date(Math.max(...fileGroup.map(f => new Date(f.modified).getTime()))).toLocaleString('fr-FR') }}</span>
+            </div>
+            <div class="file-actions">
+              <template v-for="file in fileGroup" :key="file.name">
+                <button
+                  v-if="file.name.toLowerCase().includes('balancesreg') || file.name.toLowerCase().includes('balances')"
+                  @click="useGeneratedFile(file, 'balances')"
+                  :disabled="isLoading"
+                  class="btn btn-small btn-primary"
+                >
+                  📤 Utiliser {{ file.name.endsWith('.csv') ? 'CSV' : 'JSON' }} (Balances)
+                </button>
+                <button
+                  v-if="file.name.toLowerCase().includes('powervoting') || file.name.toLowerCase().includes('power')"
+                  @click="useGeneratedFile(file, 'powerVoting')"
+                  :disabled="isLoading"
+                  class="btn btn-small btn-primary"
+                >
+                  📤 Utiliser {{ file.name.endsWith('.csv') ? 'CSV' : 'JSON' }} (Power Voting)
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section Debug -->
+      <div v-if="categorizedFiles.debug.length > 0" class="file-category">
+        <h4 class="category-title">🐛 Debug ({{ categorizedFiles.debug.length }})</h4>
+        <div class="generated-files-grid">
+          <div
+            v-for="fileGroup in categorizedFiles.debug"
+            :key="fileGroup[0].name"
+            class="generated-file-card"
+          >
+            <div class="file-name">{{ fileGroup[0].name.replace(/\.(csv|json)$/i, '') }}</div>
+            <div class="file-formats">
+              <span
+                v-for="file in fileGroup"
+                :key="file.name"
+                class="file-format-badge"
+                :class="{ 'format-csv': file.name.endsWith('.csv'), 'format-json': file.name.endsWith('.json') }"
+              >
+                {{ file.name.split('.').pop()?.toUpperCase() }}
+              </span>
+            </div>
+            <div class="file-meta">
+              <span>{{ new Date(Math.max(...fileGroup.map(f => new Date(f.modified).getTime()))).toLocaleString('fr-FR') }}</span>
+            </div>
+            <div class="file-actions">
+              <template v-for="file in fileGroup" :key="file.name">
+                <button
+                  v-if="file.name.toLowerCase().includes('balancesreg') || file.name.toLowerCase().includes('balances')"
+                  @click="useGeneratedFile(file, 'balances')"
+                  :disabled="isLoading"
+                  class="btn btn-small btn-primary"
+                >
+                  📤 Utiliser {{ file.name.endsWith('.csv') ? 'CSV' : 'JSON' }} (Balances)
+                </button>
+                <button
+                  v-if="file.name.toLowerCase().includes('powervoting') || file.name.toLowerCase().includes('power')"
+                  @click="useGeneratedFile(file, 'powerVoting')"
+                  :disabled="isLoading"
+                  class="btn btn-small btn-primary"
+                >
+                  📤 Utiliser {{ file.name.endsWith('.csv') ? 'CSV' : 'JSON' }} (Power Voting)
+                </button>
+              </template>
+            </div>
           </div>
         </div>
       </div>
@@ -827,6 +1026,23 @@ const formatDiff = (diff: number, isInteger = false) => {
   cursor: not-allowed;
 }
 
+.file-category {
+  margin-bottom: 2.5rem;
+}
+
+.file-category:last-child {
+  margin-bottom: 0;
+}
+
+.category-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid var(--border-color);
+}
+
 .generated-files-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -851,10 +1067,38 @@ const formatDiff = (diff: number, isInteger = false) => {
 .generated-file-card .file-name {
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
   font-family: 'Courier New', monospace;
   font-size: 0.9rem;
   word-break: break-all;
+}
+
+.file-formats {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.file-format-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.format-csv {
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.format-json {
+  background: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.3);
 }
 
 .generated-file-card .file-meta {
@@ -865,7 +1109,12 @@ const formatDiff = (diff: number, isInteger = false) => {
 
 .generated-file-card .file-actions {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
+}
+
+.generated-file-card .file-actions .btn {
+  width: 100%;
 }
 
 .btn-small {
@@ -1053,3 +1302,7 @@ const formatDiff = (diff: number, isInteger = false) => {
   }
 }
 </style>
+
+
+
+

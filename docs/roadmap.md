@@ -11,8 +11,6 @@
 - Have snapshot in mockdata (from powervoting-dataviz-interface/public/snapshot) -> cp use in balance-calculator
 - Add info banner -> never create data for snapshot from this interface (this interface is only for testing data)
 
-- Xterm run balance-calculator -> space run next step, space must be activate/desactivate option .. ? 
-
 - add on my server (on another port)
 
 ## Design 

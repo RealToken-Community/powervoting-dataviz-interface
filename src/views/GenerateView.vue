@@ -1186,6 +1186,8 @@ const initXterm = async () => {
     }
     
     // Envoyer les données au backend
+    // Les données sont envoyées telles quelles (xterm.js gère déjà les codes ANSI et les caractères spéciaux)
+    // Le backend se chargera de distinguer les touches spéciales (flèches, espace, Enter)
     try {
       await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
         method: 'POST',

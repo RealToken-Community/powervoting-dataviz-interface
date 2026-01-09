@@ -122,15 +122,22 @@ app.post('/api/balance-calculator/answer/:processId', (req, res) => {
   }
   
   try {
+    // Nettoyer la réponse pour détecter les caractères spéciaux
+    // Retirer les caractères de contrôle (\r, \n) pour vérifier le contenu réel
+    const cleanAnswer = answer.replace(/\r/g, '').replace(/\n/g, '');
+    
     // Si la réponse contient des codes ANSI (flèches), on les envoie directement sans \n
-    // Si c'est juste \n, on l'envoie tel quel (Enter pour valider)
-    // Sinon, on ajoute \n pour Enter
     if (answer.startsWith('\x1b[') || answer === '\x1b[A' || answer === '\x1b[B' || answer === '\x1b[C' || answer === '\x1b[D') {
       // C'est une touche spéciale (flèche), on l'envoie telle quelle
       processData.proc.stdin.write(answer);
-    } else if (answer === '\n' || answer === '\r' || answer === '\r\n') {
-      // C'est juste Enter, on l'envoie tel quel
+    } else if (answer === '\n' || answer === '\r' || answer === '\r\n' || answer === '\n\r') {
+      // C'est juste Enter, on l'envoie tel quel (validation)
       processData.proc.stdin.write('\n');
+    } else if (cleanAnswer === ' ' || (cleanAnswer.length === 1 && cleanAnswer.charCodeAt(0) === 32)) {
+      // C'est juste un espace (pour cocher/décocher dans les checkboxes), on l'envoie sans \n
+      // L'espace doit permettre de cocher/décocher sans valider
+      // Envoyer juste l'espace, sans aucun caractère de fin de ligne
+      processData.proc.stdin.write(' ');
     } else {
       // C'est une réponse normale (texte), on ajoute \n pour Enter
       processData.proc.stdin.write(answer + '\n');

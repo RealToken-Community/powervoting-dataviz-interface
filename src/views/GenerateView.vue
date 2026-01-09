@@ -23,6 +23,14 @@ const isLoading = ref(false)
 const isRebuilding = ref(false)
 const error = ref<string>('')
 const success = ref<string>('')
+// Upload de fichiers
+const isDraggingFiles = ref(false)
+const isUploadingFiles = ref(false)
+const uploadedFiles = ref<File[]>([])
+// Références pour les intervalles (pour les nettoyer)
+const filesInterval = ref<NodeJS.Timeout | null>(null)
+const gitInfoInterval = ref<NodeJS.Timeout | null>(null)
+const envLocalInterval = ref<NodeJS.Timeout | null>(null)
 const showBalancesModal = ref(false)
 const showPowerVotingModal = ref(false)
 const balancesLogs = ref<Array<{ type: string; message: string; timestamp: string }>>([])
@@ -168,6 +176,109 @@ const loadFiles = async () => {
     files.value = await response.json()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Erreur inconnue'
+  }
+}
+
+// Gestion du drag and drop pour l'upload de fichiers
+const handleDragOver = (event: DragEvent) => {
+  event.preventDefault()
+  event.stopPropagation()
+  isDraggingFiles.value = true
+}
+
+const handleDragLeave = (event: DragEvent) => {
+  event.preventDefault()
+  event.stopPropagation()
+  isDraggingFiles.value = false
+}
+
+const handleDrop = (event: DragEvent) => {
+  event.preventDefault()
+  event.stopPropagation()
+  isDraggingFiles.value = false
+
+  const droppedFiles = event.dataTransfer?.files
+  if (droppedFiles && droppedFiles.length > 0) {
+    const fileArray = Array.from(droppedFiles)
+    // Filtrer seulement CSV et JSON
+    const validFiles = fileArray.filter(file => {
+      const ext = file.name.split('.').pop()?.toLowerCase()
+      return ext === 'csv' || ext === 'json'
+    })
+    
+    if (validFiles.length === 0) {
+      error.value = 'Aucun fichier valide (CSV ou JSON) trouvé'
+      return
+    }
+    
+    if (validFiles.length < fileArray.length) {
+      error.value = `${fileArray.length - validFiles.length} fichier(s) ignoré(s) (seulement CSV/JSON acceptés)`
+    }
+    
+    uploadedFiles.value = validFiles
+    uploadFiles()
+  }
+}
+
+const handleFileSelect = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const selectedFiles = target.files
+  if (selectedFiles && selectedFiles.length > 0) {
+    const fileArray = Array.from(selectedFiles)
+    const validFiles = fileArray.filter(file => {
+      const ext = file.name.split('.').pop()?.toLowerCase()
+      return ext === 'csv' || ext === 'json'
+    })
+    
+    if (validFiles.length === 0) {
+      error.value = 'Aucun fichier valide (CSV ou JSON) trouvé'
+      return
+    }
+    
+    uploadedFiles.value = validFiles
+    uploadFiles()
+  }
+}
+
+const uploadFiles = async () => {
+  if (uploadedFiles.value.length === 0) {
+    return
+  }
+
+  isUploadingFiles.value = true
+  error.value = ''
+  success.value = ''
+
+  try {
+    const formData = new FormData()
+    uploadedFiles.value.forEach(file => {
+      formData.append('files', file)
+    })
+
+    const response = await fetch(`${API_BASE}/files/upload`, {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Erreur lors de l\'upload' }))
+      throw new Error(errorData.error || 'Erreur lors de l\'upload')
+    }
+
+    const data = await response.json()
+    success.value = data.message || `${uploadedFiles.value.length} fichier(s) uploadé(s) avec succès`
+    
+    // Réinitialiser la liste des fichiers sélectionnés
+    uploadedFiles.value = []
+    
+    // Rafraîchir la liste des fichiers
+    setTimeout(() => {
+      loadFiles()
+    }, 500)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Erreur lors de l\'upload'
+  } finally {
+    isUploadingFiles.value = false
   }
 }
 
@@ -1237,16 +1348,16 @@ onMounted(() => {
   loadFiles()
   loadGitInfo()
   checkEnvLocal()
-  // Recharger les fichiers toutes les 5 secondes
-  setInterval(loadFiles, 5000)
-  // Rafraîchir les infos Git toutes les 30 secondes
-  setInterval(() => {
+  // Recharger les fichiers toutes les 10 secondes (réduit de 5 à 10 pour moins de charge)
+  filesInterval.value = setInterval(loadFiles, 10000)
+  // Rafraîchir les infos Git toutes les 60 secondes (réduit de 30 à 60)
+  gitInfoInterval.value = setInterval(() => {
     loadGitInfo()
-  }, 30000)
-  // Vérifier .env.local toutes les 30 secondes
-  setInterval(() => {
+  }, 60000)
+  // Vérifier .env.local toutes les 60 secondes (réduit de 30 à 60)
+  envLocalInterval.value = setInterval(() => {
     checkEnvLocal()
-  }, 30000)
+  }, 60000)
   // Charger la configuration et l'environnement si balance-calculator existe
   setTimeout(() => {
     if (gitInfo.value.exists && gitInfo.value.isGitRepo) {
@@ -1276,10 +1387,23 @@ watch(() => envLocalCheck.value.hasAllRequiredVars, (hasAll) => {
   }
 })
 
-// Nettoyer les EventSource à la destruction du composant
+// Nettoyer les EventSource et les intervalles à la destruction du composant
 onUnmounted(() => {
   stopLogsStream()
   cleanupXterm()
+  // Nettoyer tous les intervalles pour éviter les fuites mémoire et les requêtes multiples
+  if (filesInterval.value) {
+    clearInterval(filesInterval.value)
+    filesInterval.value = null
+  }
+  if (gitInfoInterval.value) {
+    clearInterval(gitInfoInterval.value)
+    gitInfoInterval.value = null
+  }
+  if (envLocalInterval.value) {
+    clearInterval(envLocalInterval.value)
+    envLocalInterval.value = null
+  }
 })
 </script>
 
@@ -1687,6 +1811,55 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- Zone de drag and drop pour uploader des fichiers -->
+    <div class="upload-files-section">
+      <div class="upload-files-card">
+        <h3>📤 Uploader des fichiers vers outDatas</h3>
+        <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">
+          Glissez-déposez ou sélectionnez des fichiers CSV/JSON pour les copier dans balance-calculator/outDatas
+        </p>
+        <div
+          class="upload-dropzone"
+          :class="{ 'dragging': isDraggingFiles, 'uploading': isUploadingFiles }"
+          @dragover.prevent="handleDragOver"
+          @dragleave.prevent="handleDragLeave"
+          @drop.prevent="handleDrop"
+        >
+          <div v-if="isUploadingFiles" class="upload-status">
+            <span class="loading">⏳ Upload en cours...</span>
+          </div>
+          <div v-else class="upload-content">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">
+              <strong>Glissez-déposez vos fichiers ici</strong>
+              <span>ou</span>
+              <label for="file-upload-input" class="upload-link">cliquez pour sélectionner</label>
+              <input
+                id="file-upload-input"
+                type="file"
+                multiple
+                accept=".csv,.json"
+                @change="handleFileSelect"
+                style="display: none;"
+              />
+            </div>
+            <div class="upload-hint">
+              Formats acceptés: CSV, JSON (max 50MB par fichier)
+            </div>
+          </div>
+        </div>
+        <div v-if="uploadedFiles.length > 0 && !isUploadingFiles" class="uploaded-files-preview">
+          <div class="preview-title">Fichiers sélectionnés ({{ uploadedFiles.length }})</div>
+          <div class="preview-files">
+            <div v-for="file in uploadedFiles" :key="file.name" class="preview-file">
+              <span>📄 {{ file.name }}</span>
+              <span class="preview-size">({{ formatFileSize(file.size) }})</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="files-section">
       <div class="files-header">
         <h3>📁 Fichiers générés ({{ files.length }})</h3>
@@ -1915,6 +2088,146 @@ onUnmounted(() => {
   color: var(--success-color);
   margin-bottom: 1.5rem;
   animation: fadeIn 0.3s ease;
+}
+
+.upload-files-section {
+  margin-bottom: 2rem;
+}
+
+.upload-files-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 2rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.upload-files-card h3 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.upload-dropzone {
+  border: 2px dashed var(--border-color);
+  border-radius: 0.75rem;
+  padding: 3rem 2rem;
+  text-align: center;
+  transition: all 0.3s ease;
+  background: var(--glass-bg);
+  cursor: pointer;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upload-dropzone:hover {
+  border-color: var(--primary-color);
+  background: var(--bg-tertiary);
+}
+
+.upload-dropzone.dragging {
+  border-color: var(--primary-color);
+  border-style: solid;
+  background: rgba(99, 102, 241, 0.1);
+  transform: scale(1.02);
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+}
+
+.upload-dropzone.uploading {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.upload-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.upload-icon {
+  font-size: 3rem;
+}
+
+.upload-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-primary);
+}
+
+.upload-text strong {
+  font-size: 1.1rem;
+}
+
+.upload-text span {
+  color: var(--text-secondary);
+}
+
+.upload-link {
+  color: var(--primary-color);
+  cursor: pointer;
+  text-decoration: underline;
+  transition: color 0.3s ease;
+}
+
+.upload-link:hover {
+  color: var(--secondary-color);
+}
+
+.upload-hint {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
+.upload-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+}
+
+.uploaded-files-preview {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-tertiary);
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color);
+}
+
+.preview-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.preview-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.preview-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.preview-size {
+  color: var(--text-muted);
+  font-size: 0.8rem;
 }
 
 .files-section {

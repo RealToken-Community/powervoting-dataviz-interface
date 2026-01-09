@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import cors from 'cors';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import dotenv from 'dotenv';
+import multer from 'multer';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -21,6 +22,56 @@ app.use(express.json());
 
 // Créer le dossier outDatas s'il n'existe pas
 fs.mkdir(outDatasPath, { recursive: true }).catch(console.error);
+
+// Configuration multer pour l'upload de fichiers avec sécurité renforcée
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // S'assurer que le dossier existe
+    fs.mkdir(outDatasPath, { recursive: true })
+      .then(() => cb(null, outDatasPath))
+      .catch(err => cb(err, outDatasPath));
+  },
+  filename: (req, file, cb) => {
+    // Sécurité: nettoyer le nom de fichier pour éviter les path traversal
+    const safeName = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
+    // Vérifier que le nom ne contient pas de séquences dangereuses
+    if (safeName.includes('..') || safeName.startsWith('/') || safeName.startsWith('\\')) {
+      return cb(new Error('Nom de fichier invalide'));
+    }
+    cb(null, safeName);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB max par fichier (limite plus restrictive)
+    files: 10 // Maximum 10 fichiers à la fois
+  },
+  fileFilter: (req, file, cb) => {
+    // Sécurité: vérifications strictes
+    const allowedExtensions = ['.csv', '.json'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    
+    // Vérifier l'extension
+    if (!allowedExtensions.includes(ext)) {
+      return cb(new Error(`Type de fichier non autorisé. Utilisez uniquement CSV ou JSON.`));
+    }
+    
+    // Vérifier que le nom de fichier ne contient pas de caractères dangereux
+    const filename = path.basename(file.originalname);
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return cb(new Error('Nom de fichier invalide'));
+    }
+    
+    // Vérifier la taille du nom de fichier
+    if (filename.length > 255) {
+      return cb(new Error('Nom de fichier trop long'));
+    }
+    
+    cb(null, true);
+  }
+});
 
 // Middleware pour servir les fichiers générés
 app.use('/generated', express.static(outDatasPath));
@@ -526,14 +577,92 @@ app.post('/api/balance-calculator/start', async (req, res) => {
 // Endpoint supprimé - maintenant tout passe par /api/balance-calculator/start
 // L'utilisateur choisit interactivement quelle tâche exécuter
 
+// Upload de fichiers vers outDatas (avec sécurité renforcée)
+app.post('/api/files/upload', upload.array('files', 10), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'Aucun fichier fourni' });
+    }
+
+    // Vérifier que balance-calculator existe (sécurité supplémentaire)
+    if (!existsSync(balanceCalculatorPath)) {
+      return res.status(400).json({ error: 'balance-calculator n\'est pas encore cloné' });
+    }
+
+    const uploadedFiles = [];
+    const errors = [];
+    
+    for (const file of req.files) {
+      try {
+        const filePath = path.join(outDatasPath, file.filename);
+        
+        // Sécurité: vérifications multiples
+        // 1. Vérifier que le chemin résolu est bien dans outDatas (protection path traversal)
+        const resolvedPath = path.resolve(filePath);
+        const resolvedOutDatas = path.resolve(outDatasPath);
+        
+        if (!resolvedPath.startsWith(resolvedOutDatas)) {
+          errors.push(`Fichier ${file.filename}: accès non autorisé`);
+          continue;
+        }
+        
+        // 2. Vérifier que le fichier existe bien après l'upload
+        if (!existsSync(filePath)) {
+          errors.push(`Fichier ${file.filename}: n'a pas pu être sauvegardé`);
+          continue;
+        }
+
+        // 3. Vérifier que c'est bien un fichier (pas un dossier)
+        const stats = await fs.stat(filePath);
+        if (!stats.isFile()) {
+          errors.push(`Fichier ${file.filename}: n'est pas un fichier valide`);
+          await fs.unlink(filePath).catch(() => {}); // Nettoyer
+          continue;
+        }
+
+        uploadedFiles.push({
+          name: file.filename,
+          size: stats.size,
+          created: stats.birthtime,
+          modified: stats.mtime,
+        });
+      } catch (fileError) {
+        errors.push(`Erreur pour ${file.filename}: ${fileError.message}`);
+      }
+    }
+
+    if (uploadedFiles.length === 0) {
+      return res.status(500).json({ 
+        error: 'Aucun fichier n\'a pu être uploadé',
+        details: errors
+      });
+    }
+
+    res.json({ 
+      message: `${uploadedFiles.length} fichier(s) uploadé(s) avec succès`,
+      files: uploadedFiles,
+      warnings: errors.length > 0 ? errors : undefined
+    });
+  } catch (error) {
+    console.error('Erreur lors de l\'upload de fichiers:', error);
+    res.status(500).json({ error: error.message || 'Erreur lors de l\'upload' });
+  }
+});
+
 // Supprimer un fichier
 app.delete('/api/files/:filename', async (req, res) => {
   try {
     const { filename } = req.params;
-    const filePath = path.join(outDatasPath, filename);
     
-    // Sécurité: vérifier que le fichier est dans outDatas
-    if (!filePath.startsWith(outDatasPath)) {
+    // Sécurité: nettoyer le nom de fichier
+    const safeFilename = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filePath = path.join(outDatasPath, safeFilename);
+    
+    // Sécurité: vérifier que le fichier est dans outDatas (protection path traversal)
+    const resolvedPath = path.resolve(filePath);
+    const resolvedOutDatas = path.resolve(outDatasPath);
+    
+    if (!resolvedPath.startsWith(resolvedOutDatas)) {
       return res.status(403).json({ error: 'Accès non autorisé' });
     }
     

@@ -7,10 +7,6 @@
 ## V2.0
 
 - Verify if data API is available for all user (create session by user?)
-
-- Have snapshot in mockdata (from powervoting-dataviz-interface/public/snapshot) -> cp use in balance-calculator
-
-
 - add on my server (on another port)
 
 ## Design 

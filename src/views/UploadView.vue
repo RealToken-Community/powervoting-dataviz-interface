@@ -268,6 +268,26 @@ const loadGeneratedFiles = async () => {
   }
 }
 
+// Fonction pour télécharger un fichier
+const downloadFile = async (file: { name: string; url: string }) => {
+  try {
+    const response = await fetch(file.url)
+    if (!response.ok) throw new Error('Erreur lors du téléchargement')
+    
+    const blob = await response.blob()
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = file.name
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(downloadUrl)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Erreur lors du téléchargement'
+  }
+}
+
 const useGeneratedFile = async (file: { name: string; url: string }, type: 'balances' | 'powerVoting') => {
   isLoading.value = true
   error.value = ''
@@ -552,6 +572,9 @@ const formatDiff = (diff: number, isInteger = false) => {
                 :key="file.name"
                 class="file-format-badge"
                 :class="{ 'format-csv': file.name.endsWith('.csv'), 'format-json': file.name.endsWith('.json') }"
+                @click.stop="downloadFile(file)"
+                :title="`Télécharger ${file.name}`"
+                style="cursor: pointer; transition: all 0.2s ease;"
               >
                 {{ file.name.split('.').pop()?.toUpperCase() }}
               </span>
@@ -590,6 +613,9 @@ const formatDiff = (diff: number, isInteger = false) => {
                 :key="file.name"
                 class="file-format-badge"
                 :class="{ 'format-csv': file.name.endsWith('.csv'), 'format-json': file.name.endsWith('.json') }"
+                @click.stop="downloadFile(file)"
+                :title="`Télécharger ${file.name}`"
+                style="cursor: pointer; transition: all 0.2s ease;"
               >
                 {{ file.name.split('.').pop()?.toUpperCase() }}
               </span>
@@ -628,6 +654,9 @@ const formatDiff = (diff: number, isInteger = false) => {
                 :key="file.name"
                 class="file-format-badge"
                 :class="{ 'format-csv': file.name.endsWith('.csv'), 'format-json': file.name.endsWith('.json') }"
+                @click.stop="downloadFile(file)"
+                :title="`Télécharger ${file.name}`"
+                style="cursor: pointer; transition: all 0.2s ease;"
               >
                 {{ file.name.split('.').pop()?.toUpperCase() }}
               </span>
@@ -675,6 +704,9 @@ const formatDiff = (diff: number, isInteger = false) => {
                 :key="file.name"
                 class="file-format-badge"
                 :class="{ 'format-csv': file.name.endsWith('.csv'), 'format-json': file.name.endsWith('.json') }"
+                @click.stop="downloadFile(file)"
+                :title="`Télécharger ${file.name}`"
+                style="cursor: pointer; transition: all 0.2s ease;"
               >
                 {{ file.name.split('.').pop()?.toUpperCase() }}
               </span>
@@ -1168,10 +1200,22 @@ const formatDiff = (diff: number, isInteger = false) => {
   border: 1px solid rgba(99, 102, 241, 0.3);
 }
 
+.format-csv:hover {
+  background: rgba(99, 102, 241, 0.3);
+  border-color: rgba(99, 102, 241, 0.5);
+  transform: scale(1.05);
+}
+
 .format-json {
   background: rgba(139, 92, 246, 0.2);
   color: #a78bfa;
   border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.format-json:hover {
+  background: rgba(139, 92, 246, 0.3);
+  border-color: rgba(139, 92, 246, 0.5);
+  transform: scale(1.05);
 }
 
 .generated-file-card .file-meta {

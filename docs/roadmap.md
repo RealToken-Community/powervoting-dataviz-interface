@@ -6,12 +6,14 @@
 
 ## V2.0
 
-- verify if data API is available for all user, or 
+- Verify if data API is available for all user (create session by user?)
 
 - Have snapshot in mockdata (from powervoting-dataviz-interface/public/snapshot) -> cp use in balance-calculator
 - Add info banner -> never create data for snapshot from this interface (this interface is only for testing data)
 
-- Add on netlify (accept server???)
+- Xterm run balance-calculator -> space run next step, space must be activate/desactivate option .. ? 
+
+- add on my server (on another port)
 
 ## Design 
 

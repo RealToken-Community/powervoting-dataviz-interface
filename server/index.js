@@ -296,6 +296,12 @@ app.post('/api/balance-calculator/start', async (req, res) => {
     addLog('info', '🚀 Démarrage de la génération des balances...');
     addLog('info', '💡 Mode interactif activé - Utilisez le terminal ci-dessous');
     
+    // Variables pour la gestion des prompts interactifs
+    let currentPrompt = null;
+    let collectingOptions = false;
+    let optionsBuffer = [];
+    let optionsTimeout = null;
+    
     // Fonction pour analyser le buffer et extraire les options
     const analyzeOptionsBuffer = () => {
       if (!currentPrompt || currentPrompt.optionsComplete) {
@@ -653,19 +659,102 @@ app.post('/api/rebuild', async (req, res) => {
         addLog('info', '📦 Installation des dépendances...');
         await execAsync(`cd ${balanceCalculatorPath} && yarn install`, { timeout: 300000 });
         
-        // Copier le .env du projet principal vers balance-calculator
-        const sourceEnvPath = path.join(projectRoot, '.env');
+        // Copier les variables d'environnement depuis .env.local du projet principal vers balance-calculator/.env
+        const sourceEnvLocalPath = path.join(projectRoot, '.env.local');
         const targetEnvPath = path.join(balanceCalculatorPath, '.env');
         
-        if (existsSync(sourceEnvPath)) {
+        // Variables requises à copier
+        const requiredEnvVars = [
+          'THEGRAPH_API_KEY',
+          'API_KEY_GNOSISSCAN',
+          'API_KEY_ETHERSCAN',
+          'API_KEY_POLYGONSCAN',
+          'API_KEY_MORALIS'
+        ];
+        
+        if (existsSync(sourceEnvLocalPath)) {
           try {
-            await fs.copyFile(sourceEnvPath, targetEnvPath);
-            addLog('info', '✅ Fichier .env copié vers balance-calculator');
+            // Lire le .env.local du projet principal
+            const envLocalContent = readFileSync(sourceEnvLocalPath, 'utf-8');
+            const envLocalLines = envLocalContent.split('\n');
+            
+            // Extraire uniquement les variables requises
+            const extractedVars = new Map();
+            envLocalLines.forEach(line => {
+              const trimmed = line.trim();
+              if (trimmed && !trimmed.startsWith('#')) {
+                const match = trimmed.match(/^([^=]+)=(.*)$/);
+                if (match) {
+                  const key = match[1].trim();
+                  const value = match[2].trim();
+                  if (requiredEnvVars.includes(key)) {
+                    extractedVars.set(key, value);
+                  }
+                }
+              }
+            });
+            
+            // Si on a trouvé au moins une variable requise, créer/mettre à jour le .env
+            if (extractedVars.size > 0) {
+              // Lire le .env existant de balance-calculator s'il existe
+              let existingEnvContent = '';
+              const envExists = existsSync(targetEnvPath);
+              if (envExists) {
+                existingEnvContent = readFileSync(targetEnvPath, 'utf-8');
+              }
+              
+              // Parser le contenu existant
+              const existingLines = existingEnvContent ? existingEnvContent.split('\n') : [];
+              const updatedLines = [];
+              const processedKeys = new Set();
+              
+              // Mettre à jour les variables existantes
+              existingLines.forEach(line => {
+                const trimmed = line.trim();
+                if (trimmed && !trimmed.startsWith('#')) {
+                  const match = trimmed.match(/^([^=]+)=(.*)$/);
+                  if (match) {
+                    const key = match[1].trim();
+                    if (extractedVars.has(key)) {
+                      // Remplacer par la valeur de .env.local
+                      updatedLines.push(`${key}=${extractedVars.get(key)}`);
+                      processedKeys.add(key);
+                    } else {
+                      // Garder les autres variables telles quelles
+                      updatedLines.push(line);
+                    }
+                  } else {
+                    // Garder les lignes non-variables (commentaires, lignes vides, etc.)
+                    updatedLines.push(line);
+                  }
+                } else {
+                  // Garder les commentaires et lignes vides
+                  updatedLines.push(line);
+                }
+              });
+              
+              // Ajouter les variables manquantes à la fin
+              extractedVars.forEach((value, key) => {
+                if (!processedKeys.has(key)) {
+                  // Ajouter une ligne vide avant si ce n'est pas la première variable
+                  if (updatedLines.length > 0 && updatedLines[updatedLines.length - 1].trim() !== '') {
+                    updatedLines.push('');
+                  }
+                  updatedLines.push(`${key}=${value}`);
+                }
+              });
+              
+              // Écrire le fichier .env
+              await fs.writeFile(targetEnvPath, updatedLines.join('\n'), 'utf-8');
+              addLog('info', `✅ ${extractedVars.size} variable(s) d'environnement copiée(s) depuis .env.local vers balance-calculator/.env`);
+            } else {
+              addLog('warning', '⚠️ Aucune variable requise trouvée dans .env.local');
+            }
           } catch (error) {
-            addLog('error', `⚠️ Erreur lors de la copie du .env: ${error.message}`);
+            addLog('error', `⚠️ Erreur lors de la copie des variables depuis .env.local: ${error.message}`);
           }
         } else {
-          addLog('warning', '⚠️ Fichier .env non trouvé dans le projet principal');
+          addLog('info', 'ℹ️ Fichier .env.local non trouvé dans le projet principal');
         }
         
         addLog('info', '✅ Rebuild terminé avec succès');
@@ -827,6 +916,79 @@ app.post('/api/balance-calculator/config/env', async (req, res) => {
   } catch (error) {
     console.error('Erreur lors de la sauvegarde du fichier .env:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint pour vérifier si .env.local existe avec toutes les variables requises
+app.get('/api/env-local/check', async (req, res) => {
+  try {
+    const envLocalPath = path.join(projectRoot, '.env.local');
+    const requiredEnvVars = [
+      'THEGRAPH_API_KEY',
+      'API_KEY_GNOSISSCAN',
+      'API_KEY_ETHERSCAN',
+      'API_KEY_POLYGONSCAN',
+      'API_KEY_MORALIS'
+    ];
+    
+    // Vérifier si le fichier existe
+    if (!existsSync(envLocalPath)) {
+      return res.json({
+        exists: false,
+        hasAllRequiredVars: false,
+        missingVars: requiredEnvVars,
+        foundVars: []
+      });
+    }
+    
+    // Lire le fichier
+    const content = readFileSync(envLocalPath, 'utf-8');
+    const lines = content.split('\n');
+    
+    // Extraire les variables présentes
+    const foundVars = [];
+    const foundVarsMap = new Map();
+    
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        const match = trimmed.match(/^([^=]+)=(.*)$/);
+        if (match) {
+          const key = match[1].trim();
+          if (requiredEnvVars.includes(key)) {
+            foundVars.push(key);
+            foundVarsMap.set(key, match[2].trim());
+          }
+        }
+      }
+    });
+    
+    // Vérifier si toutes les variables requises sont présentes et non vides
+    const missingVars = requiredEnvVars.filter(key => {
+      if (!foundVarsMap.has(key)) {
+        return true;
+      }
+      const value = foundVarsMap.get(key);
+      // Vérifier que la valeur n'est pas vide (après avoir retiré les guillemets)
+      const cleanValue = value.replace(/^["']+|["']+$/g, '').trim();
+      return !cleanValue;
+    });
+    
+    const hasAllRequiredVars = missingVars.length === 0;
+    
+    res.json({
+      exists: true,
+      hasAllRequiredVars,
+      missingVars,
+      foundVars
+    });
+  } catch (error) {
+    console.error('Erreur lors de la vérification de .env.local:', error);
+    res.status(500).json({ 
+      error: error.message,
+      exists: false,
+      hasAllRequiredVars: false
+    });
   }
 });
 

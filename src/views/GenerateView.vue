@@ -74,6 +74,19 @@ const requiredEnvVars = [
   'API_KEY_POLYGONSCAN',
   'API_KEY_MORALIS'
 ]
+// Vérification de .env.local
+const envLocalCheck = ref<{
+  exists: boolean
+  hasAllRequiredVars: boolean
+  missingVars: string[]
+  foundVars: string[]
+}>({
+  exists: false,
+  hasAllRequiredVars: false,
+  missingVars: [],
+  foundVars: []
+})
+const isLoadingEnvLocalCheck = ref(false)
 
 // Infos Git de balance-calculator
 const gitInfo = ref<{
@@ -126,6 +139,25 @@ const loadGitInfo = async () => {
       exists: false,
       isGitRepo: false,
     }
+  }
+}
+
+const checkEnvLocal = async () => {
+  isLoadingEnvLocalCheck.value = true
+  try {
+    const response = await fetch(`${API_BASE}/env-local/check`)
+    if (!response.ok) throw new Error('Erreur lors de la vérification de .env.local')
+    envLocalCheck.value = await response.json()
+  } catch (err) {
+    console.error('Erreur lors de la vérification de .env.local:', err)
+    envLocalCheck.value = {
+      exists: false,
+      hasAllRequiredVars: false,
+      missingVars: requiredEnvVars,
+      foundVars: []
+    }
+  } finally {
+    isLoadingEnvLocalCheck.value = false
   }
 }
 
@@ -883,6 +915,7 @@ const startRebuildLogsStream = (processId: string) => {
             setTimeout(() => {
               loadGitInfo()
               loadFiles() // Rafraîchir aussi la liste des fichiers générés
+              checkEnvLocal() // Re-vérifier .env.local après le rebuild
             }, 15000) // Augmenter le délai à 15 secondes pour laisser le temps à tous les logs d'arriver
           }
         }
@@ -1201,17 +1234,25 @@ watch(showBalancesModal, async (isOpen) => {
 onMounted(() => {
   loadFiles()
   loadGitInfo()
+  checkEnvLocal()
   // Recharger les fichiers toutes les 5 secondes
   setInterval(loadFiles, 5000)
   // Rafraîchir les infos Git toutes les 30 secondes
   setInterval(() => {
     loadGitInfo()
   }, 30000)
+  // Vérifier .env.local toutes les 30 secondes
+  setInterval(() => {
+    checkEnvLocal()
+  }, 30000)
   // Charger la configuration et l'environnement si balance-calculator existe
   setTimeout(() => {
     if (gitInfo.value.exists && gitInfo.value.isGitRepo) {
       loadOptionsModifiers()
-      loadEnv()
+      // Ne charger l'environnement que si .env.local n'est pas utilisé
+      if (!envLocalCheck.value.hasAllRequiredVars) {
+        loadEnv()
+      }
     }
   }, 2000)
 })
@@ -1221,7 +1262,14 @@ watch(() => gitInfo.value.exists && gitInfo.value.isGitRepo, (isReady) => {
   if (isReady && showConfigSection.value) {
     loadOptionsModifiers()
   }
-  if (isReady && showEnvSection.value) {
+  if (isReady && showEnvSection.value && !envLocalCheck.value.hasAllRequiredVars) {
+    loadEnv()
+  }
+})
+
+// Watch pour recharger l'environnement si .env.local change
+watch(() => envLocalCheck.value.hasAllRequiredVars, (hasAll) => {
+  if (!hasAll && showEnvSection.value && gitInfo.value.exists && gitInfo.value.isGitRepo) {
     loadEnv()
   }
 })
@@ -1279,12 +1327,17 @@ onUnmounted(() => {
         <!-- Étape 2: Environnement -->
         <div class="action-group">
           <h3><span class="step-number">2</span> Environnement</h3>
+          <div v-if="envLocalCheck.hasAllRequiredVars" style="padding: 1rem; background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success-color); border-radius: 0.5rem; color: var(--success-color); margin-bottom: 1rem;">
+            ✅ Les variables d'environnement sont gérées automatiquement depuis <code style="background: var(--card-bg); padding: 0.25rem 0.5rem; border-radius: 0.25rem;">.env.local</code>. Elles seront copiées dans balance-calculator lors du clone.
+          </div>
           <div style="display: flex; flex-direction: column; gap: 1rem;">
             <div style="display: flex; align-items: center; gap: 1rem;">
               <button
                 type="button"
                 @click.prevent="showEnvSection = !showEnvSection"
+                :disabled="envLocalCheck.hasAllRequiredVars"
                 class="btn btn-secondary"
+                :title="envLocalCheck.hasAllRequiredVars ? 'Les variables sont gérées depuis .env.local' : ''"
               >
                 {{ showEnvSection ? '▼' : '▶' }} {{ showEnvSection ? 'Masquer' : 'Afficher' }} l'environnement
               </button>
@@ -1292,15 +1345,16 @@ onUnmounted(() => {
                 v-if="showEnvSection"
                 type="button"
                 @click.prevent="loadEnv"
-                :disabled="isLoadingEnv"
+                :disabled="isLoadingEnv || envLocalCheck.hasAllRequiredVars"
                 class="btn btn-secondary"
+                :title="envLocalCheck.hasAllRequiredVars ? 'Les variables sont gérées depuis .env.local' : ''"
               >
                 <span v-if="!isLoadingEnv">🔄 Recharger</span>
                 <span v-else class="loading">⏳ Chargement...</span>
               </button>
             </div>
             
-            <div v-if="showEnvSection" style="display: flex; flex-direction: column; gap: 1rem;">
+            <div v-if="showEnvSection && !envLocalCheck.hasAllRequiredVars" style="display: flex; flex-direction: column; gap: 1rem;">
               <div v-if="isLoadingEnv" style="color: var(--text-secondary); font-style: italic;">
                 ⏳ Chargement de l'environnement...
               </div>
@@ -1346,6 +1400,9 @@ onUnmounted(() => {
                   <span v-else class="loading">⏳ Mise à jour...</span>
                 </button>
               </div>
+            </div>
+            <div v-else-if="showEnvSection && envLocalCheck.hasAllRequiredVars" style="padding: 1rem; background: var(--bg-tertiary); border-radius: 0.5rem; color: var(--text-secondary); font-style: italic;">
+              Les variables d'environnement sont gérées depuis <code>.env.local</code> et seront automatiquement copiées lors du clone.
             </div>
           </div>
         </div>

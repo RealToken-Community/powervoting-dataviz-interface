@@ -1842,6 +1842,19 @@ onUnmounted(() => {
         <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">
           Glissez-déposez ou sélectionnez des fichiers CSV/JSON pour les copier dans balance-calculator/outDatas
         </p>
+        <div class="info-bubble" style="margin-bottom: 1rem; padding: 1rem; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 0.5rem; color: var(--text-primary);">
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+            <span style="font-size: 1.25rem; flex-shrink: 0;">ℹ️</span>
+            <div style="flex: 1;">
+              <strong style="color: rgba(59, 130, 246, 1);">Normalisation des noms de fichiers</strong>
+              <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; line-height: 1.5;">
+                Pour que les fichiers soient correctement reconnus et traités par balance-calculator, les noms doivent contenir les mots-clés suivants :
+                <br />• <strong style="color: rgba(59, 130, 246, 1);">balancesREG_</strong> : pour les fichiers de balances REG (avec underscore)
+                <br />• <strong style="color: rgba(59, 130, 246, 1);">powerVotingREG</strong> : pour les fichiers de power voting (avec REG à la fin)
+              </p>
+            </div>
+          </div>
+        </div>
         <div
           class="upload-dropzone"
           :class="{ 'dragging': isDraggingFiles, 'uploading': isUploadingFiles }"

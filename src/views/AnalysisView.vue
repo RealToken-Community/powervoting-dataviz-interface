@@ -1486,12 +1486,70 @@ const dexBoostChartData = computed(() => {
     return entry.powerVoting / entry.walletREG
   })
 
+  // Calculer le ratio actif/inactif pour chaque wallet V3 et déterminer la couleur des points
+  const v3PointColors = v3Wallets.map((entry) => {
+    if (!entry.positions || entry.positions.length === 0) {
+      // Pas de positions, point vert par défaut
+      return 'rgba(34, 197, 94, 1)' // Vert
+    }
+
+    let totalRegInRange = 0
+    let totalRegOutOfRange = 0
+
+    entry.positions.forEach((pos: any) => {
+      // Seulement les positions V3
+      if (pos.poolType !== 'v3') return
+
+      const regAmount = parseFloat(pos.regAmount || pos.equivalentREG || '0')
+      if (regAmount <= 0) return
+
+      // Vérifier si la position est active (in range)
+      const isActive = pos.isActive !== undefined ? pos.isActive : false
+
+      if (isActive) {
+        totalRegInRange += regAmount
+      } else {
+        totalRegOutOfRange += regAmount
+      }
+    })
+
+    const totalReg = totalRegInRange + totalRegOutOfRange
+    if (totalReg <= 0) {
+      // Pas de REG dans les pools V3, point vert par défaut
+      return 'rgba(34, 197, 94, 1)' // Vert
+    }
+
+    const ratioInRange = totalRegInRange / totalReg
+
+    // Déterminer la couleur selon le ratio
+    if (ratioInRange >= 1) {
+      // 100% in range -> Vert
+      return 'rgba(34, 197, 94, 1)' // Vert
+    } else if (ratioInRange <= 0) {
+      // 100% out of range -> Rouge
+      return 'rgba(239, 68, 68, 1)' // Rouge
+    } else {
+      // Mixte -> Orange
+      return 'rgba(249, 115, 22, 1)' // Orange
+    }
+  })
+
   // Créer les baselines pour chaque catégorie
   const v2Baseline = v2Labels.map(() => 1)
   const v3Baseline = v3Labels.map(() => 1)
 
   // Combiner les labels : V2 d'abord, puis V3
   const allLabels = [...v2Labels, ...v3Labels]
+
+  // Créer les tableaux de couleurs pour les points V3 (nulls pour V2, couleurs pour V3)
+  const v3PointBackgroundColors = [
+    ...new Array(v2Labels.length).fill(null),
+    ...v3PointColors
+  ]
+  const v3PointBorderColors = [
+    ...new Array(v2Labels.length).fill(null),
+    ...v3PointColors
+  ]
 
   return {
     labels: allLabels, // V2 d'abord, puis V3
@@ -1514,8 +1572,11 @@ const dexBoostChartData = computed(() => {
         backgroundColor: 'rgba(34, 197, 94, 0.15)',
         tension: 0.25,
         fill: false,
-        pointRadius: 4,
-        pointHoverRadius: 6,
+        pointRadius: 5, // Taille réduite pour les points
+        pointHoverRadius: 7,
+        pointBackgroundColor: v3PointBackgroundColors, // Couleurs personnalisées pour les points
+        pointBorderColor: v3PointBorderColors,
+        pointBorderWidth: 2,
         spanGaps: false, // Ne pas connecter les points null
       },
       {
@@ -1526,6 +1587,43 @@ const dexBoostChartData = computed(() => {
         tension: 0,
         fill: false,
         pointRadius: 0,
+      },
+      // Datasets pour la légende des points colorés V3
+      {
+        label: '🟢 Pools V3 in range (actives)',
+        data: [],
+        borderColor: 'rgba(34, 197, 94, 1)',
+        backgroundColor: 'rgba(34, 197, 94, 1)',
+        pointRadius: 5,
+        pointBorderWidth: 2,
+        pointBorderColor: 'rgba(34, 197, 94, 1)',
+        borderWidth: 0,
+        hidden: false,
+        showLine: false,
+      },
+      {
+        label: '🔴 Pools V3 out of range (inactives)',
+        data: [],
+        borderColor: 'rgba(239, 68, 68, 1)',
+        backgroundColor: 'rgba(239, 68, 68, 1)',
+        pointRadius: 5,
+        pointBorderWidth: 2,
+        pointBorderColor: 'rgba(239, 68, 68, 1)',
+        borderWidth: 0,
+        hidden: false,
+        showLine: false,
+      },
+      {
+        label: '🟠 Pools V3 mixtes (actives + inactives)',
+        data: [],
+        borderColor: 'rgba(249, 115, 22, 1)',
+        backgroundColor: 'rgba(249, 115, 22, 1)',
+        pointRadius: 5,
+        pointBorderWidth: 2,
+        pointBorderColor: 'rgba(249, 115, 22, 1)',
+        borderWidth: 0,
+        hidden: false,
+        showLine: false,
       },
     ],
   }
@@ -2089,6 +2187,11 @@ const powerBreakdownChartOptions = {
           <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu</strong> : Wallets avec positions V2 (Power Voting ÷ totalBalanceREG)
           <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert</strong> : Wallets avec positions V3 (Power Voting ÷ totalBalanceREG)
           <br />• <strong style="color: rgba(148, 163, 184, 0.8);">Gris (pointillé)</strong> : Référence 1:1 (parité)
+          <br />
+          <br /><strong>Indicateurs de range pour les pools V3</strong> (points sur la courbe verte) :
+          <br />• <strong style="color: rgba(34, 197, 94, 1);">🟢 Point vert</strong> : Toutes les pools V3 sont actives (in range)
+          <br />• <strong style="color: rgba(239, 68, 68, 1);">🔴 Point rouge</strong> : Toutes les pools V3 sont inactives (out of range)
+          <br />• <strong style="color: rgba(249, 115, 22, 1);">🟠 Point orange</strong> : Mixte (pools actives et inactives, calculé au prorata des poids)
         </li>
       </ul>
       <p style="margin-top: 1rem;">

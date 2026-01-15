@@ -150,6 +150,30 @@ const loadGitInfo = async () => {
   }
 }
 
+const fixPermissions = async () => {
+  isLoading.value = true
+  error.value = ''
+  success.value = ''
+  
+  try {
+    const response = await fetch(`${API_BASE}/balance-calculator/fix-permissions`, {
+      method: 'POST',
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Erreur lors de la correction des permissions' }))
+      throw new Error(errorData.error || 'Erreur lors de la correction des permissions')
+    }
+    
+    const data = await response.json()
+    success.value = data.message || 'Permissions corrigées avec succès'
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Erreur lors de la correction des permissions'
+  } finally {
+    isLoading.value = false
+  }
+}
+
 const checkEnvLocal = async () => {
   isLoadingEnvLocalCheck.value = true
   try {

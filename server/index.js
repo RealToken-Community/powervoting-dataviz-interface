@@ -791,6 +791,36 @@ app.post('/api/rebuild', async (req, res) => {
         // Configurer Git pour le nouveau dépôt
         await execAsync(`git config --global --add safe.directory ${balanceCalculatorPath}`, { timeout: 5000 }).catch(() => {});
         
+        // S'assurer que les fichiers appartiennent à l'utilisateur actuel (pour éviter les problèmes de permissions)
+        // Si le serveur tourne en root (Docker), changer le propriétaire vers l'utilisateur du répertoire parent
+        try {
+          // Obtenir l'utilisateur du répertoire parent
+          const parentOwnerResult = await execAsync(`stat -c '%U:%G' ${projectRoot}`, { timeout: 5000 });
+          const parentOwner = parentOwnerResult.stdout.trim();
+          
+          // Changer le propriétaire de balance-calculator vers le même utilisateur
+          await execAsync(`chown -R ${parentOwner} ${balanceCalculatorPath}`, { timeout: 10000 });
+          addLog('info', `✅ Permissions corrigées (propriétaire: ${parentOwner})`);
+        } catch (chownError) {
+          // Si on n'a pas les permissions ou si la commande échoue, essayer avec l'utilisateur actuel
+          try {
+            const currentUser = process.env.USER || process.env.USERNAME || 'ubuntu';
+            await execAsync(`chown -R ${currentUser}:${currentUser} ${balanceCalculatorPath}`, { timeout: 10000 });
+            addLog('info', `✅ Permissions corrigées (propriétaire: ${currentUser})`);
+          } catch (fallbackError) {
+            // Dernière tentative : utiliser sudo si disponible
+            try {
+              const currentUser = process.env.USER || process.env.USERNAME || 'ubuntu';
+              await execAsync(`sudo chown -R ${currentUser}:${currentUser} ${balanceCalculatorPath}`, { timeout: 10000 });
+              addLog('info', `✅ Permissions corrigées avec sudo (propriétaire: ${currentUser})`);
+            } catch (sudoError) {
+              // Ignorer les erreurs de chown (peut ne pas avoir les permissions)
+              addLog('warning', '⚠️ Impossible de corriger les permissions automatiquement (non bloquant)');
+              addLog('warning', '💡 Vous devrez peut-être corriger manuellement avec: sudo chown -R $USER:$USER balance-calculator');
+            }
+          }
+        }
+        
         // Installer les dépendances
         addLog('info', '📦 Installation des dépendances...');
         await execAsync(`cd ${balanceCalculatorPath} && yarn install`, { timeout: 300000 });
@@ -1125,6 +1155,54 @@ app.get('/api/env-local/check', async (req, res) => {
       exists: false,
       hasAllRequiredVars: false
     });
+  }
+});
+
+// Endpoint pour corriger les permissions de balance-calculator
+app.post('/api/balance-calculator/fix-permissions', async (req, res) => {
+  try {
+    // Vérifier que balance-calculator existe
+    if (!existsSync(balanceCalculatorPath)) {
+      return res.status(404).json({ error: 'balance-calculator n\'existe pas encore' });
+    }
+
+    // Obtenir l'utilisateur du répertoire parent
+    let parentOwner = 'ubuntu:ubuntu';
+    try {
+      const parentOwnerResult = await execAsync(`stat -c '%U:%G' ${projectRoot}`, { timeout: 5000 });
+      parentOwner = parentOwnerResult.stdout.trim();
+    } catch (error) {
+      // Fallback vers l'utilisateur actuel
+      const currentUser = process.env.USER || process.env.USERNAME || 'ubuntu';
+      parentOwner = `${currentUser}:${currentUser}`;
+    }
+
+    // Changer le propriétaire
+    try {
+      await execAsync(`chown -R ${parentOwner} ${balanceCalculatorPath}`, { timeout: 10000 });
+      return res.json({ 
+        message: 'Permissions corrigées avec succès',
+        owner: parentOwner
+      });
+    } catch (chownError) {
+      // Essayer avec sudo
+      try {
+        const currentUser = process.env.USER || process.env.USERNAME || 'ubuntu';
+        await execAsync(`sudo chown -R ${currentUser}:${currentUser} ${balanceCalculatorPath}`, { timeout: 10000 });
+        return res.json({ 
+          message: 'Permissions corrigées avec succès (via sudo)',
+          owner: `${currentUser}:${currentUser}`
+        });
+      } catch (sudoError) {
+        return res.status(500).json({ 
+          error: 'Impossible de corriger les permissions',
+          details: sudoError.message
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Erreur lors de la correction des permissions:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

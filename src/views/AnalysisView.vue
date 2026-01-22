@@ -61,6 +61,25 @@ const addressSearchResults = ref<Array<{
 }>>([])
 const isSearchingAddress = ref(false)
 
+// Address details search
+const addressSearchInput = ref<string>('')
+const addressDetails = ref<{
+  address: string
+  totalREG: number
+  walletREG: number
+  poolREG: number
+  powerVoting: number
+  positions: Array<{
+    dex: string
+    poolType: string
+    regAmount: number
+    isActive: boolean
+    counterpartAmount: number
+    counterpartToken: string
+  }>
+} | null>(null)
+const isSearchingAddressDetails = ref(false)
+
 // Helper function to analyze pools for an entire snapshot
 const analyzeSnapshotPools = (balancesArray: any[], powerVotingArray: any[]) => {
   let v2Pools = 0
@@ -973,6 +992,127 @@ const loadSnapshotStats = async () => {
 }
 
 // Search address across all snapshots
+// Fonction pour rechercher les détails d'une adresse
+const searchAddressDetails = async () => {
+  if (!addressSearchInput.value.trim()) {
+    addressDetails.value = null
+    return
+  }
+
+  const addressToSearch = addressSearchInput.value.trim().toLowerCase()
+  isSearchingAddressDetails.value = true
+
+  try {
+    // Rechercher dans les données actuelles
+    const balance = dataStore.balances.find(
+      (b) => (b.walletAddress || '').toLowerCase() === addressToSearch
+    )
+    const power = dataStore.powerVoting.find(
+      (p) => (p.address || '').toLowerCase() === addressToSearch
+    )
+
+    if (!balance && !power) {
+      addressDetails.value = null
+      return
+    }
+
+    const totalREG = balance ? parseFloat(String(balance.totalBalanceREG || balance.totalBalance || 0)) : 0
+    const powerVoting = power ? parseFloat(String(power.powerVoting || 0)) : 0
+
+    // Extraire les positions détaillées
+    const positions: Array<{
+      dex: string
+      poolType: string
+      regAmount: number
+      isActive: boolean
+      counterpartAmount: number
+      counterpartToken: string
+    }> = []
+
+    if (balance && balance.sourceBalance) {
+      const networks = balance.sourceBalance
+
+      Object.entries(networks).forEach(([networkName, networkValue]: [string, any]) => {
+        const dexs = networkValue?.dexs
+        if (!dexs) return
+
+        Object.entries(dexs).forEach(([dexName, rawPositions]: [string, any]) => {
+          if (!Array.isArray(rawPositions)) return
+
+          rawPositions.forEach((pos: any) => {
+            const regAmount = parseFloat(String(pos.equivalentREG || '0'))
+            if (regAmount <= 0) return
+
+            // Détecter V2 vs V3
+            const tickLower = typeof pos.tickLower === 'number' ? pos.tickLower : parseFloat(String(pos.tickLower || 0))
+            const tickUpper = typeof pos.tickUpper === 'number' ? pos.tickUpper : parseFloat(String(pos.tickUpper || 0))
+            const isV2Transformed = tickLower === -887200 && tickUpper === 887200
+            const isV3 = pos.tickLower !== undefined && pos.tickUpper !== undefined && !isV2Transformed
+            const poolType = isV3 ? 'v3' : 'v2'
+            const isActive = pos.isActive !== undefined ? pos.isActive : (isV3 ? false : true)
+
+            // Extraire la contrepartie (token0 ou token1 qui n'est pas REG)
+            let counterpartAmount = 0
+            let counterpartToken = ''
+
+            // Chercher dans les tokens de la position
+            if (pos.tokens && Array.isArray(pos.tokens)) {
+              pos.tokens.forEach((token: any) => {
+                const tokenSymbol = token.symbol || ''
+                const tokenAmount = parseFloat(String(token.balance || token.amount || 0))
+                
+                // Si ce n'est pas REG, c'est la contrepartie
+                if (tokenSymbol.toUpperCase() !== 'REG' && tokenAmount > 0) {
+                  counterpartAmount = tokenAmount
+                  counterpartToken = tokenSymbol
+                }
+              })
+            }
+
+            // Si pas trouvé dans tokens, chercher token0/token1
+            if (counterpartAmount === 0) {
+              if (pos.token0 && pos.token0.symbol && pos.token0.symbol.toUpperCase() !== 'REG') {
+                counterpartAmount = parseFloat(String(pos.token0.balance || pos.token0.amount || 0))
+                counterpartToken = pos.token0.symbol
+              } else if (pos.token1 && pos.token1.symbol && pos.token1.symbol.toUpperCase() !== 'REG') {
+                counterpartAmount = parseFloat(String(pos.token1.balance || pos.token1.amount || 0))
+                counterpartToken = pos.token1.symbol
+              }
+            }
+
+            positions.push({
+              dex: dexName,
+              poolType,
+              regAmount,
+              isActive,
+              counterpartAmount,
+              counterpartToken,
+            })
+          })
+        })
+      })
+    }
+
+    // Calculer REG en wallet et REG en pools
+    const poolREG = positions.reduce((sum, pos) => sum + pos.regAmount, 0)
+    const walletREG = totalREG - poolREG
+
+    addressDetails.value = {
+      address: addressSearchInput.value.trim(),
+      totalREG,
+      walletREG: Math.max(0, walletREG),
+      poolREG,
+      powerVoting,
+      positions,
+    }
+  } catch (err) {
+    console.error('Erreur lors de la recherche des détails:', err)
+    addressDetails.value = null
+  } finally {
+    isSearchingAddressDetails.value = false
+  }
+}
+
 const searchAddressAcrossSnapshots = async () => {
   if (!searchAddress.value.trim()) {
     addressSearchResults.value = []
@@ -2306,7 +2446,7 @@ const powerBreakdownChartOptions = {
       </p>
     </div>
 
-    <div class="pool-wallet-summary" v-if="dataStore.poolWalletBreakdown">
+    <div class="pool-wallet-summary" v-if="dataStore.poolWalletBreakdown" style="margin: 1.5rem 0;">
       <div class="summary-item">
         <span class="summary-label">Wallets V2</span>
         <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v2Wallets) }}</span>
@@ -2321,77 +2461,87 @@ const powerBreakdownChartOptions = {
       </div>
     </div>
 
-    <div class="multiplier-info" style="margin: 1.5rem 0; padding: 1rem; background: var(--card-bg, rgba(255, 255, 255, 0.05)); border-radius: 8px; border-left: 3px solid var(--primary-color, #4a90e2);">
-      <p style="margin: 0 0 0.75rem 0; font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">
-        BETA Les multiplicateurs :
-      </p>
-      <ul style="margin: 0; padding-left: 1.5rem; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.6;">
-        <li><strong>Sushiswap V2</strong> : ×1.5</li>
-        <li><strong>Honeyswap V2</strong> : ×1.3</li>
-        <li><strong>Balancer V2</strong> : ×1.4</li>
-        <li><strong>Sushiswap V3 actif</strong> : ×2.5</li>
-        <li><strong>Sushiswap V3 inactif</strong> : ×1</li>
-      </ul>
-    </div>
+    <!-- Formulaire de recherche d'adresse -->
+    <div class="address-search-section" style="margin: 2rem 0; padding: 1.5rem; background: var(--card-bg); border-radius: 1rem; border: 1px solid var(--border-color);">
+      <h3 style="margin: 0 0 1rem 0; color: var(--text-primary);">🔍 Recherche d'adresse</h3>
+      <form @submit.prevent="searchAddressDetails" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+        <input
+          v-model="addressSearchInput"
+          type="text"
+          placeholder="Entrez une adresse (0x...)"
+          style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--bg-secondary); color: var(--text-primary); font-family: monospace;"
+        />
+        <button
+          type="submit"
+          :disabled="isSearchingAddressDetails"
+          style="padding: 0.75rem 1.5rem; background: var(--primary-color); color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 600;"
+        >
+          {{ isSearchingAddressDetails ? 'Recherche...' : 'Rechercher' }}
+        </button>
+      </form>
 
-    <div class="pool-wallet-summary" v-if="dataStore.poolWalletBreakdown">
-      <div class="summary-item">
-        <span class="summary-label">Wallets V2</span>
-        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v2Wallets) }}</span>
-      </div>
-      <div class="summary-item">
-        <span class="summary-label">Wallets V3</span>
-        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v3Wallets) }}</span>
-      </div>
-      <div class="summary-item">
-        <span class="summary-label">Wallets V2 &amp; V3</span>
-        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.both) }}</span>
-      </div>
-    </div>
+      <!-- Résultats de la recherche -->
+      <div v-if="addressDetails" class="address-details" style="margin-top: 1.5rem;">
+        <div style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; margin-bottom: 1rem;">
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary); font-family: monospace;">{{ addressDetails.address }}</h4>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">REG total</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.totalREG) }}</div>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">REG en wallet</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.walletREG) }}</div>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">REG en pools</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.poolREG) }}</div>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">Power Voting</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--accent-color);">{{ formatNumber(addressDetails.powerVoting) }}</div>
+            </div>
+          </div>
+        </div>
 
-    <div class="multiplier-info" style="margin: 1.5rem 0; padding: 1rem; background: var(--card-bg, rgba(255, 255, 255, 0.05)); border-radius: 8px; border-left: 3px solid var(--primary-color, #4a90e2);">
-      <p style="margin: 0 0 0.75rem 0; font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">
-        BETA Les multiplicateurs :
-      </p>
-      <ul style="margin: 0; padding-left: 1.5rem; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.6;">
-        <li><strong>Sushiswap V2</strong> : ×1.5</li>
-        <li><strong>Honeyswap V2</strong> : ×1.3</li>
-        <li><strong>Balancer V2</strong> : ×1.4</li>
-        <li><strong>Sushiswap V3 actif</strong> : ×2.5</li>
-        <li><strong>Sushiswap V3 inactif</strong> : ×1</li>
-      </ul>
-    </div>
-
-    <div
-      class="correlation-table"
-      v-if="chartWallets && chartWallets.length > 0"
-    >
-      <div
-        class="correlation-row"
-        v-for="profile in chartWallets"
-        :key="profile.address"
-      >
-        <div class="row-main">
-          <div class="address-block">
-            <span class="address-short">{{ formatAddress(profile.address) }}</span>
-            <span class="address-full">{{ profile.address }}</span>
+        <!-- Détails des positions -->
+        <div v-if="addressDetails.positions && addressDetails.positions.length > 0">
+          <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Positions dans les pools</h4>
+          <div style="display: grid; gap: 1rem;">
+            <div
+              v-for="(position, index) in addressDetails.positions"
+              :key="index"
+              style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; border-left: 3px solid var(--primary-color);"
+            >
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">DEX / Pool</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ position.dex }} {{ position.poolType?.toUpperCase() || 'V2' }}</div>
+                </div>
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">Version</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ position.poolType === 'v3' ? 'V3' : 'V2' }}</div>
+                </div>
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">REG équivalent</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.regAmount) }}</div>
+                </div>
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">État</span>
+                  <div style="font-weight: 600;" :style="{ color: position.isActive ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)' }">
+                    {{ position.isActive ? '🟢 Actif (in range)' : '🔴 Inactif (out of range)' }}
+                  </div>
+                </div>
+                <div v-if="position.counterpartAmount > 0">
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">Contrepartie</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.counterpartAmount) }} {{ position.counterpartToken || '' }}</div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="metric">
-            <span class="metric-label">Liquidité en pools</span>
-            <span class="metric-value">{{ formatNumber(profile.poolLiquidityREG) }}</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Power total</span>
-            <span class="metric-value">{{ formatNumber(profile.powerVoting) }}</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">REG en wallet</span>
-            <span class="metric-value">{{ formatNumber(profile.walletDirectREG) }}</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Boost multiplicateur</span>
-            <span class="metric-value">{{ formatNumber(profile.boostMultiplier) }}×</span>
-          </div>
+        </div>
+        <div v-else style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; color: var(--text-secondary); text-align: center;">
+          Aucune position dans les pools
         </div>
       </div>
     </div>

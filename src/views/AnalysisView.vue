@@ -1487,9 +1487,17 @@ const dexBoostChartData = computed(() => {
   })
 
   // Calculer le ratio actif/inactif pour chaque wallet V3 et déterminer la couleur des points
-  const v3PointColors = v3Wallets.map((entry) => {
+  const v3PointColors = v3Wallets.map((entry, index) => {
+    // Calculer le ratio Power Voting ÷ totalBalanceREG pour ce wallet
+    const ratio = entry.walletREG > 0 ? entry.powerVoting / entry.walletREG : 0
+
     if (!entry.positions || entry.positions.length === 0) {
-      // Pas de positions, point vert par défaut
+      // Pas de positions
+      // Si ratio = 1, c'est une position inactive et loin du cours -> Rouge
+      if (Math.abs(ratio - 1) < 0.001) {
+        return 'rgba(239, 68, 68, 1)' // Rouge
+      }
+      // Sinon, point vert par défaut
       return 'rgba(34, 197, 94, 1)' // Vert
     }
 
@@ -1497,7 +1505,7 @@ const dexBoostChartData = computed(() => {
     let totalRegOutOfRange = 0
 
     entry.positions.forEach((pos: any) => {
-      // Seulement les positions V3
+      // Seulement les positions V3 (ignorer V2 pour la couleur)
       if (pos.poolType !== 'v3') return
 
       const regAmount = parseFloat(pos.regAmount || pos.equivalentREG || '0')
@@ -1515,22 +1523,40 @@ const dexBoostChartData = computed(() => {
 
     const totalReg = totalRegInRange + totalRegOutOfRange
     if (totalReg <= 0) {
-      // Pas de REG dans les pools V3, point vert par défaut
+      // Pas de REG dans les pools V3
+      // Si ratio = 1, c'est une position inactive et loin du cours -> Rouge
+      if (Math.abs(ratio - 1) < 0.001) {
+        return 'rgba(239, 68, 68, 1)' // Rouge
+      }
+      // Sinon, point vert par défaut
       return 'rgba(34, 197, 94, 1)' // Vert
     }
 
     const ratioInRange = totalRegInRange / totalReg
 
-    // Déterminer la couleur selon le ratio
+    // Logique de couleur :
+    // 1. Tous les points avec ratio = 1 devraient être rouge - position inactive et loin du cours
+    if (Math.abs(ratio - 1) < 0.001) {
+      return 'rgba(239, 68, 68, 1)' // Rouge
+    }
+
+    // 2. Déterminer la couleur selon le ratio in range des pools V3
+    // IMPORTANT: On ne met jamais rouge si ratio > 1 (pas de points rouges au-dessus de la ligne 1:1)
     if (ratioInRange >= 1) {
       // 100% in range -> Vert
       return 'rgba(34, 197, 94, 1)' // Vert
     } else if (ratioInRange <= 0) {
-      // 100% out of range -> Rouge
-      return 'rgba(239, 68, 68, 1)' // Rouge
+      // 100% out of range
+      // Rouge seulement si ratio <= 1 (pas de points rouges au-dessus de la ligne 1:1)
+      if (ratio <= 1) {
+        return 'rgba(239, 68, 68, 1)' // Rouge
+      } else {
+        // Ratio > 1 avec toutes positions V3 out of range -> Jaune (pas rouge car au-dessus de 1:1)
+        return 'rgba(234, 179, 8, 1)' // Jaune
+      }
     } else {
-      // Mixte -> Orange
-      return 'rgba(249, 115, 22, 1)' // Orange
+      // Mixte (certaines in range, certaines out of range) -> Jaune
+      return 'rgba(234, 179, 8, 1)' // Jaune
     }
   })
 
@@ -1614,13 +1640,13 @@ const dexBoostChartData = computed(() => {
         showLine: false,
       },
       {
-        label: '🟠 Pools V3 mixtes (actives + inactives)',
+        label: '🟡 Pools V3 mixtes (actives + inactives)',
         data: [],
-        borderColor: 'rgba(249, 115, 22, 1)',
-        backgroundColor: 'rgba(249, 115, 22, 1)',
+        borderColor: 'rgba(234, 179, 8, 1)',
+        backgroundColor: 'rgba(234, 179, 8, 1)',
         pointRadius: 5,
         pointBorderWidth: 2,
-        pointBorderColor: 'rgba(249, 115, 22, 1)',
+        pointBorderColor: 'rgba(234, 179, 8, 1)',
         borderWidth: 0,
         hidden: false,
         showLine: false,
@@ -2190,8 +2216,8 @@ const powerBreakdownChartOptions = {
           <br />
           <br /><strong>Indicateurs de range pour les pools V3</strong> (points sur la courbe verte) :
           <br />• <strong style="color: rgba(34, 197, 94, 1);">🟢 Point vert</strong> : Toutes les pools V3 sont actives (in range)
-          <br />• <strong style="color: rgba(239, 68, 68, 1);">🔴 Point rouge</strong> : Toutes les pools V3 sont inactives (out of range)
-          <br />• <strong style="color: rgba(249, 115, 22, 1);">🟠 Point orange</strong> : Mixte (pools actives et inactives, calculé au prorata des poids)
+          <br />• <strong style="color: rgba(239, 68, 68, 1);">🔴 Point rouge</strong> : Toutes les pools V3 sont inactives (out of range), ou ratio = 1 (position inactive et loin du cours), ou ratio > 1 avec toutes les pools V3 inactives (range proche du cours mais inactif)
+          <br />• <strong style="color: rgba(234, 179, 8, 1);">🟡 Point jaune</strong> : Mixte (pools V3 actives et inactives, calculé au prorata des poids)
         </li>
       </ul>
       <p style="margin-top: 1rem;">

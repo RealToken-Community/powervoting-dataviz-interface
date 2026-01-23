@@ -567,13 +567,14 @@ const getPowerByPoolType = (profile: any) => {
   const poolsMap = new Map<string, { positions: any[], totalREG: number, poolType: string }>()
   
   profile.positions.forEach((pos: any) => {
+    if (!pos) return // Sécurité si pos est null/undefined
     const key = pos.poolAddress || `${pos.dex}-${pos.poolType}`
     if (!poolsMap.has(key)) {
       poolsMap.set(key, { positions: [], totalREG: 0, poolType: pos.poolType })
     }
     const pool = poolsMap.get(key)!
     pool.positions.push(pos)
-    pool.totalREG += pos.regAmount
+    pool.totalREG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
   })
   
   let v2Power = 0
@@ -1615,27 +1616,160 @@ const dexBoostChartData = computed(() => {
   const v3Labels = v3Wallets.map((entry) => formatAddress(entry.address))
 
   // Calculer le ratio Power Voting ÷ totalBalanceREG pour V2
+  // Pour V2, on calcule l'impact des pools V2 par rapport au total du wallet (REG V2 + REG direct)
   const v2Ratios = v2Wallets.map((entry) => {
-    if (entry.walletREG <= 0) return 0
-    return entry.powerVoting / entry.walletREG
+    if (!entry) return 1 // Sécurité si entry est null/undefined
+    
+    // Utiliser le powerVoting total et walletREG total pour avoir un ratio réaliste
+    // Cela montre l'impact global du wallet avec des pools V2
+    // et donne des ratios entre 1 et 2 pour la plupart des wallets (comme avant)
+    const totalV2Power = entry.powerVoting || 0
+    const totalV2REG = entry.walletREG || 0
+    
+    // Calculer le ratio V2
+    if (totalV2REG <= 0) return 1 // Par défaut 1 si pas de REG
+    const ratio = totalV2Power / totalV2REG
+    
+    // La courbe ne doit jamais descendre en dessous de 1
+    return Math.max(1, ratio)
+    
+    // Debug: log pour le wallet problématique
+    if (entry.address && entry.address.toLowerCase().includes('d9df1d931cfab59965c1a87e1e55131632357f0d')) {
+      console.log('🔵 V2 Ratio Debug:', {
+        address: entry.address,
+        v2Power,
+        v2REG,
+        totalV2Power,
+        totalV2REG,
+        ratio,
+        finalRatio: Math.max(1, ratio),
+        powerVoting: entry.powerVoting,
+        poolVotingShare: entry.poolVotingShare,
+        walletDirectREG: entry.walletDirectREG
+      })
+    }
+    
+    // La courbe ne doit jamais descendre en dessous de 1
+    return Math.max(1, ratio)
   })
 
   // Calculer le ratio Power Voting ÷ totalBalanceREG pour V3
+  // Pour V3, on calcule le ratio en utilisant seulement les pools V3 + une partie proportionnelle du power direct
   const v3Ratios = v3Wallets.map((entry) => {
-    if (entry.walletREG <= 0) return 0
-    return entry.powerVoting / entry.walletREG
+    if (!entry) return 1 // Sécurité si entry est null/undefined
+    
+    // Calculer le Power V3 (pools V3 uniquement)
+    const powerByType = getPowerByPoolType(entry)
+    const v3Power = powerByType?.v3 || 0
+    
+    // Calculer le REG V2 (pools V2 uniquement)
+    let v2REG = 0
+    if (entry.positions && entry.positions.length > 0) {
+      entry.positions.forEach((pos: any) => {
+        if (pos.poolType === 'v2') {
+          v2REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
+        }
+      })
+    }
+    
+    // Calculer le REG V3 (pools V3 uniquement)
+    let v3REG = 0
+    if (entry.positions && entry.positions.length > 0) {
+      entry.positions.forEach((pos: any) => {
+        if (pos.poolType === 'v3') {
+          v3REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
+        }
+      })
+    }
+    
+    // Calculer le Power direct (hors pools)
+    const directPower = (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
+    
+    // Pour V3, utiliser le total power direct (pas seulement proportionnel)
+    // pour montrer l'impact global des pools V3 sur le wallet
+    // Total Power pour V3 = Power V3 + Power direct total
+    const totalV3Power = v3Power + directPower
+    
+    // Pour V3, utiliser le total REG du wallet (REG V3 + REG direct total)
+    // pour montrer l'impact global des pools V3 sur le wallet
+    const walletDirectREG = entry.walletDirectREG || 0
+    
+    // Total REG pour V3 = REG V3 + REG direct total (pas seulement proportionnel)
+    // Cela permet de voir l'impact des pools V3 par rapport au total du wallet
+    const totalV3REG = v3REG + walletDirectREG
+    
+    // Calculer le ratio V3
+    if (totalV3REG <= 0) return 1 // Par défaut 1 si pas de REG
+    const ratio = totalV3Power / totalV3REG
+    
+    // Debug: log pour le wallet problématique
+    if (entry.address && entry.address.toLowerCase().includes('d9df1d931cfab59965c1a87e1e55131632357f0d')) {
+      console.log('🟢 V3 Ratio Debug:', {
+        address: entry.address,
+        v3Power,
+        v3REG,
+        directPower,
+        totalV3Power,
+        walletDirectREG,
+        totalV3REG,
+        ratio,
+        finalRatio: Math.max(1, ratio),
+        powerVoting: entry.powerVoting,
+        poolVotingShare: entry.poolVotingShare
+      })
+    }
+    
+    // La courbe ne doit jamais descendre en dessous de 1
+    return Math.max(1, ratio)
   })
 
   // Calculer le ratio actif/inactif pour chaque wallet V3 et déterminer la couleur des points
   const v3PointColors = v3Wallets.map((entry, index) => {
-    // Calculer le ratio Power Voting ÷ totalBalanceREG pour ce wallet
-    const ratio = entry.walletREG > 0 ? entry.powerVoting / entry.walletREG : 0
+    if (!entry) return 'rgba(34, 197, 94, 1)' // Sécurité si entry est null/undefined
+    
+    // Calculer le ratio Power Voting ÷ totalBalanceREG pour V3 (même calcul que v3Ratios)
+    const powerByType = getPowerByPoolType(entry)
+    const v3Power = powerByType?.v3 || 0
+    
+    // Calculer le REG V2 (pools V2 uniquement)
+    let v2REG = 0
+    if (entry.positions && entry.positions.length > 0) {
+      entry.positions.forEach((pos: any) => {
+        if (pos.poolType === 'v2') {
+          v2REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
+        }
+      })
+    }
+    
+    // Calculer le REG V3 (pools V3 uniquement)
+    let v3REG = 0
+    if (entry.positions && entry.positions.length > 0) {
+      entry.positions.forEach((pos: any) => {
+        if (pos.poolType === 'v3') {
+          v3REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
+        }
+      })
+    }
+    
+    // Calculer le Power direct (hors pools)
+    const directPower = (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
+    
+    // Pour V3, utiliser le total power direct et le total REG direct
+    // pour montrer l'impact global des pools V3 sur le wallet
+    const totalV3Power = v3Power + directPower
+    const walletDirectREG = entry.walletDirectREG || 0
+    const totalV3REG = v3REG + walletDirectREG
+    const ratio = totalV3REG > 0 ? totalV3Power / totalV3REG : 1
 
     if (!entry.positions || entry.positions.length === 0) {
-      // Pas de positions
+      // Pas de positions V3
       // Si ratio = 1, c'est une position inactive et loin du cours -> Rouge
       if (Math.abs(ratio - 1) < 0.001) {
         return 'rgba(239, 68, 68, 1)' // Rouge
+      }
+      // Si ratio > 1 sans positions V3, c'est anormal -> Jaune
+      if (ratio > 1) {
+        return 'rgba(234, 179, 8, 1)' // Jaune
       }
       // Sinon, point vert par défaut
       return 'rgba(34, 197, 94, 1)' // Vert
@@ -1663,10 +1797,14 @@ const dexBoostChartData = computed(() => {
 
     const totalReg = totalRegInRange + totalRegOutOfRange
     if (totalReg <= 0) {
-      // Pas de REG dans les pools V3
+      // Pas de REG dans les pools V3 (mais peut-être du REG direct)
       // Si ratio = 1, c'est une position inactive et loin du cours -> Rouge
       if (Math.abs(ratio - 1) < 0.001) {
         return 'rgba(239, 68, 68, 1)' // Rouge
+      }
+      // Si ratio > 1 sans REG dans les pools V3, c'est anormal -> Jaune
+      if (ratio > 1) {
+        return 'rgba(234, 179, 8, 1)' // Jaune
       }
       // Sinon, point vert par défaut
       return 'rgba(34, 197, 94, 1)' // Vert
@@ -1674,31 +1812,49 @@ const dexBoostChartData = computed(() => {
 
     const ratioInRange = totalRegInRange / totalReg
 
-    // Logique de couleur :
+    // Logique de couleur selon les nouvelles exigences :
     // 1. Tous les points avec ratio = 1 devraient être rouge - position inactive et loin du cours
     if (Math.abs(ratio - 1) < 0.001) {
       return 'rgba(239, 68, 68, 1)' // Rouge
     }
 
-    // 2. Déterminer la couleur selon le ratio in range des pools V3
-    // IMPORTANT: On ne met jamais rouge si ratio > 1 (pas de points rouges au-dessus de la ligne 1:1)
-    if (ratioInRange >= 1) {
-      // 100% in range -> Vert
-      return 'rgba(34, 197, 94, 1)' // Vert
-    } else if (ratioInRange <= 0) {
-      // 100% out of range
-      // Rouge seulement si ratio <= 1 (pas de points rouges au-dessus de la ligne 1:1)
-      if (ratio <= 1) {
+    // 2. Pour les points avec ratio > 1 :
+    //    - Rouge si toutes les pools V3 sont out of range (range proche du cours mais inactif)
+    //    - Sinon vert ou jaune selon l'état des pools
+    if (ratio > 1) {
+      if (ratioInRange <= 0) {
+        // Ratio > 1 avec toutes les pools V3 out of range -> Rouge
         return 'rgba(239, 68, 68, 1)' // Rouge
+      } else if (ratioInRange >= 1) {
+        // Ratio > 1 avec toutes les pools V3 in range -> Vert
+        return 'rgba(34, 197, 94, 1)' // Vert
       } else {
-        // Ratio > 1 avec toutes positions V3 out of range -> Jaune (pas rouge car au-dessus de 1:1)
+        // Ratio > 1 avec mixte (certaines in range, certaines out of range) -> Jaune
         return 'rgba(234, 179, 8, 1)' // Jaune
       }
-    } else {
-      // Mixte (certaines in range, certaines out of range) -> Jaune
-      return 'rgba(234, 179, 8, 1)' // Jaune
     }
+
+    // 3. Pour les points avec ratio < 1 (ne devrait pas arriver car on force >= 1, mais au cas où)
+    // Si ratio < 1, c'est une anomalie, on met rouge
+    return 'rgba(239, 68, 68, 1)' // Rouge
   })
+
+  // Vérifier que les arrays ont la bonne longueur
+  if (v2Ratios.length !== v2Labels.length || v3Ratios.length !== v3Labels.length || v3PointColors.length !== v3Labels.length) {
+    console.error('Mismatch in array lengths:', {
+      v2Ratios: v2Ratios.length,
+      v2Labels: v2Labels.length,
+      v3Ratios: v3Ratios.length,
+      v3Labels: v3Labels.length,
+      v3PointColors: v3PointColors.length
+    })
+    return null // Retourner null si les longueurs ne correspondent pas
+  }
+
+  // Filtrer les valeurs invalides (null, undefined, NaN)
+  const safeV2Ratios = v2Ratios.map(r => (r != null && !isNaN(r)) ? r : 1)
+  const safeV3Ratios = v3Ratios.map(r => (r != null && !isNaN(r)) ? r : 1)
+  const safeV3PointColors = v3PointColors.map(c => c || 'rgba(34, 197, 94, 1)')
 
   // Créer les baselines pour chaque catégorie
   const v2Baseline = v2Labels.map(() => 1)
@@ -1710,11 +1866,11 @@ const dexBoostChartData = computed(() => {
   // Créer les tableaux de couleurs pour les points V3 (nulls pour V2, couleurs pour V3)
   const v3PointBackgroundColors = [
     ...new Array(v2Labels.length).fill(null),
-    ...v3PointColors
+    ...safeV3PointColors
   ]
   const v3PointBorderColors = [
     ...new Array(v2Labels.length).fill(null),
-    ...v3PointColors
+    ...safeV3PointColors
   ]
 
   return {
@@ -1722,7 +1878,7 @@ const dexBoostChartData = computed(() => {
     datasets: [
       {
         label: 'Power Voting ÷ totalBalanceREG (V2)',
-        data: [...v2Ratios, ...new Array(v3Labels.length).fill(null)], // V2 data + nulls pour V3
+        data: [...safeV2Ratios, ...new Array(v3Labels.length).fill(null)], // V2 data + nulls pour V3
         borderColor: 'rgba(74, 144, 226, 1)', // Bleu pour V2
         backgroundColor: 'rgba(74, 144, 226, 0.15)',
         tension: 0.25,
@@ -1733,7 +1889,7 @@ const dexBoostChartData = computed(() => {
       },
       {
         label: 'Power Voting ÷ totalBalanceREG (V3)',
-        data: [...new Array(v2Labels.length).fill(null), ...v3Ratios], // nulls pour V2 + V3 data
+        data: [...new Array(v2Labels.length).fill(null), ...safeV3Ratios], // nulls pour V2 + V3 data
         borderColor: 'rgba(34, 197, 94, 1)', // Vert pour V3
         backgroundColor: 'rgba(34, 197, 94, 0.15)',
         tension: 0.25,

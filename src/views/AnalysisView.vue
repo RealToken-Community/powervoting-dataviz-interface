@@ -299,6 +299,30 @@ const formatInteger = (num: number) => {
   return new Intl.NumberFormat('fr-FR').format(Math.round(num))
 }
 
+const getSnapshotDiff = (snapshot: SnapshotInfo, allSnapshots: SnapshotInfo[]) => {
+  if (!snapshot.metrics || allSnapshots.length === 0) return null
+
+  // Find the index of current snapshot
+  const currentIndex = allSnapshots.findIndex((s) => s.date === snapshot.date)
+  if (currentIndex === -1) return null
+
+  // Get the previous snapshot (next in the list, which is chronologically earlier)
+  const previousSnapshot = allSnapshots[currentIndex + 1]
+  if (!previousSnapshot || !previousSnapshot.metrics) return null
+
+  return {
+    walletCount: snapshot.metrics.walletCount - previousSnapshot.metrics.walletCount,
+    totalREG: snapshot.metrics.totalREG - previousSnapshot.metrics.totalREG,
+    totalPowerVoting: snapshot.metrics.totalPowerVoting - previousSnapshot.metrics.totalPowerVoting,
+  }
+}
+
+const formatDiff = (diff: number, isInteger = false) => {
+  if (diff === 0) return ''
+  const formatted = isInteger ? formatInteger(Math.abs(diff)) : formatNumber(Math.abs(diff))
+  return diff > 0 ? `+${formatted}` : `-${formatted}`
+}
+
 const isWalletExpanded = (address: string) => {
   return !!expandedWallets.value[address]
 }
@@ -841,6 +865,39 @@ const loadComparisonSnapshot = async () => {
     isLoadingComparison.value = false
   }
 }
+
+const loadSnapshotData = async (snapshot: SnapshotInfo) => {
+  isLoadingComparison.value = true
+  try {
+    const { balances, powerVoting } = await loadSnapshot(snapshot)
+
+    dataStore.setBalancesData(balances)
+    dataStore.setPowerVotingData(powerVoting)
+
+    // Reload page to refresh analysis
+    window.location.reload()
+  } catch (err) {
+    console.error('Failed to load snapshot:', err)
+  } finally {
+    isLoadingComparison.value = false
+  }
+}
+
+// Computed property to get all snapshots including current one
+const allSnapshotsWithCurrent = computed(() => {
+  const currentSnapshot: SnapshotInfo = {
+    date: 'Actuel',
+    dateFormatted: 'Actuel',
+    balancesFile: 'Fichier actuel',
+    powerVotingFile: 'Fichier actuel',
+    metrics: dataStore.balances.length > 0 && dataStore.powerVoting.length > 0 ? {
+      walletCount: dataStore.balances.length,
+      totalREG: dataStore.balanceStats?.total || 0,
+      totalPowerVoting: dataStore.powerVotingStats?.total || 0,
+    } : undefined,
+  }
+  return [currentSnapshot, ...availableSnapshots.value]
+})
 
 const clearComparison = () => {
   dataStore.clearComparisonSnapshot()
@@ -2628,6 +2685,82 @@ const powerBreakdownChartOptions = {
         </div>
       </div>
     </div>
+
+    <!-- Snapshots historiques -->
+    <div class="historical-snapshots-section" v-if="allSnapshotsWithCurrent.length > 0">
+      <div class="historical-snapshots-header">
+        <h3>📸 Snapshots historiques ({{ allSnapshotsWithCurrent.length }})</h3>
+        <p>Chargez un snapshot précédent pour analyse ou comparaison avec tout les fichiers historiques mis en dur dans le projet</p>
+      </div>
+      <div class="historical-snapshots-list">
+        <button
+          v-for="snapshot in allSnapshotsWithCurrent"
+          :key="snapshot.date"
+          @click="snapshot.date === 'Actuel' ? null : loadSnapshotData(snapshot)"
+          :disabled="isLoadingComparison || snapshot.date === 'Actuel'"
+          class="historical-snapshot-row"
+          :class="{ 'historical-current-snapshot-row': snapshot.date === 'Actuel' }"
+        >
+          <div class="historical-snapshot-date-col">
+            <div class="historical-snapshot-date">{{ snapshot.date === 'Actuel' ? 'Snapshot actuel (uploadé)' : formatSnapshotDate(snapshot.date) }}</div>
+          </div>
+          <div class="historical-snapshot-metrics-row" v-if="snapshot.metrics">
+            <div class="historical-snapshot-metric-item">
+              <span class="historical-metric-icon">👥</span>
+              <div class="historical-metric-content">
+                <div class="historical-metric-value-row">
+                  <span class="historical-metric-value">{{ formatInteger(snapshot.metrics.walletCount) }}</span>
+                  <span
+                    v-if="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)"
+                    class="historical-metric-diff"
+                    :class="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.walletCount >= 0 ? 'positive' : 'negative'"
+                  >
+                    {{ formatDiff(getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.walletCount, true) }}
+                  </span>
+                </div>
+                <span class="historical-metric-label">wallets</span>
+              </div>
+            </div>
+            <div class="historical-snapshot-metric-item">
+              <span class="historical-metric-icon">💰</span>
+              <div class="historical-metric-content">
+                <div class="historical-metric-value-row">
+                  <span class="historical-metric-value">{{ formatNumber(snapshot.metrics.totalREG) }}</span>
+                  <span
+                    v-if="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)"
+                    class="historical-metric-diff"
+                    :class="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.totalREG >= 0 ? 'positive' : 'negative'"
+                  >
+                    {{ formatDiff(getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.totalREG) }}
+                  </span>
+                </div>
+                <span class="historical-metric-label">REG</span>
+              </div>
+            </div>
+            <div class="historical-snapshot-metric-item">
+              <span class="historical-metric-icon">⚡</span>
+              <div class="historical-metric-content">
+                <div class="historical-metric-value-row">
+                  <span class="historical-metric-value">{{ formatNumber(snapshot.metrics.totalPowerVoting) }}</span>
+                  <span
+                    v-if="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)"
+                    class="historical-metric-diff"
+                    :class="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.totalPowerVoting >= 0 ? 'positive' : 'negative'"
+                  >
+                    {{ formatDiff(getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.totalPowerVoting) }}
+                  </span>
+                </div>
+                <span class="historical-metric-label">Power</span>
+              </div>
+            </div>
+          </div>
+          <div class="historical-snapshot-files" v-else>
+            <span class="historical-snapshot-file">📄 {{ snapshot.balancesFile }}</span>
+            <span class="historical-snapshot-file">⚡ {{ snapshot.powerVotingFile }}</span>
+          </div>
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -3876,6 +4009,173 @@ const powerBreakdownChartOptions = {
   }
   
   .pool-metrics-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+/* Snapshots historiques section (from UploadView) */
+.historical-snapshots-section {
+  margin: 3rem 0;
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 2rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.historical-snapshots-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.historical-snapshots-header h3 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.historical-snapshots-header p {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.historical-snapshots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.historical-snapshot-row {
+  background: var(--glass-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 2rem;
+  align-items: center;
+  text-align: left;
+}
+
+.historical-snapshot-row:hover:not(:disabled) {
+  border-color: var(--primary-color);
+  background: var(--bg-tertiary);
+  transform: translateX(4px);
+  box-shadow: var(--shadow-md);
+}
+
+.historical-snapshot-row:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.historical-snapshot-row.historical-current-snapshot-row {
+  border-color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.1);
+  cursor: default;
+}
+
+.historical-snapshot-date-col {
+  display: flex;
+  align-items: center;
+}
+
+.historical-snapshot-date {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.historical-snapshot-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+  align-items: center;
+}
+
+.historical-snapshot-metric-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.historical-metric-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.historical-metric-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+}
+
+.historical-metric-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.historical-metric-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.historical-metric-diff {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.25rem;
+  line-height: 1.2;
+}
+
+.historical-metric-diff.positive {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.historical-metric-diff.negative {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.historical-metric-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.historical-snapshot-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.historical-snapshot-file {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .historical-snapshot-row {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .historical-snapshot-metrics-row {
     grid-template-columns: 1fr;
     gap: 1rem;
   }

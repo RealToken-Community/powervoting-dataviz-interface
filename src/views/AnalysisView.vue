@@ -1341,6 +1341,171 @@ const poolsDistributionChartData = computed(() => {
   }
 })
 
+// Power concentration analysis
+const powerConcentrationData = computed(() => {
+  if (dataStore.powerVoting.length === 0) return null
+
+  // Sort power voting by descending order
+  const sortedPower = [...dataStore.powerVoting]
+    .map(p => parseFloat(String(p.powerVoting || 0)))
+    .filter(p => !isNaN(p) && p > 0)
+    .sort((a, b) => b - a)
+
+  if (sortedPower.length === 0) return null
+
+  const totalPower = sortedPower.reduce((sum, p) => sum + p, 0)
+  const totalAddresses = sortedPower.length
+
+  // Calculate cumulative power for different percentiles
+  const percentiles = [5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 95, 100]
+  const concentration = percentiles.map(percent => {
+    const count = Math.ceil((totalAddresses * percent) / 100)
+    const topPower = sortedPower.slice(0, count).reduce((sum, p) => sum + p, 0)
+    const powerPercentage = (topPower / totalPower) * 100
+    
+    return {
+      percentile: percent,
+      addressCount: count,
+      powerHeld: topPower,
+      powerPercentage: powerPercentage,
+    }
+  })
+
+  return {
+    totalPower,
+    totalAddresses,
+    concentration,
+  }
+})
+
+// Gini coefficient calculation
+const giniCoefficient = computed(() => {
+  if (!powerConcentrationData.value) return null
+
+  const sortedPower = [...dataStore.powerVoting]
+    .map(p => parseFloat(String(p.powerVoting || 0)))
+    .filter(p => !isNaN(p) && p > 0)
+    .sort((a, b) => a - b) // Sort ascending for Gini
+
+  if (sortedPower.length === 0) return null
+
+  const n = sortedPower.length
+  const totalPower = sortedPower.reduce((sum, p) => sum + p, 0)
+
+  if (totalPower === 0) return 0
+
+  let gini = 0
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      gini += Math.abs(sortedPower[i] - sortedPower[j])
+    }
+  }
+
+  gini = gini / (2 * n * n * (totalPower / n))
+  return Math.round(gini * 10000) / 10000 // Round to 4 decimals
+})
+
+// Chart data for power concentration by percentile
+const powerConcentrationChartData = computed(() => {
+  if (!powerConcentrationData.value) return null
+
+  const data = powerConcentrationData.value.concentration
+  const labels = data.map(d => `Top ${d.percentile}%`)
+  const percentages = data.map(d => d.powerPercentage)
+
+  return {
+    labels,
+    datasets: [
+      {
+        label: '% de pouvoir détenu',
+        data: percentages,
+        backgroundColor: 'rgba(236, 72, 153, 0.8)',
+        borderColor: 'rgb(236, 72, 153)',
+        borderWidth: 2,
+      },
+    ],
+  }
+})
+
+// Chart data for cumulative distribution (Lorenz curve)
+const lorenzCurveData = computed(() => {
+  if (!powerConcentrationData.value) return null
+
+  const sortedPower = [...dataStore.powerVoting]
+    .map(p => parseFloat(String(p.powerVoting || 0)))
+    .filter(p => !isNaN(p) && p > 0)
+    .sort((a, b) => b - a) // Descending
+
+  if (sortedPower.length === 0) return null
+
+  const totalPower = sortedPower.reduce((sum, p) => sum + p, 0)
+  const totalAddresses = sortedPower.length
+
+  // Create points for Lorenz curve (cumulative distribution)
+  const points = []
+  let cumulativePower = 0
+  let cumulativeAddresses = 0
+
+  // Add starting point (0, 0)
+  points.push({ x: 0, y: 0 })
+
+  // Calculate points for each percentile
+  for (let i = 0; i < sortedPower.length; i++) {
+    cumulativePower += sortedPower[i]
+    cumulativeAddresses += 1
+
+    const x = (cumulativeAddresses / totalAddresses) * 100 // % of addresses
+    const y = (cumulativePower / totalPower) * 100 // % of power
+
+    points.push({ x, y })
+  }
+
+  // Add ending point (100, 100)
+  points.push({ x: 100, y: 100 })
+
+  // Sample points for better performance (every 5%)
+  const sampledPoints = []
+  const sampleStep = Math.max(1, Math.floor(points.length / 20))
+  for (let i = 0; i < points.length; i += sampleStep) {
+    sampledPoints.push(points[i])
+  }
+  // Always include the last point
+  if (sampledPoints[sampledPoints.length - 1]?.x !== 100) {
+    sampledPoints.push(points[points.length - 1])
+  }
+
+  // Perfect equality line (diagonal) - sample points
+  const equalityPoints = []
+  for (let i = 0; i <= 100; i += 5) {
+    equalityPoints.push(i)
+  }
+
+  return {
+    labels: sampledPoints.map(p => `${Math.round(p.x)}%`),
+    datasets: [
+      {
+        label: 'Ligne d\'égalité parfaite',
+        data: equalityPoints,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderDash: [5, 5],
+        pointRadius: 0,
+        fill: false,
+      },
+      {
+        label: 'Distribution réelle',
+        data: sampledPoints.map(p => p.y),
+        borderColor: 'rgb(236, 72, 153)',
+        backgroundColor: 'rgba(236, 72, 153, 0.1)',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: true,
+      },
+    ],
+  }
+})
+
 const dexsDistributionChartData = computed(() => {
   const analysis = dataStore.poolAnalysis
   if (!analysis) return null
@@ -1622,6 +1787,85 @@ const countChartOptions = {
       ticks: {
         ...chartOptions.scales.y.ticks,
         callback: (value: number) => formatInteger(Number(value)),
+      },
+    },
+  },
+}
+
+// Chart options for power concentration
+const powerConcentrationChartOptions = {
+  ...chartOptions,
+  scales: {
+    ...chartOptions.scales,
+    x: {
+      ...chartOptions.scales.x,
+      title: {
+        display: true,
+        text: 'Top X% des adresses',
+        color: '#cbd5e1',
+        font: {
+          size: 14,
+          weight: 'bold',
+        },
+      },
+    },
+    y: {
+      ...chartOptions.scales.y,
+      title: {
+        display: true,
+        text: '% du pouvoir de vote détenu',
+        color: '#cbd5e1',
+        font: {
+          size: 14,
+          weight: 'bold',
+        },
+      },
+      ticks: {
+        ...chartOptions.scales.y.ticks,
+        callback: (value: number) => `${formatNumber(value)}%`,
+      },
+      max: 100,
+    },
+  },
+}
+
+const lorenzCurveChartOptions = {
+  ...chartOptions,
+  scales: {
+    x: {
+      ...chartOptions.scales.x,
+      title: {
+        display: true,
+        text: '% cumulatif des adresses',
+        color: '#cbd5e1',
+        font: {
+          size: 14,
+          weight: 'bold',
+        },
+      },
+      min: 0,
+      max: 100,
+      ticks: {
+        ...chartOptions.scales.x.ticks,
+        callback: (value: number) => `${value}%`,
+      },
+    },
+    y: {
+      ...chartOptions.scales.y,
+      title: {
+        display: true,
+        text: '% cumulatif du pouvoir de vote',
+        color: '#cbd5e1',
+        font: {
+          size: 14,
+          weight: 'bold',
+        },
+      },
+      min: 0,
+      max: 100,
+      ticks: {
+        ...chartOptions.scales.y.ticks,
+        callback: (value: number) => `${value}%`,
       },
     },
   },
@@ -2391,6 +2635,78 @@ const powerBreakdownChartOptions = {
       indique combien de wallets se situent dans cette tranche (axe vertical). Exemple : « 100‑500 »
       signifie “4 845 wallets détiennent entre 100 et 500 REG équivalents”.
     </p>
+
+    <!-- Power Concentration Section -->
+    <div class="section-header" v-if="powerConcentrationData">
+      <h2>⚖️ Concentration du pouvoir</h2>
+      <p>Analyse de la répartition du pouvoir de vote entre les adresses</p>
+    </div>
+
+    <div v-if="powerConcentrationData" class="concentration-section">
+      <!-- Gini Coefficient Card -->
+      <div class="stat-card gini-card">
+        <div class="stat-header">
+          <h3>📊 Indice de Gini</h3>
+        </div>
+        <div class="stat-content">
+          <div class="stat-item">
+            <span class="stat-label">Coefficient</span>
+            <span class="stat-value gini-value">{{ giniCoefficient !== null ? giniCoefficient.toFixed(4) : 'N/A' }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Total Power Voting</span>
+            <span class="stat-value">{{ formatNumber(powerConcentrationData.totalPower) }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Nombre d'adresses</span>
+            <span class="stat-value">{{ formatInteger(powerConcentrationData.totalAddresses) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Concentration Table -->
+      <div class="concentration-table-card">
+        <h3>📈 Répartition par percentile</h3>
+        <div class="concentration-table">
+          <div class="concentration-table-header">
+            <div class="concentration-col">Percentile</div>
+            <div class="concentration-col">Nb adresses</div>
+            <div class="concentration-col">Power détenu</div>
+            <div class="concentration-col">% du total</div>
+          </div>
+          <div
+            v-for="item in powerConcentrationData.concentration.filter(c => [5, 10, 15, 20, 25, 50, 75, 90, 95, 100].includes(c.percentile))"
+            :key="item.percentile"
+            class="concentration-table-row"
+          >
+            <div class="concentration-col percentile-col">Top {{ item.percentile }}%</div>
+            <div class="concentration-col">{{ formatInteger(item.addressCount) }}</div>
+            <div class="concentration-col">{{ formatNumber(item.powerHeld) }}</div>
+            <div class="concentration-col percentage-col">{{ formatNumber(item.powerPercentage) }}%</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts Grid -->
+      <div class="charts-grid">
+        <div class="chart-card">
+          <h3>📊 Concentration du pouvoir par percentile</h3>
+          <div class="chart-container" v-if="powerConcentrationChartData">
+            <Bar :data="powerConcentrationChartData" :options="powerConcentrationChartOptions" />
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <h3>📈 Courbe de Lorenz (distribution cumulative)</h3>
+          <div class="chart-container" v-if="lorenzCurveData">
+            <Line :data="lorenzCurveData" :options="lorenzCurveChartOptions" />
+          </div>
+          <p class="chart-note" style="margin-top: 1rem; font-size: 0.875rem; color: var(--text-secondary);">
+            La courbe de Lorenz montre la distribution cumulative du pouvoir. Plus la courbe s'éloigne de la ligne diagonale (égalité parfaite), plus la concentration est élevée.
+          </p>
+        </div>
+      </div>
+    </div>
 
     <!-- Pools Analysis Section -->
     <div class="section-header">
@@ -4178,6 +4494,120 @@ const powerBreakdownChartOptions = {
   .historical-snapshot-metrics-row {
     grid-template-columns: 1fr;
     gap: 1rem;
+  }
+}
+
+/* Power Concentration Section */
+.concentration-section {
+  margin: 3rem 0;
+}
+
+.gini-card {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.gini-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary-color);
+}
+
+.gini-interpretation {
+  font-weight: 600;
+}
+
+.concentration-table-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 2rem;
+  margin: 2rem 0;
+  box-shadow: var(--shadow-lg);
+}
+
+.concentration-table-card h3 {
+  font-size: 1.25rem;
+  margin-bottom: 1.5rem;
+  color: var(--text-primary);
+}
+
+.concentration-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.concentration-table-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--glass-bg);
+  border-radius: 0.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border-color);
+}
+
+.concentration-table-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--glass-bg);
+  border-radius: 0.5rem;
+  transition: all 0.3s ease;
+}
+
+.concentration-table-row:hover {
+  background: var(--bg-tertiary);
+  transform: translateX(4px);
+}
+
+.concentration-col {
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+}
+
+.percentile-col {
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.percentage-col {
+  font-weight: 700;
+  color: var(--accent-color);
+  font-size: 1.1rem;
+}
+
+@media (max-width: 768px) {
+  .concentration-table-header,
+  .concentration-table-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .concentration-table-header {
+    display: none;
+  }
+
+  .concentration-table-row {
+    padding: 1rem;
+  }
+
+  .concentration-col {
+    justify-content: space-between;
+    padding: 0.25rem 0;
+  }
+
+  .concentration-col::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-right: 1rem;
   }
 }
 </style>

@@ -5,6 +5,27 @@ import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
 import { transformCSVToJSON, transformPowerVotingCSV } from '@/utils/csvTransformer'
 import Papa from 'papaparse'
+import { Line } from 'vue-chartjs'
+import {
+  Chart as ChartJS,
+  Title,
+  Tooltip,
+  Legend,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+} from 'chart.js'
+
+ChartJS.register(
+  Title,
+  Tooltip,
+  Legend,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+)
 
 const router = useRouter()
 const dataStore = useDataStore()
@@ -474,6 +495,137 @@ const formatDiff = (diff: number, isInteger = false) => {
   const formatted = isInteger ? formatInteger(Math.abs(diff)) : formatNumber(Math.abs(diff))
   return diff > 0 ? `+${formatted}` : `-${formatted}`
 }
+
+// Chart data for snapshots history
+const snapshotsChartData = computed(() => {
+  if (snapshots.value.length === 0) return null
+
+  // Filter snapshots with metrics and sort by date (oldest first for chart)
+  const snapshotsWithMetrics = snapshots.value
+    .filter(s => s.metrics)
+    .sort((a, b) => {
+      const dateA = new Date(a.dateFormatted || a.date.split('-').reverse().join('-'))
+      const dateB = new Date(b.dateFormatted || b.date.split('-').reverse().join('-'))
+      return dateA.getTime() - dateB.getTime()
+    })
+
+  if (snapshotsWithMetrics.length === 0) return null
+
+  const labels = snapshotsWithMetrics.map(s => formatSnapshotDate(s.date))
+  const totalREG = snapshotsWithMetrics.map(s => s.metrics!.totalREG)
+  const totalPowerVoting = snapshotsWithMetrics.map(s => s.metrics!.totalPowerVoting)
+
+  return {
+    labels,
+    datasets: [
+      {
+        label: 'Total REG',
+        data: totalREG,
+        borderColor: 'rgb(34, 197, 94)',
+        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+        tension: 0.4,
+        yAxisID: 'y1',
+        borderWidth: 2,
+      },
+      {
+        label: 'Total Power Voting',
+        data: totalPowerVoting,
+        borderColor: 'rgb(236, 72, 153)',
+        backgroundColor: 'rgba(236, 72, 153, 0.1)',
+        tension: 0.4,
+        yAxisID: 'y2',
+        borderWidth: 2,
+      },
+    ],
+  }
+})
+
+const snapshotsChartOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      position: 'top' as const,
+      labels: {
+        color: 'rgb(255, 255, 255)',
+        usePointStyle: true,
+        padding: 15,
+      },
+    },
+    tooltip: {
+      mode: 'index' as const,
+      intersect: false,
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      titleColor: 'rgb(255, 255, 255)',
+      bodyColor: 'rgb(255, 255, 255)',
+      callbacks: {
+        label: function(context: any) {
+          let label = context.dataset.label || ''
+          if (label) {
+            label += ': '
+          }
+          label += formatNumber(context.parsed.y)
+          return label
+        },
+      },
+    },
+  },
+  scales: {
+    x: {
+      ticks: {
+        color: 'rgb(255, 255, 255)',
+        maxRotation: 45,
+        minRotation: 45,
+      },
+      grid: {
+        color: 'rgba(255, 255, 255, 0.2)',
+      },
+    },
+    y1: {
+      type: 'linear' as const,
+      display: true,
+      position: 'left' as const,
+      ticks: {
+        color: 'rgb(255, 255, 255)',
+        callback: function(value: any) {
+          return formatNumber(value)
+        },
+      },
+      grid: {
+        color: 'rgba(255, 255, 255, 0.2)',
+      },
+      title: {
+        display: true,
+        text: 'Total REG',
+        color: 'rgb(34, 197, 94)',
+      },
+    },
+    y2: {
+      type: 'linear' as const,
+      display: true,
+      position: 'right' as const,
+      ticks: {
+        color: 'rgb(255, 255, 255)',
+        callback: function(value: any) {
+          return formatNumber(value)
+        },
+      },
+      grid: {
+        drawOnChartArea: false,
+      },
+      title: {
+        display: true,
+        text: 'Total Power Voting',
+        color: 'rgb(236, 72, 153)',
+      },
+    },
+  },
+  interaction: {
+    mode: 'nearest' as const,
+    axis: 'x' as const,
+    intersect: false,
+  },
+}))
 </script>
 
 <template>
@@ -744,6 +896,7 @@ const formatDiff = (diff: number, isInteger = false) => {
         <h3>📸 Snapshots historiques ({{ snapshots.length }})</h3>
         <p>Chargez un snapshot précédent pour analyse ou comparaison</p>
       </div>
+
       <div class="snapshots-list">
         <button
           v-for="snapshot in snapshots"
@@ -810,6 +963,11 @@ const formatDiff = (diff: number, isInteger = false) => {
             <span class="snapshot-file">⚡ {{ snapshot.powerVotingFile }}</span>
           </div>
         </button>
+      </div>
+      
+      <!-- Chart historique -->
+      <div class="snapshots-chart-container" v-if="snapshotsChartData">
+        <Line :data="snapshotsChartData" :options="snapshotsChartOptions" />
       </div>
     </div>
 
@@ -1263,6 +1421,15 @@ const formatDiff = (diff: number, isInteger = false) => {
 .snapshots-header p {
   color: var(--text-secondary);
   font-size: 0.95rem;
+}
+
+.snapshots-chart-container {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  background: var(--glass-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  height: 400px;
 }
 
 .snapshots-list {

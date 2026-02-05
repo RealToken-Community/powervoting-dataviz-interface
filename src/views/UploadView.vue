@@ -192,18 +192,23 @@ const handleUpload = async () => {
 
   try {
     // Vérifier si les données sont déjà dans le store (via useGeneratedFile)
-    // Vérifier les computed properties qui accèdent aux données réelles
     const hasBalancesData = dataStore.balances && dataStore.balances.length > 0
     const hasPowerVotingData = dataStore.powerVoting && dataStore.powerVoting.length > 0
 
-    if (hasBalancesData && hasPowerVotingData) {
-      // Les données sont déjà dans le store, rediriger directement
-      console.log('Données déjà chargées dans le store, redirection vers Analysis')
+    // Ne rediriger sans parser que si le store a des données ET que l'utilisateur
+    // n'a pas sélectionné de vrais fichiers (ex. après useGeneratedFile → fichiers "dummy" size 0).
+    // Dès qu'au moins un fichier réel est sélectionné (size > 0), on parse pour mettre à jour le store,
+    // ce qui évite d'afficher d'anciennes données (mauvais total, pools V3 manquants).
+    const hasBothFiles = !!balancesFile.value && !!powerVotingFile.value
+    const hasRealFiles = hasBothFiles && (
+      (balancesFile.value?.size ?? 0) > 0 || (powerVotingFile.value?.size ?? 0) > 0
+    )
+    if (hasBalancesData && hasPowerVotingData && hasBothFiles && !hasRealFiles) {
+      console.log('Données déjà chargées (fichiers générés), redirection vers Analysis')
       await router.push('/analysis')
       return
     }
 
-    // Sinon, parser les fichiers uploadés
     if (!balancesFile.value || !powerVotingFile.value) {
       error.value = 'Veuillez sélectionner les deux fichiers'
       isLoading.value = false

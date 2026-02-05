@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
 import { transformCSVToJSON, transformPowerVotingCSV } from '@/utils/csvTransformer'
+import { sessionHeaders } from '@/composables/useSessionId'
 import Papa from 'papaparse'
 import { Line } from 'vue-chartjs'
 import {
@@ -283,7 +284,7 @@ const loadMockData = async () => {
 const loadGeneratedFiles = async () => {
   isLoadingGeneratedFiles.value = true
   try {
-    const response = await fetch('/api/files')
+    const response = await fetch('/api/files', { headers: sessionHeaders() })
     if (response.ok) {
       generatedFiles.value = await response.json()
     }

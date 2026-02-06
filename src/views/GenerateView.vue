@@ -878,7 +878,7 @@ const startBalanceCalculator = async () => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/start`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     })
 

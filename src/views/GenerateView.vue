@@ -971,6 +971,8 @@ const closeRebuildModal = () => {
   if (rebuildFitAddon.value) {
     rebuildFitAddon.value = null
   }
+  // Rafraîchir l’état Git et précharger la config dès la fermeture (clone peut d’être terminé)
+  loadGitInfo()
 }
 
 const initRebuildXterm = async () => {
@@ -1393,13 +1395,20 @@ onMounted(() => {
   }, 2000)
 })
 
-// Watch pour charger la config quand balance-calculator est cloné
+// Watch pour charger la config dès que balance-calculator est cloné (préchargement automatique)
 watch(() => gitInfo.value.exists && gitInfo.value.isGitRepo, (isReady) => {
-  if (isReady && showConfigSection.value) {
+  if (isReady) {
     loadOptionsModifiers()
+    if (!envLocalCheck.value.hasAllRequiredVars) {
+      loadEnv()
+    }
   }
-  if (isReady && showEnvSection.value && !envLocalCheck.value.hasAllRequiredVars) {
-    loadEnv()
+})
+
+// Quand on ouvre la section Configuration, charger si le clone est prêt et le contenu vide
+watch(showConfigSection, (isOpen) => {
+  if (isOpen && gitInfo.value.exists && gitInfo.value.isGitRepo && !optionsModifiersContent.value) {
+    loadOptionsModifiers()
   }
 })
 

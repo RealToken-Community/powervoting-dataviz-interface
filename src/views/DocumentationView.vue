@@ -148,7 +148,7 @@ import { RouterLink } from 'vue-router'
 .card-header h2 {
   font-size: 2rem;
   margin-bottom: 0.5rem;
-  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+  background: var(--primary-color);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -196,7 +196,7 @@ import { RouterLink } from 'vue-router'
 
 .doc-link {
   padding: 0.5rem 1rem;
-  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+  background: var(--primary-color);
   color: white;
   text-decoration: none;
   border-radius: 0.5rem;

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
-import logoImg from '@/assets/logo-v3-orange.svg'
 </script>
 
 <template>
@@ -8,13 +7,10 @@ import logoImg from '@/assets/logo-v3-orange.svg'
     <header class="app-header">
       <div class="container">
         <div class="header-content">
-          <RouterLink to="/" class="header-logo">
-            <img :src="logoImg" alt="RealToken DAO" class="header-logo-img" />
-            <h1 class="app-title">
-              <span class="gradient-text">Power Voting REG</span>
-              <span class="subtitle">Data Visualization & Analysis</span>
-            </h1>
-          </RouterLink>
+          <h1 class="app-title">
+            <span class="gradient-text">Power Voting REG</span>
+            <span class="subtitle">Data Visualization & Analysis</span>
+          </h1>
           <nav class="main-nav">
             <RouterLink to="/documentation">Documentation</RouterLink>
             <RouterLink to="/generate">Generate</RouterLink>
@@ -33,7 +29,6 @@ import logoImg from '@/assets/logo-v3-orange.svg'
 
     <footer class="app-footer">
       <div class="container">
-        <img :src="logoImg" alt="RealToken DAO" class="footer-logo-img" />
         <p>&copy; 2025 RealT Power Voting Analysis | A Realtoken DAO tool, created and managed by the Power Voting Committee</p>
       </div>
     </footer>
@@ -117,21 +112,6 @@ body {
   align-items: center;
   flex-wrap: wrap;
   gap: 1rem;
-}
-
-.header-logo {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  text-decoration: none;
-  color: inherit;
-}
-
-.header-logo-img {
-  height: 44px;
-  width: auto;
-  display: block;
-  flex-shrink: 0;
 }
 
 .app-title {
@@ -220,19 +200,6 @@ body {
   text-align: center;
   color: var(--text-muted);
   font-size: 0.875rem;
-}
-
-.app-footer .container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-}
-
-.footer-logo-img {
-  height: 40px;
-  width: auto;
-  display: block;
 }
 
 /* Animations */

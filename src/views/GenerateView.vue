@@ -159,6 +159,7 @@ const fixPermissions = async () => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/fix-permissions`, {
       method: 'POST',
+      headers: sessionHeaders(),
     })
     
     if (!response.ok) {
@@ -515,9 +516,7 @@ const updateEnvVariable = async (key: string) => {
     // Sauvegarder
     const saveResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: content,
       }),
@@ -1154,6 +1153,7 @@ const deleteFile = async (filename: string) => {
   try {
     const response = await fetch(`${API_BASE}/files/${encodeURIComponent(filename)}`, {
       method: 'DELETE',
+      headers: sessionHeaders(),
     })
 
     if (!response.ok) throw new Error('Erreur lors de la suppression')

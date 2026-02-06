@@ -42,21 +42,28 @@ import logoImg from '@/assets/logo-v3-orange.svg'
 
 <style>
 :root {
-  --primary-color: #6366f1;
-  --primary-dark: #4f46e5;
-  --secondary-color: #8b5cf6;
-  --accent-color: #ec4899;
+  /* DAO palette (docs/00-design.md) */
+  --color-navy: #091A3A;
+  --color-charcoal: #242424;
+  --color-white: #FFFFFF;
+  --color-orange: #FF8C42;
+  --primary-color: #FF8C42;
+  --primary-dark: #e67a35;
+  --secondary-color: #ffb97a;
+  --accent-color: #FF8C42;
   --success-color: #10b981;
   --warning-color: #f59e0b;
   --error-color: #ef4444;
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tertiary: #334155;
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-muted: #64748b;
-  --border-color: #334155;
-  --card-bg: rgba(30, 41, 59, 0.8);
+  --bg-primary: #091A3A;
+  --bg-secondary: #242424;
+  --bg-tertiary: #2d2d2d;
+  --text-primary: #FFFFFF;
+  --text-secondary: #e2e8f0;
+  --text-muted: #94a3b8;
+  --border-color: rgba(255, 255, 255, 0.1);
+  /* Fond des sections de contenu (cartes, panneaux) = Charcoal */
+  --card-bg: #242424;
+  --section-bg: #242424;
   --glass-bg: rgba(255, 255, 255, 0.05);
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
@@ -81,7 +88,7 @@ body {
     Ubuntu,
     Cantarell,
     sans-serif;
-  background: linear-gradient(135deg, var(--bg-primary) 0%, #1e1b4b 100%);
+  background: linear-gradient(135deg, var(--bg-primary) 0%, var(--color-charcoal) 100%);
   color: var(--text-primary);
   line-height: 1.6;
   min-height: 100vh;
@@ -99,9 +106,9 @@ body {
   padding: 0 2rem;
 }
 
-/* Header */
+/* Header (reste comme avant : navy, pas charcoal) */
 .app-header {
-  background: var(--card-bg);
+  background: rgba(9, 26, 58, 0.95);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-color);
   padding: 1.5rem 0;
@@ -141,15 +148,7 @@ body {
 }
 
 .gradient-text {
-  background: linear-gradient(
-    135deg,
-    var(--primary-color) 0%,
-    var(--secondary-color) 50%,
-    var(--accent-color) 100%
-  );
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--primary-color);
   font-size: 1.75rem;
   font-weight: 700;
   letter-spacing: -0.025em;
@@ -184,7 +183,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+  background: var(--primary-color);
   opacity: 0;
   transition: opacity 0.3s ease;
   z-index: -1;
@@ -200,7 +199,7 @@ body {
 }
 
 .main-nav a.router-link-active {
-  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+  background: var(--primary-color);
   color: var(--text-primary);
   box-shadow: var(--shadow-md);
 }
@@ -211,9 +210,9 @@ body {
   padding: 2rem 0;
 }
 
-/* Footer */
+/* Footer (reste comme avant : navy, pas charcoal) */
 .app-footer {
-  background: var(--card-bg);
+  background: rgba(9, 26, 58, 0.95);
   backdrop-filter: blur(10px);
   border-top: 1px solid var(--border-color);
   padding: 1.5rem 0;

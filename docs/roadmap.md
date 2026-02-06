@@ -4,8 +4,7 @@
 
 Deploy: 
 - update all port and url parametrable (docker-compose)
-- add verification var in initializer config ?
-- push on main branch, and create develop branch
+- add verification var in initializer config
 
 ## V2.0
 

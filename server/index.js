@@ -639,21 +639,52 @@ app.post('/api/files/upload', ensureSession, upload.array('files', 10), async (r
   }
 });
 
-// Supprimer un fichier (par session)
+// Helper: supprimer un fichier dans le outDatas de la session
+async function deleteFileInSession(req, res, filename) {
+  const outDatasPath = getOutDatasPath(req.sessionId);
+  await touchSessionUsed(req.sessionId);
+  const safeName = path.basename(String(filename || '').trim());
+  if (!safeName) {
+    return res.status(400).json({ error: 'Nom de fichier invalide' });
+  }
+  const filePath = path.join(outDatasPath, safeName);
+  const resolvedPath = path.resolve(filePath);
+  const resolvedOutDatas = path.resolve(outDatasPath);
+  if (!resolvedPath.startsWith(resolvedOutDatas)) {
+    return res.status(403).json({ error: 'Accès non autorisé' });
+  }
+  const fileExists = existsSync(filePath);
+  console.log('[deleteFile] sessionId=', req.sessionId, 'filename=', safeName, 'path=', filePath, 'exists=', fileExists);
+  if (!fileExists) {
+    return res.status(404).json({ error: 'Fichier non trouvé' });
+  }
+  await fs.unlink(filePath);
+  return res.json({ message: 'Fichier supprimé' });
+}
+
+// Supprimer un fichier (par session) – DELETE avec filename dans l’URL
 app.delete('/api/files/:filename', ensureSession, async (req, res) => {
   try {
-    const outDatasPath = getOutDatasPath(req.sessionId);
-    await touchSessionUsed(req.sessionId);
-    const safeFilename = path.basename(req.params.filename).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const filePath = path.join(outDatasPath, safeFilename);
-    const resolvedPath = path.resolve(filePath);
-    const resolvedOutDatas = path.resolve(outDatasPath);
-    if (!resolvedPath.startsWith(resolvedOutDatas)) {
-      return res.status(403).json({ error: 'Accès non autorisé' });
-    }
-    await fs.unlink(filePath);
-    res.json({ message: 'Fichier supprimé' });
+    await deleteFileInSession(req, res, req.params.filename);
   } catch (error) {
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Fichier non trouvé' });
+    }
+    console.error('[DELETE /api/files] error', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Supprimer un fichier (par session) – POST avec filename dans le body (évite soucis d’URL)
+app.post('/api/files/delete', ensureSession, async (req, res) => {
+  try {
+    const filename = req.body?.filename;
+    await deleteFileInSession(req, res, filename);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Fichier non trouvé' });
+    }
+    console.error('[POST /api/files/delete] error', error);
     res.status(500).json({ error: error.message });
   }
 });

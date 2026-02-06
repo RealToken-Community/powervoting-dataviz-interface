@@ -1149,17 +1149,20 @@ watch(showRebuildModal, async (isOpen) => {
 
 const deleteFile = async (filename: string) => {
   if (!confirm(`Êtes-vous sûr de vouloir supprimer ${filename} ?`)) return
-
+  error.value = ''
+  success.value = ''
   try {
-    const response = await fetch(`${API_BASE}/files/${encodeURIComponent(filename)}`, {
-      method: 'DELETE',
-      headers: sessionHeaders(),
+    const response = await fetch(`${API_BASE}/files/delete`, {
+      method: 'POST',
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
     })
-
-    if (!response.ok) throw new Error('Erreur lors de la suppression')
-
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.error || `Erreur ${response.status}`)
+    }
     success.value = 'Fichier supprimé'
-    loadFiles()
+    await loadFiles()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Erreur inconnue'
   }
@@ -1939,14 +1942,16 @@ onUnmounted(() => {
           </div>
           <div class="file-actions">
             <button
-              @click="downloadFile(file)"
+              type="button"
+              @click.prevent="downloadFile(file)"
               :disabled="isLoading"
               class="btn btn-small btn-primary"
             >
               ⬇️ Download
             </button>
             <button
-              @click="deleteFile(file.name)"
+              type="button"
+              @click.prevent="deleteFile(file.name)"
               class="btn btn-small btn-danger"
             >
               🗑️ Supprimer

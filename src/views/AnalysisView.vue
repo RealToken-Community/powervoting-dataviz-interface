@@ -3093,7 +3093,7 @@ const powerBreakdownChartOptions = {
 .analysis-header h2 {
   font-size: 2.5rem;
   margin-bottom: 0.5rem;
-  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+  background: var(--primary-color);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -3288,7 +3288,7 @@ const powerBreakdownChartOptions = {
   margin-bottom: 2rem;
   text-align: center;
   color: var(--text-primary);
-  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+  background: var(--primary-color);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -3350,7 +3350,7 @@ const powerBreakdownChartOptions = {
   justify-content: center;
   width: 2rem;
   height: 2rem;
-  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+  background: var(--primary-color);
   color: white;
   border-radius: 50%;
   font-weight: 700;

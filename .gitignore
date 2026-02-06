@@ -41,3 +41,6 @@ __screenshots__/
 
 # Balance calculator submodule
 balance-calculator/
+
+# Session workspaces (per-user clones and generated files)
+workspaces/

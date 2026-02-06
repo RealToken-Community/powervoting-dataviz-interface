@@ -13,137 +13,162 @@ const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
-const balanceCalculatorPath = path.join(projectRoot, 'balance-calculator');
-const outDatasPath = path.join(balanceCalculatorPath, 'outDatas');
+const workspacesDir = path.join(projectRoot, 'workspaces');
+const WORKSPACE_INACTIVITY_DAYS = 14;
+
+// Session-scoped paths: one workspace per browser/session (UUID in X-Session-Id)
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidSessionId(id) {
+  return typeof id === 'string' && UUID_REGEX.test(id.trim());
+}
+function getWorkspacePath(sessionId) {
+  return path.join(workspacesDir, sessionId);
+}
+function getBalanceCalculatorPath(sessionId) {
+  return path.join(getWorkspacePath(sessionId), 'balance-calculator');
+}
+function getOutDatasPath(sessionId) {
+  return path.join(getBalanceCalculatorPath(sessionId), 'outDatas');
+}
+async function touchSessionUsed(sessionId) {
+  const touchPath = path.join(getWorkspacePath(sessionId), '.lastUsed');
+  await fs.writeFile(touchPath, String(Date.now()), 'utf-8').catch(() => {});
+}
+async function cleanupInactiveWorkspaces() {
+  if (!existsSync(workspacesDir)) return;
+  const cutoff = Date.now() - WORKSPACE_INACTIVITY_DAYS * 24 * 60 * 60 * 1000;
+  const entries = await fs.readdir(workspacesDir, { withFileTypes: true }).catch(() => []);
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue;
+    const sessionDir = path.join(workspacesDir, ent.name);
+    const lastUsedPath = path.join(sessionDir, '.lastUsed');
+    let mtime = 0;
+    if (existsSync(lastUsedPath)) {
+      const s = await fs.stat(lastUsedPath).catch(() => null);
+      mtime = s ? s.mtimeMs : 0;
+    } else {
+      const s = await fs.stat(sessionDir).catch(() => null);
+      mtime = s ? s.mtimeMs : 0;
+    }
+    if (mtime > 0 && mtime < cutoff) {
+      await execAsync(`rm -rf ${sessionDir}`, { timeout: 30000 }).catch((e) =>
+        console.warn(`Cleanup workspace ${ent.name}:`, e.message)
+      );
+      console.log(`🗑️ Workspace supprimé (inactivité > ${WORKSPACE_INACTIVITY_DAYS}j): ${ent.name}`);
+    }
+  }
+}
+
+fs.mkdir(workspacesDir, { recursive: true }).catch(console.error);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Créer le dossier outDatas s'il n'existe pas
-fs.mkdir(outDatasPath, { recursive: true }).catch(console.error);
+// Middleware: require valid X-Session-Id for generation/upload (per-user isolation)
+function ensureSession(req, res, next) {
+  const sessionId = (req.headers['x-session-id'] || req.query.sessionId || '').trim();
+  if (!isValidSessionId(sessionId)) {
+    return res.status(400).json({
+      error: 'Session invalide ou manquante',
+      hint: 'Envoyez un UUID valide dans le header X-Session-Id (généré côté client, stocké en localStorage)',
+    });
+  }
+  req.sessionId = sessionId;
+  next();
+}
 
-// Configuration multer pour l'upload de fichiers avec sécurité renforcée
+// Configuration multer: destination = session's outDatas (ensureSession must run before)
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // S'assurer que le dossier existe
-    fs.mkdir(outDatasPath, { recursive: true })
-      .then(() => cb(null, outDatasPath))
-      .catch(err => cb(err, outDatasPath));
+    const dest = getOutDatasPath(req.sessionId);
+    fs.mkdir(dest, { recursive: true })
+      .then(() => cb(null, dest))
+      .catch((err) => cb(err, dest));
   },
   filename: (req, file, cb) => {
-    // Sécurité: nettoyer le nom de fichier pour éviter les path traversal
     const safeName = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
-    // Vérifier que le nom ne contient pas de séquences dangereuses
     if (safeName.includes('..') || safeName.startsWith('/') || safeName.startsWith('\\')) {
       return cb(new Error('Nom de fichier invalide'));
     }
     cb(null, safeName);
-  }
+  },
 });
 
 const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB max par fichier (limite plus restrictive)
-    files: 10 // Maximum 10 fichiers à la fois
-  },
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024, files: 10 },
   fileFilter: (req, file, cb) => {
-    // Sécurité: vérifications strictes
     const allowedExtensions = ['.csv', '.json'];
     const ext = path.extname(file.originalname).toLowerCase();
-    
-    // Vérifier l'extension
     if (!allowedExtensions.includes(ext)) {
       return cb(new Error(`Type de fichier non autorisé. Utilisez uniquement CSV ou JSON.`));
     }
-    
-    // Vérifier que le nom de fichier ne contient pas de caractères dangereux
     const filename = path.basename(file.originalname);
-    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\') || filename.length > 255) {
       return cb(new Error('Nom de fichier invalide'));
     }
-    
-    // Vérifier la taille du nom de fichier
-    if (filename.length > 255) {
-      return cb(new Error('Nom de fichier trop long'));
-    }
-    
     cb(null, true);
-  }
+  },
 });
 
-// Middleware pour servir les fichiers générés
-app.use('/generated', express.static(outDatasPath));
+// Fichiers générés: /generated/:sessionId/:filename (isolation par session)
+app.get('/generated/:sessionId/:filename', (req, res, next) => {
+  const { sessionId, filename } = req.params;
+  if (!isValidSessionId(sessionId)) {
+    return res.status(400).json({ error: 'Session invalide' });
+  }
+  const safeName = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
+  const filePath = path.join(getOutDatasPath(sessionId), safeName);
+  const resolved = path.resolve(filePath);
+  const resolvedOut = path.resolve(getOutDatasPath(sessionId));
+  if (!resolved.startsWith(resolvedOut) || !existsSync(filePath)) {
+    return res.status(404).json({ error: 'Fichier non trouvé' });
+  }
+  res.sendFile(filePath);
+});
 
-// Lister les fichiers générés
-app.get('/api/files', async (req, res) => {
+// Lister les fichiers générés (par session)
+app.get('/api/files', ensureSession, async (req, res) => {
   try {
-    // Vérifier que balance-calculator existe
+    const outDatasPath = getOutDatasPath(req.sessionId);
+    await touchSessionUsed(req.sessionId);
+    const balanceCalculatorPath = getBalanceCalculatorPath(req.sessionId);
     if (!existsSync(balanceCalculatorPath)) {
-      console.warn(`balance-calculator n'existe pas encore à ${balanceCalculatorPath}`);
-      return res.json([]); // Retourner un tableau vide si balance-calculator n'existe pas
+      return res.json([]);
     }
-    
-    // Créer le dossier outDatas s'il n'existe pas
-    try {
-      await fs.mkdir(outDatasPath, { recursive: true });
-    } catch (mkdirError) {
-      console.error(`Erreur lors de la création du dossier outDatas: ${mkdirError.message}`);
-      return res.status(500).json({ error: `Impossible de créer le dossier outDatas: ${mkdirError.message}` });
-    }
-    
-    // Vérifier que le dossier existe
+    await fs.mkdir(outDatasPath, { recursive: true }).catch(() => {});
     if (!existsSync(outDatasPath)) {
       return res.status(500).json({ error: 'Impossible de créer le dossier outDatas' });
     }
-    
-    let files;
-    try {
-      files = await fs.readdir(outDatasPath);
-    } catch (readError) {
-      console.error(`Erreur lors de la lecture du dossier outDatas: ${readError.message}`);
-      return res.status(500).json({ error: `Impossible de lire le dossier outDatas: ${readError.message}` });
-    }
-    
-    // Filtrer les fichiers cachés et les dossiers
-    const validFiles = files.filter(file => {
+    let files = await fs.readdir(outDatasPath).catch(() => []);
+    const validFiles = files.filter((file) => {
       const filePath = path.join(outDatasPath, file);
       return existsSync(filePath) && !file.startsWith('.');
     });
-    
     const fileStats = await Promise.all(
       validFiles.map(async (file) => {
         try {
           const filePath = path.join(outDatasPath, file);
           const stats = await fs.stat(filePath);
-          
-          // Ignorer les dossiers
-          if (stats.isDirectory()) {
-            return null;
-          }
-          
+          if (stats.isDirectory()) return null;
           return {
             name: file,
             size: stats.size,
             created: stats.birthtime,
             modified: stats.mtime,
             type: path.extname(file).slice(1) || 'unknown',
-            url: `/generated/${file}`,
+            url: `/generated/${req.sessionId}/${file}`,
           };
         } catch (err) {
-          console.error(`Erreur lors de la lecture du fichier ${file}:`, err);
           return null;
         }
       })
     );
-    
-    // Filtrer les valeurs null
-    const validStats = fileStats.filter(stat => stat !== null);
+    const validStats = fileStats.filter((s) => s !== null);
     res.json(validStats.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime()));
   } catch (error) {
     console.error('Erreur dans /api/files:', error);
-    console.error('Stack:', error.stack);
     res.status(500).json({ error: error.message || 'Erreur lors de la lecture des fichiers' });
   }
 });
@@ -242,61 +267,43 @@ app.get('/api/balance-calculator/logs/:processId', (req, res) => {
   }
 });
 
-// Fonction pour obtenir toutes les tâches disponibles depuis balance-calculator
-const getAvailableTasks = () => {
+// Fonction pour obtenir toutes les tâches disponibles depuis balance-calculator (path = getBalanceCalculatorPath(sessionId))
+const getAvailableTasks = (balanceCalculatorPath) => {
+  if (!balanceCalculatorPath) return [];
   try {
     const tasksDir = path.join(balanceCalculatorPath, 'src', 'tasks');
-    if (!existsSync(tasksDir)) {
-      return [];
-    }
+    if (!existsSync(tasksDir)) return [];
     const taskFiles = readdirSync(tasksDir);
     return taskFiles
       .filter((file) => file.endsWith('.ts') || file.endsWith('.js'))
       .map((file) => path.basename(file, path.extname(file)))
-      .filter((taskName) => taskName !== 'index'); // Exclure index.ts/js s'il existe
+      .filter((taskName) => taskName !== 'index');
   } catch (error) {
-    console.error('Erreur lors de la lecture des tâches:', error);
     return [];
   }
 };
 
-// Générer balances REG
-// Endpoint générique pour lancer balance-calculator (toutes les tâches)
-app.post('/api/balance-calculator/start', async (req, res) => {
+// Générer balances REG (par session)
+app.post('/api/balance-calculator/start', ensureSession, async (req, res) => {
   try {
+    await touchSessionUsed(req.sessionId);
+    const balanceCalculatorPath = getBalanceCalculatorPath(req.sessionId);
     const params = req.body || {};
     const processId = `balance-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Créer un objet pour stocker les logs et les listeners
     const processData = {
       logs: [],
       listeners: [],
       proc: null,
     };
     activeProcesses.set(processId, processData);
-    
-    // Fonction pour ajouter un log
     const addLog = (type, message) => {
       const log = { type, message, timestamp: new Date().toISOString() };
       processData.logs.push(log);
-      // Envoyer à tous les listeners
-      processData.listeners.forEach(listener => listener(log));
-      // Garder seulement les 1000 derniers logs
-      if (processData.logs.length > 1000) {
-        processData.logs.shift();
-      }
+      processData.listeners.forEach((listener) => listener(log));
+      if (processData.logs.length > 1000) processData.logs.shift();
     };
-    
-    // Variable pour suivre si on a déjà affiché les options du prompt "Quelle tâche"
     let taskOptionsDisplayed = false;
-    
-    // Envoyer la réponse avec l'ID du processus
-    res.json({ 
-      message: 'Balance-calculator lancé...', 
-      processId 
-    });
-    
-    // Charger les variables d'environnement de balance-calculator
+    res.json({ message: 'Balance-calculator lancé...', processId });
     const balanceCalculatorEnvPath = path.join(balanceCalculatorPath, '.env');
     let balanceCalculatorEnv = {};
     
@@ -577,49 +584,34 @@ app.post('/api/balance-calculator/start', async (req, res) => {
 // Endpoint supprimé - maintenant tout passe par /api/balance-calculator/start
 // L'utilisateur choisit interactivement quelle tâche exécuter
 
-// Upload de fichiers vers outDatas (avec sécurité renforcée)
-app.post('/api/files/upload', upload.array('files', 10), async (req, res) => {
+// Upload de fichiers vers outDatas (par session)
+app.post('/api/files/upload', ensureSession, upload.array('files', 10), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'Aucun fichier fourni' });
     }
-
-    // Vérifier que balance-calculator existe (sécurité supplémentaire)
+    const outDatasPath = getOutDatasPath(req.sessionId);
+    const balanceCalculatorPath = getBalanceCalculatorPath(req.sessionId);
     if (!existsSync(balanceCalculatorPath)) {
-      return res.status(400).json({ error: 'balance-calculator n\'est pas encore cloné' });
+      return res.status(400).json({ error: 'balance-calculator n\'est pas encore cloné pour cette session' });
     }
-
+    await touchSessionUsed(req.sessionId);
     const uploadedFiles = [];
     const errors = [];
-    
     for (const file of req.files) {
       try {
         const filePath = path.join(outDatasPath, file.filename);
-        
-        // Sécurité: vérifications multiples
-        // 1. Vérifier que le chemin résolu est bien dans outDatas (protection path traversal)
         const resolvedPath = path.resolve(filePath);
         const resolvedOutDatas = path.resolve(outDatasPath);
-        
-        if (!resolvedPath.startsWith(resolvedOutDatas)) {
-          errors.push(`Fichier ${file.filename}: accès non autorisé`);
+        if (!resolvedPath.startsWith(resolvedOutDatas) || !existsSync(filePath)) {
+          errors.push(`Fichier ${file.filename}: accès non autorisé ou non sauvegardé`);
           continue;
         }
-        
-        // 2. Vérifier que le fichier existe bien après l'upload
-        if (!existsSync(filePath)) {
-          errors.push(`Fichier ${file.filename}: n'a pas pu être sauvegardé`);
-          continue;
-        }
-
-        // 3. Vérifier que c'est bien un fichier (pas un dossier)
         const stats = await fs.stat(filePath);
         if (!stats.isFile()) {
-          errors.push(`Fichier ${file.filename}: n'est pas un fichier valide`);
-          await fs.unlink(filePath).catch(() => {}); // Nettoyer
+          await fs.unlink(filePath).catch(() => {});
           continue;
         }
-
         uploadedFiles.push({
           name: file.filename,
           size: stats.size,
@@ -630,18 +622,16 @@ app.post('/api/files/upload', upload.array('files', 10), async (req, res) => {
         errors.push(`Erreur pour ${file.filename}: ${fileError.message}`);
       }
     }
-
     if (uploadedFiles.length === 0) {
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: 'Aucun fichier n\'a pu être uploadé',
-        details: errors
+        details: errors,
       });
     }
-
-    res.json({ 
+    res.json({
       message: `${uploadedFiles.length} fichier(s) uploadé(s) avec succès`,
       files: uploadedFiles,
-      warnings: errors.length > 0 ? errors : undefined
+      warnings: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
     console.error('Erreur lors de l\'upload de fichiers:', error);
@@ -649,26 +639,52 @@ app.post('/api/files/upload', upload.array('files', 10), async (req, res) => {
   }
 });
 
-// Supprimer un fichier
-app.delete('/api/files/:filename', async (req, res) => {
+// Helper: supprimer un fichier dans le outDatas de la session
+async function deleteFileInSession(req, res, filename) {
+  const outDatasPath = getOutDatasPath(req.sessionId);
+  await touchSessionUsed(req.sessionId);
+  const safeName = path.basename(String(filename || '').trim());
+  if (!safeName) {
+    return res.status(400).json({ error: 'Nom de fichier invalide' });
+  }
+  const filePath = path.join(outDatasPath, safeName);
+  const resolvedPath = path.resolve(filePath);
+  const resolvedOutDatas = path.resolve(outDatasPath);
+  if (!resolvedPath.startsWith(resolvedOutDatas)) {
+    return res.status(403).json({ error: 'Accès non autorisé' });
+  }
+  const fileExists = existsSync(filePath);
+  console.log('[deleteFile] sessionId=', req.sessionId, 'filename=', safeName, 'path=', filePath, 'exists=', fileExists);
+  if (!fileExists) {
+    return res.status(404).json({ error: 'Fichier non trouvé' });
+  }
+  await fs.unlink(filePath);
+  return res.json({ message: 'Fichier supprimé' });
+}
+
+// Supprimer un fichier (par session) – DELETE avec filename dans l’URL
+app.delete('/api/files/:filename', ensureSession, async (req, res) => {
   try {
-    const { filename } = req.params;
-    
-    // Sécurité: nettoyer le nom de fichier
-    const safeFilename = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const filePath = path.join(outDatasPath, safeFilename);
-    
-    // Sécurité: vérifier que le fichier est dans outDatas (protection path traversal)
-    const resolvedPath = path.resolve(filePath);
-    const resolvedOutDatas = path.resolve(outDatasPath);
-    
-    if (!resolvedPath.startsWith(resolvedOutDatas)) {
-      return res.status(403).json({ error: 'Accès non autorisé' });
-    }
-    
-    await fs.unlink(filePath);
-    res.json({ message: 'Fichier supprimé' });
+    await deleteFileInSession(req, res, req.params.filename);
   } catch (error) {
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Fichier non trouvé' });
+    }
+    console.error('[DELETE /api/files] error', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Supprimer un fichier (par session) – POST avec filename dans le body (évite soucis d’URL)
+app.post('/api/files/delete', ensureSession, async (req, res) => {
+  try {
+    const filename = req.body?.filename;
+    await deleteFileInSession(req, res, filename);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Fichier non trouvé' });
+    }
+    console.error('[POST /api/files/delete] error', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -719,32 +735,25 @@ app.post('/api/repositories/branches', async (req, res) => {
   }
 });
 
-app.post('/api/rebuild', async (req, res) => {
+app.post('/api/rebuild', ensureSession, async (req, res) => {
   try {
+    await touchSessionUsed(req.sessionId);
+    const balanceCalculatorPath = getBalanceCalculatorPath(req.sessionId);
+    const workspacePath = getWorkspacePath(req.sessionId);
     const { repositoryUrl, branch: requestedBranch } = req.body || {};
     const repoUrl = repositoryUrl || 'https://github.com/RealToken-Community/balance-calculator.git';
     const branch = requestedBranch || 'yohann-test-pool-v3-modeles';
     const processId = `rebuild-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Créer un objet pour stocker les logs et les listeners
-    const processData = {
-      logs: [],
-      listeners: [],
-    };
+    const processData = { logs: [], listeners: [] };
     activeProcesses.set(processId, processData);
-    
-    // Fonction pour ajouter un log
     const addLog = (type, message) => {
-      // S'assurer que chaque message se termine par un retour à la ligne pour un affichage propre
-      let formattedMessage = message
+      let formattedMessage = message;
       if (!formattedMessage.endsWith('\n') && !formattedMessage.endsWith('\r\n')) {
-        formattedMessage += '\r\n'
+        formattedMessage += '\r\n';
       }
       const log = { type, message: formattedMessage, timestamp: new Date().toISOString() };
       processData.logs.push(log);
-      // Envoyer à tous les listeners
-      processData.listeners.forEach(listener => listener(log));
-      // Garder seulement les 1000 derniers logs
+      processData.listeners.forEach((listener) => listener(log));
       if (processData.logs.length > 1000) {
         processData.logs.shift();
       }
@@ -761,28 +770,20 @@ app.post('/api/rebuild', async (req, res) => {
       try {
         addLog('info', '🔄 Démarrage du rebuild de balance-calculator...');
         addLog('info', `📦 Repository: ${repoUrl}`);
-        
-        // Configurer Git pour accepter le répertoire (nécessaire dans Docker)
+        await fs.mkdir(workspacePath, { recursive: true });
         await execAsync(`git config --global --add safe.directory ${projectRoot}`, { timeout: 5000 }).catch(() => {});
         await execAsync(`git config --global --add safe.directory ${balanceCalculatorPath}`, { timeout: 5000 }).catch(() => {});
-        
-        // TOUJOURS supprimer le projet existant et recloner pour garantir un état propre
         const exists = existsSync(balanceCalculatorPath);
-        
         if (exists) {
           addLog('info', '🗑️ Suppression du projet existant...');
           await execAsync(`rm -rf ${balanceCalculatorPath}`, { timeout: 30000 });
           addLog('info', '✅ Projet existant supprimé');
         }
-        
-        // Cloner le projet avec l'URL choisie
         addLog('info', '📥 Clonage du dépôt...');
         try {
-          // Essayer de cloner la branche spécifiée
           await execAsync(`git clone -b ${branch} ${repoUrl} ${balanceCalculatorPath}`, { timeout: 120000 });
           addLog('info', `✅ Dépôt cloné avec succès (branche: ${branch})`);
         } catch (cloneError) {
-          // Si la branche n'existe pas, cloner la branche par défaut
           addLog('info', `⚠️ Branche ${branch} non trouvée, clonage de la branche par défaut`);
           await execAsync(`git clone ${repoUrl} ${balanceCalculatorPath}`, { timeout: 120000 });
           addLog('info', '✅ Dépôt cloné avec succès (branche par défaut)');
@@ -942,18 +943,17 @@ app.post('/api/rebuild', async (req, res) => {
   }
 });
 
-// Endpoint pour lire le fichier optionsModifiers.ts
-app.get('/api/balance-calculator/config/options-modifiers', async (req, res) => {
+// Endpoint pour lire le fichier optionsModifiers.ts (par session)
+app.get('/api/balance-calculator/config/options-modifiers', ensureSession, async (req, res) => {
   try {
-    // Vérifier que balance-calculator existe
+    await touchSessionUsed(req.sessionId);
+    const balanceCalculatorPath = getBalanceCalculatorPath(req.sessionId);
     if (!existsSync(balanceCalculatorPath)) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: 'balance-calculator n\'est pas encore cloné',
-        content: '' 
+        content: '',
       });
     }
-    
-    // Le fichier peut être dans src/configs/ ou src/config/ selon le repository
     let optionsModifiersPath = path.join(balanceCalculatorPath, 'src', 'configs', 'optionsModifiers.ts');
     if (!existsSync(optionsModifiersPath)) {
       // Essayer avec config au lieu de configs
@@ -977,22 +977,18 @@ app.get('/api/balance-calculator/config/options-modifiers', async (req, res) => 
   }
 });
 
-// Endpoint pour sauvegarder le fichier optionsModifiers.ts
-app.post('/api/balance-calculator/config/options-modifiers', async (req, res) => {
+// Endpoint pour sauvegarder le fichier optionsModifiers.ts (par session)
+app.post('/api/balance-calculator/config/options-modifiers', ensureSession, async (req, res) => {
   try {
+    await touchSessionUsed(req.sessionId);
+    const balanceCalculatorPath = getBalanceCalculatorPath(req.sessionId);
     const { content } = req.body || {};
-    
     if (!content) {
       return res.status(400).json({ error: 'Le contenu est requis' });
     }
-    
-    // Vérifier que balance-calculator existe
     if (!existsSync(balanceCalculatorPath)) {
       return res.status(404).json({ error: 'balance-calculator n\'est pas encore cloné' });
     }
-    
-    // Le fichier peut être dans src/configs/ ou src/config/ selon le repository
-    // Vérifier d'abord quel dossier existe
     const configsDir = path.join(balanceCalculatorPath, 'src', 'configs');
     const configDir = path.join(balanceCalculatorPath, 'src', 'config');
     const targetDir = existsSync(configsDir) ? configsDir : (existsSync(configDir) ? configDir : configsDir);
@@ -1014,18 +1010,17 @@ app.post('/api/balance-calculator/config/options-modifiers', async (req, res) =>
   }
 });
 
-// Endpoint pour lire le fichier .env de balance-calculator
-app.get('/api/balance-calculator/config/env', async (req, res) => {
+// Endpoint pour lire le fichier .env de balance-calculator (par session)
+app.get('/api/balance-calculator/config/env', ensureSession, async (req, res) => {
   try {
-    // Vérifier que balance-calculator existe
+    await touchSessionUsed(req.sessionId);
+    const balanceCalculatorPath = getBalanceCalculatorPath(req.sessionId);
     if (!existsSync(balanceCalculatorPath)) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: 'balance-calculator n\'est pas encore cloné',
-        content: '' 
+        content: '',
       });
     }
-    
-    // Toujours lire directement .env s'il existe
     const targetEnvPath = path.join(balanceCalculatorPath, '.env');
     
     // Si .env existe, le lire directement (ne pas le remplacer)
@@ -1060,21 +1055,18 @@ app.get('/api/balance-calculator/config/env', async (req, res) => {
   }
 });
 
-// Endpoint pour sauvegarder le fichier .env de balance-calculator
-app.post('/api/balance-calculator/config/env', async (req, res) => {
+// Endpoint pour sauvegarder le fichier .env de balance-calculator (par session)
+app.post('/api/balance-calculator/config/env', ensureSession, async (req, res) => {
   try {
+    await touchSessionUsed(req.sessionId);
+    const balanceCalculatorPath = getBalanceCalculatorPath(req.sessionId);
     const { content } = req.body || {};
-    
     if (!content) {
       return res.status(400).json({ error: 'Le contenu est requis' });
     }
-    
-    // Vérifier que balance-calculator existe
     if (!existsSync(balanceCalculatorPath)) {
       return res.status(404).json({ error: 'balance-calculator n\'est pas encore cloné' });
     }
-    
-    // Sauvegarder dans .env
     const envPath = path.join(balanceCalculatorPath, '.env');
     await fs.writeFile(envPath, content, 'utf-8');
     
@@ -1158,26 +1150,22 @@ app.get('/api/env-local/check', async (req, res) => {
   }
 });
 
-// Endpoint pour corriger les permissions de balance-calculator
-app.post('/api/balance-calculator/fix-permissions', async (req, res) => {
+// Endpoint pour corriger les permissions de balance-calculator (par session)
+app.post('/api/balance-calculator/fix-permissions', ensureSession, async (req, res) => {
   try {
-    // Vérifier que balance-calculator existe
+    await touchSessionUsed(req.sessionId);
+    const balanceCalculatorPath = getBalanceCalculatorPath(req.sessionId);
     if (!existsSync(balanceCalculatorPath)) {
       return res.status(404).json({ error: 'balance-calculator n\'existe pas encore' });
     }
-
-    // Obtenir l'utilisateur du répertoire parent
     let parentOwner = 'ubuntu:ubuntu';
     try {
       const parentOwnerResult = await execAsync(`stat -c '%U:%G' ${projectRoot}`, { timeout: 5000 });
       parentOwner = parentOwnerResult.stdout.trim();
     } catch (error) {
-      // Fallback vers l'utilisateur actuel
       const currentUser = process.env.USER || process.env.USERNAME || 'ubuntu';
       parentOwner = `${currentUser}:${currentUser}`;
     }
-
-    // Changer le propriétaire
     try {
       await execAsync(`chown -R ${parentOwner} ${balanceCalculatorPath}`, { timeout: 10000 });
       return res.json({ 
@@ -1206,10 +1194,11 @@ app.post('/api/balance-calculator/fix-permissions', async (req, res) => {
   }
 });
 
-// Endpoint pour récupérer les informations Git de balance-calculator
-app.get('/api/balance-calculator/git-info', async (req, res) => {
+// Endpoint pour récupérer les informations Git de balance-calculator (par session)
+app.get('/api/balance-calculator/git-info', ensureSession, async (req, res) => {
   try {
-    // Vérifier que le dossier existe
+    await touchSessionUsed(req.sessionId);
+    const balanceCalculatorPath = getBalanceCalculatorPath(req.sessionId);
     if (!existsSync(balanceCalculatorPath)) {
       return res.json({
         branch: null,
@@ -1218,8 +1207,6 @@ app.get('/api/balance-calculator/git-info', async (req, res) => {
         isGitRepo: false,
       });
     }
-    
-    // Vérifier que c'est bien un dépôt Git
     let isGitRepo = false;
     try {
       await execAsync(`cd ${balanceCalculatorPath} && git rev-parse --git-dir`, { timeout: 5000 });
@@ -1322,9 +1309,11 @@ app.on('error', (err) => {
 });
 
 try {
-  app.listen(PORT, HOST, () => {
+  app.listen(PORT, HOST, async () => {
     console.log(`✅ Backend server running on http://${HOST}:${PORT}`);
-    console.log(`📁 Serving files from: ${outDatasPath}`);
+    console.log(`📁 Workspaces (session-scoped): ${workspacesDir}`);
+    await cleanupInactiveWorkspaces();
+    setInterval(() => cleanupInactiveWorkspaces().catch((e) => console.warn('Cleanup:', e.message)), 24 * 60 * 60 * 1000);
   }).on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
       console.error(`❌ Port ${PORT} is already in use`);

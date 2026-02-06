@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDataStore } from '@/stores/dataStore'
 import { transformCSVToJSON, transformPowerVotingCSV } from '@/utils/csvTransformer'
+import { sessionHeaders } from '@/composables/useSessionId'
 import Papa from 'papaparse'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -136,7 +137,7 @@ const API_BASE = '/api'
 
 const loadGitInfo = async () => {
   try {
-    const response = await fetch(`${API_BASE}/balance-calculator/git-info`)
+    const response = await fetch(`${API_BASE}/balance-calculator/git-info`, { headers: sessionHeaders() })
     if (!response.ok) throw new Error('Erreur lors de la récupération des infos Git')
     gitInfo.value = await response.json()
   } catch (err) {
@@ -158,6 +159,7 @@ const fixPermissions = async () => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/fix-permissions`, {
       method: 'POST',
+      headers: sessionHeaders(),
     })
     
     if (!response.ok) {
@@ -195,7 +197,7 @@ const checkEnvLocal = async () => {
 
 const loadFiles = async () => {
   try {
-    const response = await fetch(`${API_BASE}/files`)
+    const response = await fetch(`${API_BASE}/files`, { headers: sessionHeaders() })
     if (!response.ok) throw new Error('Erreur lors du chargement des fichiers')
     files.value = await response.json()
   } catch (err) {
@@ -281,6 +283,7 @@ const uploadFiles = async () => {
 
     const response = await fetch(`${API_BASE}/files/upload`, {
       method: 'POST',
+      headers: sessionHeaders(),
       body: formData,
     })
 
@@ -311,7 +314,7 @@ const loadOptionsModifiers = async () => {
   error.value = ''
   
   try {
-    const response = await fetch(`${API_BASE}/balance-calculator/config/options-modifiers`)
+    const response = await fetch(`${API_BASE}/balance-calculator/config/options-modifiers`, { headers: sessionHeaders() })
     const data = await response.json()
     
     // Si le fichier n'existe pas, c'est OK, on peut le créer
@@ -348,9 +351,7 @@ const saveOptionsModifiers = async () => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/config/options-modifiers`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: optionsModifiersContent.value,
       }),
@@ -374,7 +375,7 @@ const loadEnv = async () => {
   error.value = ''
   
   try {
-    const response = await fetch(`${API_BASE}/balance-calculator/config/env`)
+    const response = await fetch(`${API_BASE}/balance-calculator/config/env`, { headers: sessionHeaders() })
     
     // Vérifier le Content-Type avant de parser
     const contentType = response.headers.get('content-type')
@@ -462,7 +463,7 @@ const updateEnvVariable = async (key: string) => {
   
   try {
     // Charger d'abord le contenu actuel du .env
-    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`)
+    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, { headers: sessionHeaders() })
     
     // Vérifier le Content-Type avant de parser
     const contentType = loadResponse.headers.get('content-type')
@@ -515,9 +516,7 @@ const updateEnvVariable = async (key: string) => {
     // Sauvegarder
     const saveResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: content,
       }),
@@ -550,7 +549,7 @@ const updateAllEnvVariables = async () => {
   
   try {
     // Charger d'abord le contenu actuel du .env
-    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`)
+    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, { headers: sessionHeaders() })
     
     // Vérifier le Content-Type avant de parser
     const contentType = loadResponse.headers.get('content-type')
@@ -613,9 +612,7 @@ const updateAllEnvVariables = async () => {
     // Sauvegarder
     const saveResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: content,
       }),
@@ -756,7 +753,7 @@ const sendKeyToProcess = async (key: string, showInLogs = true) => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ answer: key }),
     })
     
@@ -880,7 +877,7 @@ const startBalanceCalculator = async () => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/start`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     })
 
@@ -974,6 +971,8 @@ const closeRebuildModal = () => {
   if (rebuildFitAddon.value) {
     rebuildFitAddon.value = null
   }
+  // Rafraîchir l’état Git et précharger la config dès la fermeture (clone peut d’être terminé)
+  loadGitInfo()
 }
 
 const initRebuildXterm = async () => {
@@ -1099,9 +1098,7 @@ const rebuildCalculator = async (event?: Event) => {
     // Lancer le rebuild avec le repository sélectionné
     const response = await fetch(`${API_BASE}/rebuild`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         repositoryUrl: selectedRepository.value,
         branch: selectedBranch.value,
@@ -1154,16 +1151,20 @@ watch(showRebuildModal, async (isOpen) => {
 
 const deleteFile = async (filename: string) => {
   if (!confirm(`Êtes-vous sûr de vouloir supprimer ${filename} ?`)) return
-
+  error.value = ''
+  success.value = ''
   try {
-    const response = await fetch(`${API_BASE}/files/${encodeURIComponent(filename)}`, {
-      method: 'DELETE',
+    const response = await fetch(`${API_BASE}/files/delete`, {
+      method: 'POST',
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
     })
-
-    if (!response.ok) throw new Error('Erreur lors de la suppression')
-
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.error || `Erreur ${response.status}`)
+    }
     success.value = 'Fichier supprimé'
-    loadFiles()
+    await loadFiles()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Erreur inconnue'
   }
@@ -1326,7 +1327,7 @@ const initXterm = async () => {
     try {
       await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ answer: data }),
       })
     } catch (err) {
@@ -1394,13 +1395,20 @@ onMounted(() => {
   }, 2000)
 })
 
-// Watch pour charger la config quand balance-calculator est cloné
+// Watch pour charger la config dès que balance-calculator est cloné (préchargement automatique)
 watch(() => gitInfo.value.exists && gitInfo.value.isGitRepo, (isReady) => {
-  if (isReady && showConfigSection.value) {
+  if (isReady) {
     loadOptionsModifiers()
+    if (!envLocalCheck.value.hasAllRequiredVars) {
+      loadEnv()
+    }
   }
-  if (isReady && showEnvSection.value && !envLocalCheck.value.hasAllRequiredVars) {
-    loadEnv()
+})
+
+// Quand on ouvre la section Configuration, charger si le clone est prêt et le contenu vide
+watch(showConfigSection, (isOpen) => {
+  if (isOpen && gitInfo.value.exists && gitInfo.value.isGitRepo && !optionsModifiersContent.value) {
+    loadOptionsModifiers()
   }
 })
 
@@ -1449,6 +1457,21 @@ onUnmounted(() => {
         <p>Générez des balances REG et du power voting en utilisant balance-calculator</p>
       </div>
 
+      <!-- Message par défaut quand aucun projet n'est détecté pour cette session -->
+      <div
+        v-if="!gitInfo.exists || !gitInfo.isGitRepo"
+        class="no-project-banner"
+        role="alert"
+      >
+        <span class="no-project-icon">📦</span>
+        <div class="no-project-text">
+          <strong>Aucun projet balance-calculator détecté pour cette session.</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.95rem; opacity: 0.95;">
+            Cliquez sur <strong>« Rebuild balance-calculator »</strong> ci-dessous pour cloner le dépôt et commencer.
+          </p>
+        </div>
+      </div>
+
       <div class="actions-section">
         <!-- Étape 1: Clone -->
         <div class="action-group">
@@ -1484,6 +1507,8 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Étapes 2–4 et lancement : affichés uniquement quand le projet est cloné -->
+        <template v-if="gitInfo.exists && gitInfo.isGitRepo">
         <!-- Étape 2: Environnement -->
         <div class="action-group">
           <h3><span class="step-number">2</span> Environnement</h3>
@@ -1630,6 +1655,7 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
+        </template>
       </div>
 
       <div v-if="error" class="error-message">⚠️ {{ error }}</div>
@@ -1836,7 +1862,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Zone de drag and drop pour uploader des fichiers -->
-    <div class="upload-files-section">
+    <div v-if="gitInfo.exists && gitInfo.isGitRepo" class="upload-files-section">
       <div class="upload-files-card">
         <h3>📤 Uploader des fichiers vers outDatas</h3>
         <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">
@@ -1897,7 +1923,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="files-section">
+    <div v-if="gitInfo.exists && gitInfo.isGitRepo" class="files-section">
       <div class="files-header">
         <h3>📁 Fichiers générés ({{ files.length }})</h3>
         <button @click="loadFiles" class="btn-refresh">🔄 Actualiser</button>
@@ -1925,14 +1951,16 @@ onUnmounted(() => {
           </div>
           <div class="file-actions">
             <button
-              @click="downloadFile(file)"
+              type="button"
+              @click.prevent="downloadFile(file)"
               :disabled="isLoading"
               class="btn btn-small btn-primary"
             >
               ⬇️ Download
             </button>
             <button
-              @click="deleteFile(file.name)"
+              type="button"
+              @click.prevent="deleteFile(file.name)"
               class="btn btn-small btn-danger"
             >
               🗑️ Supprimer
@@ -1981,6 +2009,33 @@ onUnmounted(() => {
 .info-banner-text strong {
   color: #ff9800;
   font-weight: 700;
+}
+
+.no-project-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(99, 102, 241, 0.12));
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  border-radius: 0.75rem;
+  color: var(--text-primary);
+}
+
+.no-project-icon {
+  font-size: 1.75rem;
+  flex-shrink: 0;
+}
+
+.no-project-text {
+  flex: 1;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.no-project-text strong {
+  color: rgba(59, 130, 246, 1);
 }
 
 .generate-card {

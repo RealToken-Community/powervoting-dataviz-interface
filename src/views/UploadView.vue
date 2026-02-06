@@ -900,7 +900,9 @@ const snapshotsChartOptions = computed(() => ({
     <div class="snapshots-section" v-if="snapshots.length > 0">
       <div class="snapshots-header">
         <h3>📸 Snapshots historiques ({{ snapshots.length }})</h3>
-        <p>Chargez un snapshot précédent pour analyse ou comparaison</p>
+        <p class="snapshots-header-desc">
+          Cliquez sur un snapshot pour le charger et ouvrir directement la page <strong>Analyse</strong> avec les données de ce snapshot.
+        </p>
       </div>
 
       <div class="snapshots-list">
@@ -910,9 +912,12 @@ const snapshotsChartOptions = computed(() => ({
           @click="loadSnapshotData(snapshot)"
           :disabled="isLoading"
           class="snapshot-row"
+          type="button"
+          :title="'Charger le snapshot du ' + formatSnapshotDate(snapshot.date) + ' et ouvrir l\'analyse'"
         >
           <div class="snapshot-date-col">
             <div class="snapshot-date">{{ formatSnapshotDate(snapshot.date) }}</div>
+            <span class="snapshot-click-hint">Cliquer pour voir l’analyse →</span>
           </div>
           <div class="snapshot-metrics-row" v-if="snapshot.metrics">
             <div class="snapshot-metric-item">
@@ -1429,6 +1434,17 @@ const snapshotsChartOptions = computed(() => ({
   font-size: 0.95rem;
 }
 
+.snapshots-header-desc {
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.5;
+}
+
+.snapshots-header-desc strong {
+  color: var(--primary-color);
+}
+
 .snapshots-chart-container {
   margin: 2rem 0;
   padding: 1.5rem;
@@ -1472,13 +1488,21 @@ const snapshotsChartOptions = computed(() => ({
 
 .snapshot-date-col {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
 }
 
 .snapshot-date {
   font-weight: 600;
   color: var(--text-primary);
   font-size: 1rem;
+}
+
+.snapshot-click-hint {
+  font-size: 0.8rem;
+  color: var(--primary-color);
+  opacity: 0.9;
 }
 
 .snapshot-metrics-row {

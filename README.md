@@ -2,6 +2,16 @@
 
 Lightweight dashboard to upload REG balances and voting-power exports, run instant stats, and spot how liquidity positions translate into voting weight.
 
+## 📸 Demos
+
+| Generation | Concentrate | History |
+|------------|-------------|---------|
+| ![Generation](public/repo/demo-generate.png) | ![Concentrate](public/repo/demo-analyse-concentrate-1.png) | ![History](public/repo/demo-history.png) |
+
+| Analysis – Pools (1) | Analysis – Pools (2) |
+|---------------------|----------------------|
+| ![Analysis Pools 1](public/repo/demo-analyse-pool-1.png) | ![Analysis Pools 2](public/repo/demo-analyse-pool-2.png) |
+
 ## 🚀 Key Features
 
 - File uploads (CSV/JSON) for balances and power data

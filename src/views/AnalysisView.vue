@@ -61,6 +61,25 @@ const addressSearchResults = ref<Array<{
 }>>([])
 const isSearchingAddress = ref(false)
 
+// Address details search
+const addressSearchInput = ref<string>('')
+const addressDetails = ref<{
+  address: string
+  totalREG: number
+  walletREG: number
+  poolREG: number
+  powerVoting: number
+  positions: Array<{
+    dex: string
+    poolType: string
+    regAmount: number
+    isActive: boolean
+    counterpartAmount: number
+    counterpartToken: string
+  }>
+} | null>(null)
+const isSearchingAddressDetails = ref(false)
+
 // Helper function to analyze pools for an entire snapshot
 const analyzeSnapshotPools = (balancesArray: any[], powerVotingArray: any[]) => {
   let v2Pools = 0
@@ -278,6 +297,30 @@ const formatNumber = (num: number) => {
 
 const formatInteger = (num: number) => {
   return new Intl.NumberFormat('fr-FR').format(Math.round(num))
+}
+
+const getSnapshotDiff = (snapshot: SnapshotInfo, allSnapshots: SnapshotInfo[]) => {
+  if (!snapshot.metrics || allSnapshots.length === 0) return null
+
+  // Find the index of current snapshot
+  const currentIndex = allSnapshots.findIndex((s) => s.date === snapshot.date)
+  if (currentIndex === -1) return null
+
+  // Get the previous snapshot (next in the list, which is chronologically earlier)
+  const previousSnapshot = allSnapshots[currentIndex + 1]
+  if (!previousSnapshot || !previousSnapshot.metrics) return null
+
+  return {
+    walletCount: snapshot.metrics.walletCount - previousSnapshot.metrics.walletCount,
+    totalREG: snapshot.metrics.totalREG - previousSnapshot.metrics.totalREG,
+    totalPowerVoting: snapshot.metrics.totalPowerVoting - previousSnapshot.metrics.totalPowerVoting,
+  }
+}
+
+const formatDiff = (diff: number, isInteger = false) => {
+  if (diff === 0) return ''
+  const formatted = isInteger ? formatInteger(Math.abs(diff)) : formatNumber(Math.abs(diff))
+  return diff > 0 ? `+${formatted}` : `-${formatted}`
 }
 
 const isWalletExpanded = (address: string) => {
@@ -548,13 +591,14 @@ const getPowerByPoolType = (profile: any) => {
   const poolsMap = new Map<string, { positions: any[], totalREG: number, poolType: string }>()
   
   profile.positions.forEach((pos: any) => {
+    if (!pos) return // Sécurité si pos est null/undefined
     const key = pos.poolAddress || `${pos.dex}-${pos.poolType}`
     if (!poolsMap.has(key)) {
       poolsMap.set(key, { positions: [], totalREG: 0, poolType: pos.poolType })
     }
     const pool = poolsMap.get(key)!
     pool.positions.push(pos)
-    pool.totalREG += pos.regAmount
+    pool.totalREG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
   })
   
   let v2Power = 0
@@ -822,6 +866,39 @@ const loadComparisonSnapshot = async () => {
   }
 }
 
+const loadSnapshotData = async (snapshot: SnapshotInfo) => {
+  isLoadingComparison.value = true
+  try {
+    const { balances, powerVoting } = await loadSnapshot(snapshot)
+
+    dataStore.setBalancesData(balances)
+    dataStore.setPowerVotingData(powerVoting)
+
+    // Reload page to refresh analysis
+    window.location.reload()
+  } catch (err) {
+    console.error('Failed to load snapshot:', err)
+  } finally {
+    isLoadingComparison.value = false
+  }
+}
+
+// Computed property to get all snapshots including current one
+const allSnapshotsWithCurrent = computed(() => {
+  const currentSnapshot: SnapshotInfo = {
+    date: 'Actuel',
+    dateFormatted: 'Actuel',
+    balancesFile: 'Fichier actuel',
+    powerVotingFile: 'Fichier actuel',
+    metrics: dataStore.balances.length > 0 && dataStore.powerVoting.length > 0 ? {
+      walletCount: dataStore.balances.length,
+      totalREG: dataStore.balanceStats?.total || 0,
+      totalPowerVoting: dataStore.powerVotingStats?.total || 0,
+    } : undefined,
+  }
+  return [currentSnapshot, ...availableSnapshots.value]
+})
+
 const clearComparison = () => {
   dataStore.clearComparisonSnapshot()
   selectedComparisonSnapshot.value = null
@@ -973,6 +1050,127 @@ const loadSnapshotStats = async () => {
 }
 
 // Search address across all snapshots
+// Fonction pour rechercher les détails d'une adresse
+const searchAddressDetails = async () => {
+  if (!addressSearchInput.value.trim()) {
+    addressDetails.value = null
+    return
+  }
+
+  const addressToSearch = addressSearchInput.value.trim().toLowerCase()
+  isSearchingAddressDetails.value = true
+
+  try {
+    // Rechercher dans les données actuelles
+    const balance = dataStore.balances.find(
+      (b) => (b.walletAddress || '').toLowerCase() === addressToSearch
+    )
+    const power = dataStore.powerVoting.find(
+      (p) => (p.address || '').toLowerCase() === addressToSearch
+    )
+
+    if (!balance && !power) {
+      addressDetails.value = null
+      return
+    }
+
+    const totalREG = balance ? parseFloat(String(balance.totalBalanceREG || balance.totalBalance || 0)) : 0
+    const powerVoting = power ? parseFloat(String(power.powerVoting || 0)) : 0
+
+    // Extraire les positions détaillées
+    const positions: Array<{
+      dex: string
+      poolType: string
+      regAmount: number
+      isActive: boolean
+      counterpartAmount: number
+      counterpartToken: string
+    }> = []
+
+    if (balance && balance.sourceBalance) {
+      const networks = balance.sourceBalance
+
+      Object.entries(networks).forEach(([networkName, networkValue]: [string, any]) => {
+        const dexs = networkValue?.dexs
+        if (!dexs) return
+
+        Object.entries(dexs).forEach(([dexName, rawPositions]: [string, any]) => {
+          if (!Array.isArray(rawPositions)) return
+
+          rawPositions.forEach((pos: any) => {
+            const regAmount = parseFloat(String(pos.equivalentREG || '0'))
+            if (regAmount <= 0) return
+
+            // Détecter V2 vs V3
+            const tickLower = typeof pos.tickLower === 'number' ? pos.tickLower : parseFloat(String(pos.tickLower || 0))
+            const tickUpper = typeof pos.tickUpper === 'number' ? pos.tickUpper : parseFloat(String(pos.tickUpper || 0))
+            const isV2Transformed = tickLower === -887200 && tickUpper === 887200
+            const isV3 = pos.tickLower !== undefined && pos.tickUpper !== undefined && !isV2Transformed
+            const poolType = isV3 ? 'v3' : 'v2'
+            const isActive = pos.isActive !== undefined ? pos.isActive : (isV3 ? false : true)
+
+            // Extraire la contrepartie (token0 ou token1 qui n'est pas REG)
+            let counterpartAmount = 0
+            let counterpartToken = ''
+
+            // Chercher dans les tokens de la position
+            if (pos.tokens && Array.isArray(pos.tokens)) {
+              pos.tokens.forEach((token: any) => {
+                const tokenSymbol = token.symbol || ''
+                const tokenAmount = parseFloat(String(token.balance || token.amount || 0))
+                
+                // Si ce n'est pas REG, c'est la contrepartie
+                if (tokenSymbol.toUpperCase() !== 'REG' && tokenAmount > 0) {
+                  counterpartAmount = tokenAmount
+                  counterpartToken = tokenSymbol
+                }
+              })
+            }
+
+            // Si pas trouvé dans tokens, chercher token0/token1
+            if (counterpartAmount === 0) {
+              if (pos.token0 && pos.token0.symbol && pos.token0.symbol.toUpperCase() !== 'REG') {
+                counterpartAmount = parseFloat(String(pos.token0.balance || pos.token0.amount || 0))
+                counterpartToken = pos.token0.symbol
+              } else if (pos.token1 && pos.token1.symbol && pos.token1.symbol.toUpperCase() !== 'REG') {
+                counterpartAmount = parseFloat(String(pos.token1.balance || pos.token1.amount || 0))
+                counterpartToken = pos.token1.symbol
+              }
+            }
+
+            positions.push({
+              dex: dexName,
+              poolType,
+              regAmount,
+              isActive,
+              counterpartAmount,
+              counterpartToken,
+            })
+          })
+        })
+      })
+    }
+
+    // Calculer REG en wallet et REG en pools
+    const poolREG = positions.reduce((sum, pos) => sum + pos.regAmount, 0)
+    const walletREG = totalREG - poolREG
+
+    addressDetails.value = {
+      address: addressSearchInput.value.trim(),
+      totalREG,
+      walletREG: Math.max(0, walletREG),
+      poolREG,
+      powerVoting,
+      positions,
+    }
+  } catch (err) {
+    console.error('Erreur lors de la recherche des détails:', err)
+    addressDetails.value = null
+  } finally {
+    isSearchingAddressDetails.value = false
+  }
+}
+
 const searchAddressAcrossSnapshots = async () => {
   if (!searchAddress.value.trim()) {
     addressSearchResults.value = []
@@ -1140,6 +1338,171 @@ const poolsDistributionChartData = computed(() => {
         borderWidth: 2
       }
     ]
+  }
+})
+
+// Power concentration analysis
+const powerConcentrationData = computed(() => {
+  if (dataStore.powerVoting.length === 0) return null
+
+  // Sort power voting by descending order
+  const sortedPower = [...dataStore.powerVoting]
+    .map(p => parseFloat(String(p.powerVoting || 0)))
+    .filter(p => !isNaN(p) && p > 0)
+    .sort((a, b) => b - a)
+
+  if (sortedPower.length === 0) return null
+
+  const totalPower = sortedPower.reduce((sum, p) => sum + p, 0)
+  const totalAddresses = sortedPower.length
+
+  // Calculate cumulative power for different percentiles
+  const percentiles = [5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 95, 100]
+  const concentration = percentiles.map(percent => {
+    const count = Math.ceil((totalAddresses * percent) / 100)
+    const topPower = sortedPower.slice(0, count).reduce((sum, p) => sum + p, 0)
+    const powerPercentage = (topPower / totalPower) * 100
+    
+    return {
+      percentile: percent,
+      addressCount: count,
+      powerHeld: topPower,
+      powerPercentage: powerPercentage,
+    }
+  })
+
+  return {
+    totalPower,
+    totalAddresses,
+    concentration,
+  }
+})
+
+// Gini coefficient calculation
+const giniCoefficient = computed(() => {
+  if (!powerConcentrationData.value) return null
+
+  const sortedPower = [...dataStore.powerVoting]
+    .map(p => parseFloat(String(p.powerVoting || 0)))
+    .filter(p => !isNaN(p) && p > 0)
+    .sort((a, b) => a - b) // Sort ascending for Gini
+
+  if (sortedPower.length === 0) return null
+
+  const n = sortedPower.length
+  const totalPower = sortedPower.reduce((sum, p) => sum + p, 0)
+
+  if (totalPower === 0) return 0
+
+  let gini = 0
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      gini += Math.abs(sortedPower[i] - sortedPower[j])
+    }
+  }
+
+  gini = gini / (2 * n * n * (totalPower / n))
+  return Math.round(gini * 10000) / 10000 // Round to 4 decimals
+})
+
+// Chart data for power concentration by percentile
+const powerConcentrationChartData = computed(() => {
+  if (!powerConcentrationData.value) return null
+
+  const data = powerConcentrationData.value.concentration
+  const labels = data.map(d => `Top ${d.percentile}%`)
+  const percentages = data.map(d => d.powerPercentage)
+
+  return {
+    labels,
+    datasets: [
+      {
+        label: '% de pouvoir détenu',
+        data: percentages,
+        backgroundColor: 'rgba(236, 72, 153, 0.8)',
+        borderColor: 'rgb(236, 72, 153)',
+        borderWidth: 2,
+      },
+    ],
+  }
+})
+
+// Chart data for cumulative distribution (Lorenz curve)
+const lorenzCurveData = computed(() => {
+  if (!powerConcentrationData.value) return null
+
+  const sortedPower = [...dataStore.powerVoting]
+    .map(p => parseFloat(String(p.powerVoting || 0)))
+    .filter(p => !isNaN(p) && p > 0)
+    .sort((a, b) => b - a) // Descending
+
+  if (sortedPower.length === 0) return null
+
+  const totalPower = sortedPower.reduce((sum, p) => sum + p, 0)
+  const totalAddresses = sortedPower.length
+
+  // Create points for Lorenz curve (cumulative distribution)
+  const points = []
+  let cumulativePower = 0
+  let cumulativeAddresses = 0
+
+  // Add starting point (0, 0)
+  points.push({ x: 0, y: 0 })
+
+  // Calculate points for each percentile
+  for (let i = 0; i < sortedPower.length; i++) {
+    cumulativePower += sortedPower[i]
+    cumulativeAddresses += 1
+
+    const x = (cumulativeAddresses / totalAddresses) * 100 // % of addresses
+    const y = (cumulativePower / totalPower) * 100 // % of power
+
+    points.push({ x, y })
+  }
+
+  // Add ending point (100, 100)
+  points.push({ x: 100, y: 100 })
+
+  // Sample points for better performance (every 5%)
+  const sampledPoints = []
+  const sampleStep = Math.max(1, Math.floor(points.length / 20))
+  for (let i = 0; i < points.length; i += sampleStep) {
+    sampledPoints.push(points[i])
+  }
+  // Always include the last point
+  if (sampledPoints[sampledPoints.length - 1]?.x !== 100) {
+    sampledPoints.push(points[points.length - 1])
+  }
+
+  // Perfect equality line (diagonal) - sample points
+  const equalityPoints = []
+  for (let i = 0; i <= 100; i += 5) {
+    equalityPoints.push(i)
+  }
+
+  return {
+    labels: sampledPoints.map(p => `${Math.round(p.x)}%`),
+    datasets: [
+      {
+        label: 'Ligne d\'égalité parfaite',
+        data: equalityPoints,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderDash: [5, 5],
+        pointRadius: 0,
+        fill: false,
+      },
+      {
+        label: 'Distribution réelle',
+        data: sampledPoints.map(p => p.y),
+        borderColor: 'rgb(236, 72, 153)',
+        backgroundColor: 'rgba(236, 72, 153, 0.1)',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: true,
+      },
+    ],
   }
 })
 
@@ -1429,6 +1792,85 @@ const countChartOptions = {
   },
 }
 
+// Chart options for power concentration
+const powerConcentrationChartOptions = {
+  ...chartOptions,
+  scales: {
+    ...chartOptions.scales,
+    x: {
+      ...chartOptions.scales.x,
+      title: {
+        display: true,
+        text: 'Top X% des adresses',
+        color: '#cbd5e1',
+        font: {
+          size: 14,
+          weight: 'bold',
+        },
+      },
+    },
+    y: {
+      ...chartOptions.scales.y,
+      title: {
+        display: true,
+        text: '% du pouvoir de vote détenu',
+        color: '#cbd5e1',
+        font: {
+          size: 14,
+          weight: 'bold',
+        },
+      },
+      ticks: {
+        ...chartOptions.scales.y.ticks,
+        callback: (value: number) => `${formatNumber(value)}%`,
+      },
+      max: 100,
+    },
+  },
+}
+
+const lorenzCurveChartOptions = {
+  ...chartOptions,
+  scales: {
+    x: {
+      ...chartOptions.scales.x,
+      title: {
+        display: true,
+        text: '% cumulatif des adresses',
+        color: '#cbd5e1',
+        font: {
+          size: 14,
+          weight: 'bold',
+        },
+      },
+      min: 0,
+      max: 100,
+      ticks: {
+        ...chartOptions.scales.x.ticks,
+        callback: (value: number) => `${value}%`,
+      },
+    },
+    y: {
+      ...chartOptions.scales.y,
+      title: {
+        display: true,
+        text: '% cumulatif du pouvoir de vote',
+        color: '#cbd5e1',
+        font: {
+          size: 14,
+          weight: 'bold',
+        },
+      },
+      min: 0,
+      max: 100,
+      ticks: {
+        ...chartOptions.scales.y.ticks,
+        callback: (value: number) => `${value}%`,
+      },
+    },
+  },
+}
+
 const poolPowerChartOptions = {
   ...chartOptions,
   interaction: { mode: 'index', intersect: false },
@@ -1475,16 +1917,245 @@ const dexBoostChartData = computed(() => {
   const v3Labels = v3Wallets.map((entry) => formatAddress(entry.address))
 
   // Calculer le ratio Power Voting ÷ totalBalanceREG pour V2
+  // Pour V2, on calcule l'impact des pools V2 par rapport au total du wallet (REG V2 + REG direct)
   const v2Ratios = v2Wallets.map((entry) => {
-    if (entry.walletREG <= 0) return 0
-    return entry.powerVoting / entry.walletREG
+    if (!entry) return 1 // Sécurité si entry est null/undefined
+    
+    // Utiliser le powerVoting total et walletREG total pour avoir un ratio réaliste
+    // Cela montre l'impact global du wallet avec des pools V2
+    // et donne des ratios entre 1 et 2 pour la plupart des wallets (comme avant)
+    const totalV2Power = entry.powerVoting || 0
+    const totalV2REG = entry.walletREG || 0
+    
+    // Calculer le ratio V2
+    if (totalV2REG <= 0) return 1 // Par défaut 1 si pas de REG
+    const ratio = totalV2Power / totalV2REG
+    
+    // La courbe ne doit jamais descendre en dessous de 1
+    return Math.max(1, ratio)
+    
+    // Debug: log pour le wallet problématique
+    if (entry.address && entry.address.toLowerCase().includes('d9df1d931cfab59965c1a87e1e55131632357f0d')) {
+      console.log('🔵 V2 Ratio Debug:', {
+        address: entry.address,
+        v2Power,
+        v2REG,
+        totalV2Power,
+        totalV2REG,
+        ratio,
+        finalRatio: Math.max(1, ratio),
+        powerVoting: entry.powerVoting,
+        poolVotingShare: entry.poolVotingShare,
+        walletDirectREG: entry.walletDirectREG
+      })
+    }
+    
+    // La courbe ne doit jamais descendre en dessous de 1
+    return Math.max(1, ratio)
   })
 
   // Calculer le ratio Power Voting ÷ totalBalanceREG pour V3
+  // Pour V3, on calcule le ratio en utilisant seulement les pools V3 + une partie proportionnelle du power direct
   const v3Ratios = v3Wallets.map((entry) => {
-    if (entry.walletREG <= 0) return 0
-    return entry.powerVoting / entry.walletREG
+    if (!entry) return 1 // Sécurité si entry est null/undefined
+    
+    // Calculer le Power V3 (pools V3 uniquement)
+    const powerByType = getPowerByPoolType(entry)
+    const v3Power = powerByType?.v3 || 0
+    
+    // Calculer le REG V2 (pools V2 uniquement)
+    let v2REG = 0
+    if (entry.positions && entry.positions.length > 0) {
+      entry.positions.forEach((pos: any) => {
+        if (pos.poolType === 'v2') {
+          v2REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
+        }
+      })
+    }
+    
+    // Calculer le REG V3 (pools V3 uniquement)
+    let v3REG = 0
+    if (entry.positions && entry.positions.length > 0) {
+      entry.positions.forEach((pos: any) => {
+        if (pos.poolType === 'v3') {
+          v3REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
+        }
+      })
+    }
+    
+    // Calculer le Power direct (hors pools)
+    const directPower = (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
+    
+    // Pour V3, utiliser le total power direct (pas seulement proportionnel)
+    // pour montrer l'impact global des pools V3 sur le wallet
+    // Total Power pour V3 = Power V3 + Power direct total
+    const totalV3Power = v3Power + directPower
+    
+    // Pour V3, utiliser le total REG du wallet (REG V3 + REG direct total)
+    // pour montrer l'impact global des pools V3 sur le wallet
+    const walletDirectREG = entry.walletDirectREG || 0
+    
+    // Total REG pour V3 = REG V3 + REG direct total (pas seulement proportionnel)
+    // Cela permet de voir l'impact des pools V3 par rapport au total du wallet
+    const totalV3REG = v3REG + walletDirectREG
+    
+    // Calculer le ratio V3
+    if (totalV3REG <= 0) return 1 // Par défaut 1 si pas de REG
+    const ratio = totalV3Power / totalV3REG
+    
+    // Debug: log pour le wallet problématique
+    if (entry.address && entry.address.toLowerCase().includes('d9df1d931cfab59965c1a87e1e55131632357f0d')) {
+      console.log('🟢 V3 Ratio Debug:', {
+        address: entry.address,
+        v3Power,
+        v3REG,
+        directPower,
+        totalV3Power,
+        walletDirectREG,
+        totalV3REG,
+        ratio,
+        finalRatio: Math.max(1, ratio),
+        powerVoting: entry.powerVoting,
+        poolVotingShare: entry.poolVotingShare
+      })
+    }
+    
+    // La courbe ne doit jamais descendre en dessous de 1
+    return Math.max(1, ratio)
   })
+
+  // Calculer le ratio actif/inactif pour chaque wallet V3 et déterminer la couleur des points
+  const v3PointColors = v3Wallets.map((entry, index) => {
+    if (!entry) return 'rgba(34, 197, 94, 1)' // Sécurité si entry est null/undefined
+    
+    // Calculer le ratio Power Voting ÷ totalBalanceREG pour V3 (même calcul que v3Ratios)
+    const powerByType = getPowerByPoolType(entry)
+    const v3Power = powerByType?.v3 || 0
+    
+    // Calculer le REG V2 (pools V2 uniquement)
+    let v2REG = 0
+    if (entry.positions && entry.positions.length > 0) {
+      entry.positions.forEach((pos: any) => {
+        if (pos.poolType === 'v2') {
+          v2REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
+        }
+      })
+    }
+    
+    // Calculer le REG V3 (pools V3 uniquement)
+    let v3REG = 0
+    if (entry.positions && entry.positions.length > 0) {
+      entry.positions.forEach((pos: any) => {
+        if (pos.poolType === 'v3') {
+          v3REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
+        }
+      })
+    }
+    
+    // Calculer le Power direct (hors pools)
+    const directPower = (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
+    
+    // Pour V3, utiliser le total power direct et le total REG direct
+    // pour montrer l'impact global des pools V3 sur le wallet
+    const totalV3Power = v3Power + directPower
+    const walletDirectREG = entry.walletDirectREG || 0
+    const totalV3REG = v3REG + walletDirectREG
+    const ratio = totalV3REG > 0 ? totalV3Power / totalV3REG : 1
+
+    if (!entry.positions || entry.positions.length === 0) {
+      // Pas de positions V3
+      // Si ratio = 1, c'est une position inactive et loin du cours -> Rouge
+      if (Math.abs(ratio - 1) < 0.001) {
+        return 'rgba(239, 68, 68, 1)' // Rouge
+      }
+      // Si ratio > 1 sans positions V3, c'est anormal -> Jaune
+      if (ratio > 1) {
+        return 'rgba(234, 179, 8, 1)' // Jaune
+      }
+      // Sinon, point vert par défaut
+      return 'rgba(34, 197, 94, 1)' // Vert
+    }
+
+    let totalRegInRange = 0
+    let totalRegOutOfRange = 0
+
+    entry.positions.forEach((pos: any) => {
+      // Seulement les positions V3 (ignorer V2 pour la couleur)
+      if (pos.poolType !== 'v3') return
+
+      const regAmount = parseFloat(pos.regAmount || pos.equivalentREG || '0')
+      if (regAmount <= 0) return
+
+      // Vérifier si la position est active (in range)
+      const isActive = pos.isActive !== undefined ? pos.isActive : false
+
+      if (isActive) {
+        totalRegInRange += regAmount
+      } else {
+        totalRegOutOfRange += regAmount
+      }
+    })
+
+    const totalReg = totalRegInRange + totalRegOutOfRange
+    if (totalReg <= 0) {
+      // Pas de REG dans les pools V3 (mais peut-être du REG direct)
+      // Si ratio = 1, c'est une position inactive et loin du cours -> Rouge
+      if (Math.abs(ratio - 1) < 0.001) {
+        return 'rgba(239, 68, 68, 1)' // Rouge
+      }
+      // Si ratio > 1 sans REG dans les pools V3, c'est anormal -> Jaune
+      if (ratio > 1) {
+        return 'rgba(234, 179, 8, 1)' // Jaune
+      }
+      // Sinon, point vert par défaut
+      return 'rgba(34, 197, 94, 1)' // Vert
+    }
+
+    const ratioInRange = totalRegInRange / totalReg
+
+    // Logique de couleur selon les nouvelles exigences :
+    // 1. Tous les points avec ratio = 1 devraient être rouge - position inactive et loin du cours
+    if (Math.abs(ratio - 1) < 0.001) {
+      return 'rgba(239, 68, 68, 1)' // Rouge
+    }
+
+    // 2. Pour les points avec ratio > 1 :
+    //    - Rouge si toutes les pools V3 sont out of range (range proche du cours mais inactif)
+    //    - Sinon vert ou jaune selon l'état des pools
+    if (ratio > 1) {
+      if (ratioInRange <= 0) {
+        // Ratio > 1 avec toutes les pools V3 out of range -> Rouge
+        return 'rgba(239, 68, 68, 1)' // Rouge
+      } else if (ratioInRange >= 1) {
+        // Ratio > 1 avec toutes les pools V3 in range -> Vert
+        return 'rgba(34, 197, 94, 1)' // Vert
+      } else {
+        // Ratio > 1 avec mixte (certaines in range, certaines out of range) -> Jaune
+        return 'rgba(234, 179, 8, 1)' // Jaune
+      }
+    }
+
+    // 3. Pour les points avec ratio < 1 (ne devrait pas arriver car on force >= 1, mais au cas où)
+    // Si ratio < 1, c'est une anomalie, on met rouge
+    return 'rgba(239, 68, 68, 1)' // Rouge
+  })
+
+  // Vérifier que les arrays ont la bonne longueur
+  if (v2Ratios.length !== v2Labels.length || v3Ratios.length !== v3Labels.length || v3PointColors.length !== v3Labels.length) {
+    console.error('Mismatch in array lengths:', {
+      v2Ratios: v2Ratios.length,
+      v2Labels: v2Labels.length,
+      v3Ratios: v3Ratios.length,
+      v3Labels: v3Labels.length,
+      v3PointColors: v3PointColors.length
+    })
+    return null // Retourner null si les longueurs ne correspondent pas
+  }
+
+  // Filtrer les valeurs invalides (null, undefined, NaN)
+  const safeV2Ratios = v2Ratios.map(r => (r != null && !isNaN(r)) ? r : 1)
+  const safeV3Ratios = v3Ratios.map(r => (r != null && !isNaN(r)) ? r : 1)
+  const safeV3PointColors = v3PointColors.map(c => c || 'rgba(34, 197, 94, 1)')
 
   // Créer les baselines pour chaque catégorie
   const v2Baseline = v2Labels.map(() => 1)
@@ -1493,12 +2164,22 @@ const dexBoostChartData = computed(() => {
   // Combiner les labels : V2 d'abord, puis V3
   const allLabels = [...v2Labels, ...v3Labels]
 
+  // Créer les tableaux de couleurs pour les points V3 (nulls pour V2, couleurs pour V3)
+  const v3PointBackgroundColors = [
+    ...new Array(v2Labels.length).fill(null),
+    ...safeV3PointColors
+  ]
+  const v3PointBorderColors = [
+    ...new Array(v2Labels.length).fill(null),
+    ...safeV3PointColors
+  ]
+
   return {
     labels: allLabels, // V2 d'abord, puis V3
     datasets: [
       {
         label: 'Power Voting ÷ totalBalanceREG (V2)',
-        data: [...v2Ratios, ...new Array(v3Labels.length).fill(null)], // V2 data + nulls pour V3
+        data: [...safeV2Ratios, ...new Array(v3Labels.length).fill(null)], // V2 data + nulls pour V3
         borderColor: 'rgba(74, 144, 226, 1)', // Bleu pour V2
         backgroundColor: 'rgba(74, 144, 226, 0.15)',
         tension: 0.25,
@@ -1509,13 +2190,16 @@ const dexBoostChartData = computed(() => {
       },
       {
         label: 'Power Voting ÷ totalBalanceREG (V3)',
-        data: [...new Array(v2Labels.length).fill(null), ...v3Ratios], // nulls pour V2 + V3 data
+        data: [...new Array(v2Labels.length).fill(null), ...safeV3Ratios], // nulls pour V2 + V3 data
         borderColor: 'rgba(34, 197, 94, 1)', // Vert pour V3
         backgroundColor: 'rgba(34, 197, 94, 0.15)',
         tension: 0.25,
         fill: false,
-        pointRadius: 4,
-        pointHoverRadius: 6,
+        pointRadius: 5, // Taille réduite pour les points
+        pointHoverRadius: 7,
+        pointBackgroundColor: v3PointBackgroundColors, // Couleurs personnalisées pour les points
+        pointBorderColor: v3PointBorderColors,
+        pointBorderWidth: 2,
         spanGaps: false, // Ne pas connecter les points null
       },
       {
@@ -1526,6 +2210,43 @@ const dexBoostChartData = computed(() => {
         tension: 0,
         fill: false,
         pointRadius: 0,
+      },
+      // Datasets pour la légende des points colorés V3
+      {
+        label: '🟢 Pools V3 in range (actives)',
+        data: [],
+        borderColor: 'rgba(34, 197, 94, 1)',
+        backgroundColor: 'rgba(34, 197, 94, 1)',
+        pointRadius: 5,
+        pointBorderWidth: 2,
+        pointBorderColor: 'rgba(34, 197, 94, 1)',
+        borderWidth: 0,
+        hidden: false,
+        showLine: false,
+      },
+      {
+        label: '🔴 Pools V3 out of range (inactives)',
+        data: [],
+        borderColor: 'rgba(239, 68, 68, 1)',
+        backgroundColor: 'rgba(239, 68, 68, 1)',
+        pointRadius: 5,
+        pointBorderWidth: 2,
+        pointBorderColor: 'rgba(239, 68, 68, 1)',
+        borderWidth: 0,
+        hidden: false,
+        showLine: false,
+      },
+      {
+        label: '🟡 Pools V3 mixtes (actives + inactives)',
+        data: [],
+        borderColor: 'rgba(234, 179, 8, 1)',
+        backgroundColor: 'rgba(234, 179, 8, 1)',
+        pointRadius: 5,
+        pointBorderWidth: 2,
+        pointBorderColor: 'rgba(234, 179, 8, 1)',
+        borderWidth: 0,
+        hidden: false,
+        showLine: false,
       },
     ],
   }
@@ -1915,6 +2636,78 @@ const powerBreakdownChartOptions = {
       signifie “4 845 wallets détiennent entre 100 et 500 REG équivalents”.
     </p>
 
+    <!-- Power Concentration Section -->
+    <div class="section-header" v-if="powerConcentrationData">
+      <h2>⚖️ Concentration du pouvoir</h2>
+      <p>Analyse de la répartition du pouvoir de vote entre les adresses</p>
+    </div>
+
+    <div v-if="powerConcentrationData" class="concentration-section">
+      <!-- Gini Coefficient Card -->
+      <div class="stat-card gini-card">
+        <div class="stat-header">
+          <h3>📊 Indice de Gini</h3>
+        </div>
+        <div class="stat-content">
+          <div class="stat-item">
+            <span class="stat-label">Coefficient</span>
+            <span class="stat-value gini-value">{{ giniCoefficient !== null ? giniCoefficient.toFixed(4) : 'N/A' }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Total Power Voting</span>
+            <span class="stat-value">{{ formatNumber(powerConcentrationData.totalPower) }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Nombre d'adresses</span>
+            <span class="stat-value">{{ formatInteger(powerConcentrationData.totalAddresses) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Concentration Table -->
+      <div class="concentration-table-card">
+        <h3>📈 Répartition par percentile</h3>
+        <div class="concentration-table">
+          <div class="concentration-table-header">
+            <div class="concentration-col">Percentile</div>
+            <div class="concentration-col">Nb adresses</div>
+            <div class="concentration-col">Power détenu</div>
+            <div class="concentration-col">% du total</div>
+          </div>
+          <div
+            v-for="item in powerConcentrationData.concentration.filter(c => [5, 10, 15, 20, 25, 50, 75, 90, 95, 100].includes(c.percentile))"
+            :key="item.percentile"
+            class="concentration-table-row"
+          >
+            <div class="concentration-col percentile-col">Top {{ item.percentile }}%</div>
+            <div class="concentration-col">{{ formatInteger(item.addressCount) }}</div>
+            <div class="concentration-col">{{ formatNumber(item.powerHeld) }}</div>
+            <div class="concentration-col percentage-col">{{ formatNumber(item.powerPercentage) }}%</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts Grid -->
+      <div class="charts-grid">
+        <div class="chart-card">
+          <h3>📊 Concentration du pouvoir par percentile</h3>
+          <div class="chart-container" v-if="powerConcentrationChartData">
+            <Bar :data="powerConcentrationChartData" :options="powerConcentrationChartOptions" />
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <h3>📈 Courbe de Lorenz (distribution cumulative)</h3>
+          <div class="chart-container" v-if="lorenzCurveData">
+            <Line :data="lorenzCurveData" :options="lorenzCurveChartOptions" />
+          </div>
+          <p class="chart-note" style="margin-top: 1rem; font-size: 0.875rem; color: var(--text-secondary);">
+            La courbe de Lorenz montre la distribution cumulative du pouvoir. Plus la courbe s'éloigne de la ligne diagonale (égalité parfaite), plus la concentration est élevée.
+          </p>
+        </div>
+      </div>
+    </div>
+
     <!-- Pools Analysis Section -->
     <div class="section-header">
       <h2>🌊 Analyse Pools V2 & V3</h2>
@@ -1971,79 +2764,6 @@ const powerBreakdownChartOptions = {
       </div>
     </div>
 
-    <div class="section-header">
-      <h2>🔗 Corrélation Pools & Power Voting</h2>
-      <p>
-        Les courbes comparent désormais des ratios (Power ÷ REG en pool) à la ligne 1 : 1, ce qui
-        permet de visualiser instantanément si une position LP surperforme ou non le boost attendu.
-      </p>
-    </div>
-
-    <div class="charts-grid correlation-grid">
-      <div class="chart-card full-width">
-        <h3>📉 Efficacité des positions LP : Multiplicateurs Power ÷ REG par adresse</h3>
-        <div class="chart-container" v-if="poolPowerChartData">
-          <Line :data="poolPowerChartData" :options="poolPowerChartOptions" />
-        </div>
-        <div class="chart-empty" v-else>
-          <p>Aucune adresse active en pool n'a été détectée.</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="chart-explainer">
-      <p>
-        Cette visualisation trace les ratios de boost pour les <strong>30 plus gros wallets utilisant des DEX V2 et V3</strong>.
-        Le graphique compare deux types de multiplicateurs par rapport à la <strong>ligne de référence 1 : 1</strong> :
-      </p>
-      <ul style="margin: 1rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
-        <li style="margin-bottom: 0.75rem;">
-          <strong>Traits pleins (bleu/vert)</strong> : <strong>Boost pools</strong> = Power issu des pools ÷ REG en pools
-          <br />
-          <span style="font-size: 0.9em; opacity: 0.8;">
-            → Mesure l'efficacité spécifique des positions LP : combien de Power on obtient par REG mis en pool.
-          </span>
-        </li>
-        <li style="margin-bottom: 0.75rem;">
-          <strong>Traits pointillés (bleu/rose)</strong> : <strong>Multiplicateur global</strong> = Power total ÷ REG total (wallet + pools)
-          <br />
-          <span style="font-size: 0.9em; opacity: 0.8;">
-            → Mesure l'efficacité globale du wallet en combinant REG direct (en wallet) + REG en pools. 
-            Ce n'est pas une moyenne, mais un ratio qui prend en compte l'ensemble du REG détenu par le wallet.
-          </span>
-        </li>
-      </ul>
-      <p style="margin-top: 1rem;">
-        <strong>Interprétation</strong> : 
-        <ul style="margin: 0.5rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
-          <li><strong>Au-dessus de 1x</strong> → Le wallet obtient plus de Power que sa simple mise en REG (boost actif)</li>
-          <li><strong>En dessous de 1x</strong> → La position est en pénalité (cela est encore inexistent pour l'instant)</li>
-          <li><strong>Différence entre traits pleins et pointillés</strong> : 
-            <br />- Si le trait plein est <em>au-dessus</em> du pointillé → Les pools apportent un boost supérieur au ratio global (le REG en wallet dilue le boost)
-            <br />- Si le trait plein est <em>en dessous</em> du pointillé → Le REG en wallet dilue encore plus le boost des pools
-            <br />- Si les deux sont proches → Le wallet a peu ou pas de REG direct, donc le boost des pools domine
-          </li>
-        </ul>
-      </p>
-      <p class="axis-note" style="margin-top: 1rem;"> (power total ÷ (REG wallet + REG en pool)) par rapport à la
-        <strong>ligne de référence 1 : 1</strong>. Lorsque les courbes bleue ou rose passent
-        <em>au-dessus</em> de 1 : 1, cela signifie qu'une adresse obtient plus de pouvoir de vote
-        que sa simple mise en REG (boost). Si elles sont <em>en dessous</em>, la position est moins
-        efficace qu'un dépôt direct (décote / inéligibilité partielle). Les adresses sont triées par
-        liquidité décroissante pour faciliter la comparaison.
-      </p>
-      <p class="axis-note" style="margin-top: 1rem;">
-        <strong>Légende des couleurs</strong> :
-        <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu (plein)</strong> : Boost pools V2
-        <br />• <strong style="color: rgba(59, 130, 246, 1);">Bleu (pointillé)</strong> : Multiplicateur global V2 (Power total ÷ REG total)
-        <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert (plein)</strong> : Boost pools V3
-        <br />• <strong style="color: rgba(236, 72, 153, 1);">Rose (pointillé)</strong> : Multiplicateur global V3 (Power total ÷ REG total)
-        <br />• <strong style="color: rgba(148, 163, 184, 0.8);">Gris (pointillé)</strong> : Référence 1:1 (parité)
-      </p>
-      <p class="axis-note">
-        <strong>Note</strong> : Seuls les wallets avec des positions LP actives sont affichés. Les 30 plus gros wallets de chaque catégorie (V2 et V3) sont représentés pour visualiser le niveau de boost apporté par le LP REG. Les adresses sont triées par liquidité décroissante.
-      </p>
-    </div>
 
     <div class="section-header" style="margin-top: 3rem;">
       <h2>⚡ Impact du Boost DEX</h2>
@@ -2089,6 +2809,11 @@ const powerBreakdownChartOptions = {
           <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu</strong> : Wallets avec positions V2 (Power Voting ÷ totalBalanceREG)
           <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert</strong> : Wallets avec positions V3 (Power Voting ÷ totalBalanceREG)
           <br />• <strong style="color: rgba(148, 163, 184, 0.8);">Gris (pointillé)</strong> : Référence 1:1 (parité)
+          <br />
+          <br /><strong>Indicateurs de range pour les pools V3</strong> (points sur la courbe verte) :
+          <br />• <strong style="color: rgba(34, 197, 94, 1);">🟢 Point vert</strong> : Toutes les pools V3 sont actives (in range)
+          <br />• <strong style="color: rgba(239, 68, 68, 1);">🔴 Point rouge</strong> : Toutes les pools V3 sont inactives (out of range), ou ratio = 1 (position inactive et loin du cours), ou ratio > 1 avec toutes les pools V3 inactives (range proche du cours mais inactif)
+          <br />• <strong style="color: rgba(234, 179, 8, 1);">🟡 Point jaune</strong> : Mixte (pools V3 actives et inactives, calculé au prorata des poids)
         </li>
       </ul>
       <p style="margin-top: 1rem;">
@@ -2177,7 +2902,7 @@ const powerBreakdownChartOptions = {
       </p>
     </div>
 
-    <div class="pool-wallet-summary" v-if="dataStore.poolWalletBreakdown">
+    <div class="pool-wallet-summary" v-if="dataStore.poolWalletBreakdown" style="margin: 1.5rem 0;">
       <div class="summary-item">
         <span class="summary-label">Wallets V2</span>
         <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v2Wallets) }}</span>
@@ -2192,78 +2917,164 @@ const powerBreakdownChartOptions = {
       </div>
     </div>
 
-    <div class="multiplier-info" style="margin: 1.5rem 0; padding: 1rem; background: var(--card-bg, rgba(255, 255, 255, 0.05)); border-radius: 8px; border-left: 3px solid var(--primary-color, #4a90e2);">
-      <p style="margin: 0 0 0.75rem 0; font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">
-        BETA Les multiplicateurs :
-      </p>
-      <ul style="margin: 0; padding-left: 1.5rem; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.6;">
-        <li><strong>Sushiswap V2</strong> : ×1.5</li>
-        <li><strong>Honeyswap V2</strong> : ×1.3</li>
-        <li><strong>Balancer V2</strong> : ×1.4</li>
-        <li><strong>Sushiswap V3 actif</strong> : ×2.5</li>
-        <li><strong>Sushiswap V3 inactif</strong> : ×1</li>
-      </ul>
-    </div>
+    <!-- Formulaire de recherche d'adresse -->
+    <div class="address-search-section" style="margin: 2rem 0; padding: 1.5rem; background: var(--card-bg); border-radius: 1rem; border: 1px solid var(--border-color);">
+      <h3 style="margin: 0 0 1rem 0; color: var(--text-primary);">🔍 Recherche d'adresse</h3>
+      <form @submit.prevent="searchAddressDetails" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+        <input
+          v-model="addressSearchInput"
+          type="text"
+          placeholder="Entrez une adresse (0x...)"
+          style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--bg-secondary); color: var(--text-primary); font-family: monospace;"
+        />
+        <button
+          type="submit"
+          :disabled="isSearchingAddressDetails"
+          style="padding: 0.75rem 1.5rem; background: var(--primary-color); color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 600;"
+        >
+          {{ isSearchingAddressDetails ? 'Recherche...' : 'Rechercher' }}
+        </button>
+      </form>
 
-    <div class="pool-wallet-summary" v-if="dataStore.poolWalletBreakdown">
-      <div class="summary-item">
-        <span class="summary-label">Wallets V2</span>
-        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v2Wallets) }}</span>
-      </div>
-      <div class="summary-item">
-        <span class="summary-label">Wallets V3</span>
-        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v3Wallets) }}</span>
-      </div>
-      <div class="summary-item">
-        <span class="summary-label">Wallets V2 &amp; V3</span>
-        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.both) }}</span>
-      </div>
-    </div>
-
-    <div class="multiplier-info" style="margin: 1.5rem 0; padding: 1rem; background: var(--card-bg, rgba(255, 255, 255, 0.05)); border-radius: 8px; border-left: 3px solid var(--primary-color, #4a90e2);">
-      <p style="margin: 0 0 0.75rem 0; font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">
-        BETA Les multiplicateurs :
-      </p>
-      <ul style="margin: 0; padding-left: 1.5rem; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.6;">
-        <li><strong>Sushiswap V2</strong> : ×1.5</li>
-        <li><strong>Honeyswap V2</strong> : ×1.3</li>
-        <li><strong>Balancer V2</strong> : ×1.4</li>
-        <li><strong>Sushiswap V3 actif</strong> : ×2.5</li>
-        <li><strong>Sushiswap V3 inactif</strong> : ×1</li>
-      </ul>
-    </div>
-
-    <div
-      class="correlation-table"
-      v-if="chartWallets && chartWallets.length > 0"
-    >
-      <div
-        class="correlation-row"
-        v-for="profile in chartWallets"
-        :key="profile.address"
-      >
-        <div class="row-main">
-          <div class="address-block">
-            <span class="address-short">{{ formatAddress(profile.address) }}</span>
-            <span class="address-full">{{ profile.address }}</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Liquidité en pools</span>
-            <span class="metric-value">{{ formatNumber(profile.poolLiquidityREG) }}</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Power total</span>
-            <span class="metric-value">{{ formatNumber(profile.powerVoting) }}</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">REG en wallet</span>
-            <span class="metric-value">{{ formatNumber(profile.walletDirectREG) }}</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Boost multiplicateur</span>
-            <span class="metric-value">{{ formatNumber(profile.boostMultiplier) }}×</span>
+      <!-- Résultats de la recherche -->
+      <div v-if="addressDetails" class="address-details" style="margin-top: 1.5rem;">
+        <div style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; margin-bottom: 1rem;">
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary); font-family: monospace;">{{ addressDetails.address }}</h4>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">REG total</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.totalREG) }}</div>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">REG en wallet</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.walletREG) }}</div>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">REG en pools</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.poolREG) }}</div>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">Power Voting</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--accent-color);">{{ formatNumber(addressDetails.powerVoting) }}</div>
+            </div>
           </div>
         </div>
+
+        <!-- Détails des positions -->
+        <div v-if="addressDetails.positions && addressDetails.positions.length > 0">
+          <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Positions dans les pools</h4>
+          <div style="display: grid; gap: 1rem;">
+            <div
+              v-for="(position, index) in addressDetails.positions"
+              :key="index"
+              style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; border-left: 3px solid var(--primary-color);"
+            >
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">DEX / Pool</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ position.dex }} {{ position.poolType?.toUpperCase() || 'V2' }}</div>
+                </div>
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">Version</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ position.poolType === 'v3' ? 'V3' : 'V2' }}</div>
+                </div>
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">REG équivalent</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.regAmount) }}</div>
+                </div>
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">État</span>
+                  <div style="font-weight: 600;" :style="{ color: position.isActive ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)' }">
+                    {{ position.isActive ? '🟢 Actif (in range)' : '🔴 Inactif (out of range)' }}
+                  </div>
+                </div>
+                <div v-if="position.counterpartAmount > 0">
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">Contrepartie</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.counterpartAmount) }} {{ position.counterpartToken || '' }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-else style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; color: var(--text-secondary); text-align: center;">
+          Aucune position dans les pools
+        </div>
+      </div>
+    </div>
+
+    <!-- Snapshots historiques -->
+    <div class="historical-snapshots-section" v-if="allSnapshotsWithCurrent.length > 0">
+      <div class="historical-snapshots-header">
+        <h3>📸 Snapshots historiques ({{ allSnapshotsWithCurrent.length }})</h3>
+        <p>Chargez un snapshot précédent pour analyse ou comparaison avec tout les fichiers historiques mis en dur dans le projet</p>
+      </div>
+      <div class="historical-snapshots-list">
+        <button
+          v-for="snapshot in allSnapshotsWithCurrent"
+          :key="snapshot.date"
+          @click="snapshot.date === 'Actuel' ? null : loadSnapshotData(snapshot)"
+          :disabled="isLoadingComparison || snapshot.date === 'Actuel'"
+          class="historical-snapshot-row"
+          :class="{ 'historical-current-snapshot-row': snapshot.date === 'Actuel' }"
+        >
+          <div class="historical-snapshot-date-col">
+            <div class="historical-snapshot-date">{{ snapshot.date === 'Actuel' ? 'Snapshot actuel (uploadé)' : formatSnapshotDate(snapshot.date) }}</div>
+          </div>
+          <div class="historical-snapshot-metrics-row" v-if="snapshot.metrics">
+            <div class="historical-snapshot-metric-item">
+              <span class="historical-metric-icon">👥</span>
+              <div class="historical-metric-content">
+                <div class="historical-metric-value-row">
+                  <span class="historical-metric-value">{{ formatInteger(snapshot.metrics.walletCount) }}</span>
+                  <span
+                    v-if="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)"
+                    class="historical-metric-diff"
+                    :class="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.walletCount >= 0 ? 'positive' : 'negative'"
+                  >
+                    {{ formatDiff(getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.walletCount, true) }}
+                  </span>
+                </div>
+                <span class="historical-metric-label">wallets</span>
+              </div>
+            </div>
+            <div class="historical-snapshot-metric-item">
+              <span class="historical-metric-icon">💰</span>
+              <div class="historical-metric-content">
+                <div class="historical-metric-value-row">
+                  <span class="historical-metric-value">{{ formatNumber(snapshot.metrics.totalREG) }}</span>
+                  <span
+                    v-if="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)"
+                    class="historical-metric-diff"
+                    :class="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.totalREG >= 0 ? 'positive' : 'negative'"
+                  >
+                    {{ formatDiff(getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.totalREG) }}
+                  </span>
+                </div>
+                <span class="historical-metric-label">REG</span>
+              </div>
+            </div>
+            <div class="historical-snapshot-metric-item">
+              <span class="historical-metric-icon">⚡</span>
+              <div class="historical-metric-content">
+                <div class="historical-metric-value-row">
+                  <span class="historical-metric-value">{{ formatNumber(snapshot.metrics.totalPowerVoting) }}</span>
+                  <span
+                    v-if="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)"
+                    class="historical-metric-diff"
+                    :class="getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.totalPowerVoting >= 0 ? 'positive' : 'negative'"
+                  >
+                    {{ formatDiff(getSnapshotDiff(snapshot, allSnapshotsWithCurrent)!.totalPowerVoting) }}
+                  </span>
+                </div>
+                <span class="historical-metric-label">Power</span>
+              </div>
+            </div>
+          </div>
+          <div class="historical-snapshot-files" v-else>
+            <span class="historical-snapshot-file">📄 {{ snapshot.balancesFile }}</span>
+            <span class="historical-snapshot-file">⚡ {{ snapshot.powerVotingFile }}</span>
+          </div>
+        </button>
       </div>
     </div>
   </div>
@@ -3516,6 +4327,287 @@ const powerBreakdownChartOptions = {
   .pool-metrics-grid {
     grid-template-columns: 1fr;
     gap: 1rem;
+  }
+}
+
+/* Snapshots historiques section (from UploadView) */
+.historical-snapshots-section {
+  margin: 3rem 0;
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 2rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.historical-snapshots-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.historical-snapshots-header h3 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.historical-snapshots-header p {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.historical-snapshots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.historical-snapshot-row {
+  background: var(--glass-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 2rem;
+  align-items: center;
+  text-align: left;
+}
+
+.historical-snapshot-row:hover:not(:disabled) {
+  border-color: var(--primary-color);
+  background: var(--bg-tertiary);
+  transform: translateX(4px);
+  box-shadow: var(--shadow-md);
+}
+
+.historical-snapshot-row:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.historical-snapshot-row.historical-current-snapshot-row {
+  border-color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.1);
+  cursor: default;
+}
+
+.historical-snapshot-date-col {
+  display: flex;
+  align-items: center;
+}
+
+.historical-snapshot-date {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.historical-snapshot-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+  align-items: center;
+}
+
+.historical-snapshot-metric-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.historical-metric-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.historical-metric-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+}
+
+.historical-metric-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.historical-metric-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.historical-metric-diff {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.25rem;
+  line-height: 1.2;
+}
+
+.historical-metric-diff.positive {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.historical-metric-diff.negative {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.historical-metric-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.historical-snapshot-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.historical-snapshot-file {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .historical-snapshot-row {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .historical-snapshot-metrics-row {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+/* Power Concentration Section */
+.concentration-section {
+  margin: 3rem 0;
+}
+
+.gini-card {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.gini-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary-color);
+}
+
+.gini-interpretation {
+  font-weight: 600;
+}
+
+.concentration-table-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 2rem;
+  margin: 2rem 0;
+  box-shadow: var(--shadow-lg);
+}
+
+.concentration-table-card h3 {
+  font-size: 1.25rem;
+  margin-bottom: 1.5rem;
+  color: var(--text-primary);
+}
+
+.concentration-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.concentration-table-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--glass-bg);
+  border-radius: 0.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border-color);
+}
+
+.concentration-table-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--glass-bg);
+  border-radius: 0.5rem;
+  transition: all 0.3s ease;
+}
+
+.concentration-table-row:hover {
+  background: var(--bg-tertiary);
+  transform: translateX(4px);
+}
+
+.concentration-col {
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+}
+
+.percentile-col {
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.percentage-col {
+  font-weight: 700;
+  color: var(--accent-color);
+  font-size: 1.1rem;
+}
+
+@media (max-width: 768px) {
+  .concentration-table-header,
+  .concentration-table-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .concentration-table-header {
+    display: none;
+  }
+
+  .concentration-table-row {
+    padding: 1rem;
+  }
+
+  .concentration-col {
+    justify-content: space-between;
+    padding: 0.25rem 0;
+  }
+
+  .concentration-col::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-right: 1rem;
   }
 }
 </style>

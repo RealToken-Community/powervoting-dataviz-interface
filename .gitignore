@@ -38,3 +38,9 @@ __screenshots__/
 .env
 .env.local
 .vscode/
+
+# Balance calculator submodule
+balance-calculator/
+
+# Session workspaces (per-user clones and generated files)
+workspaces/

@@ -2,11 +2,25 @@
 
 ## V1.0
 
-- Here is the situation (position out of range, have a favorable boost...) with the old code, we need to find a way to validate that this is no longer the case using a new chart on the analysis page.
+Deploy: 
+- update all port and url parametrable (docker-compose)
+- add verification var in initializer config ?
+- push on main branch, and create develop branch
 
 ## V2.0
 
-- Integrate balance-calcultator into a generated page (before upload) to use and configure balance-calcalculator settings and test them.
-    - blocking: Balance-calculator requires choices to be made at yarn start, which makes things a little more complex.
+**remove adresse from balance REG and power voting info for min/max (for reduce ecart-type)(Analysis page)**
+
+**create section balance by tools**
+- Find how many addresses and what percentage (on the total circulating supply) of REG are correlated with the addresses present on the RMM.
+- Find how many addresses and what percentage (on the total circulating supply) of REG are correlated with the addresses present on the YAM.
+
+**Enable automatic terminal scrolling so that the content doesn’t appear only at the very end. (Generate page tools)**
+
+**Display all available file selection options right away.(Generate page tools)**
+- In the code, look for the function that lists — it’s something like that — and add or adjust it. In balance-calculator, replace pageSize with 5 (in the askUseFile function).
+
+
+## Design 
 
 - Add the DAO colors to this interface

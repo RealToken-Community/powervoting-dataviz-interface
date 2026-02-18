@@ -1043,6 +1043,8 @@ const startRebuildLogsStream = (processId: string) => {
             // Réactiver le bouton immédiatement pour permettre un nouveau rebuild
             isRebuilding.value = false
             rebuildProcessId.value = null
+            // Fermer la modale automatiquement quand le clone/rebuild est terminé avec succès
+            closeRebuildModal()
             
             // Attendre beaucoup plus longtemps pour que tous les logs soient envoyés et que le système de fichiers soit à jour
             // Ne pas rafraîchir immédiatement pour éviter de couper les logs

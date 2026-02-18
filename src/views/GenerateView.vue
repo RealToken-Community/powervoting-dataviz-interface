@@ -1172,17 +1172,17 @@ const deleteFile = async (filename: string) => {
 
 // Fonction pour télécharger un fichier
 const downloadFile = async (file: { name: string; url: string }) => {
+  error.value = ''
+  success.value = ''
+  const absoluteUrl = file.url.startsWith('http') ? file.url : `${window.location.origin}${file.url}`
   try {
-    // file.url est déjà au format /generated/filename
-    // En développement, Vite proxy vers le backend, donc on utilise directement l'URL
-    // En production, l'URL sera relative et fonctionnera aussi
-    const response = await fetch(file.url, {
+    const response = await fetch(absoluteUrl, {
       method: 'GET',
+      credentials: 'include',
     })
     if (!response.ok) {
       throw new Error(`Erreur lors du téléchargement: ${response.status} ${response.statusText}`)
     }
-    
     const blob = await response.blob()
     const downloadUrl = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -1192,10 +1192,21 @@ const downloadFile = async (file: { name: string; url: string }) => {
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(downloadUrl)
-    
     success.value = `✅ Fichier ${file.name} téléchargé avec succès`
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Erreur lors du téléchargement'
+    try {
+      const link = document.createElement('a')
+      link.href = absoluteUrl
+      link.download = file.name
+      link.rel = 'noopener'
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      success.value = `✅ Téléchargement de ${file.name} lancé`
+    } catch (fallbackErr) {
+      error.value = err instanceof Error ? err.message : 'Erreur lors du téléchargement'
+    }
   }
 }
 

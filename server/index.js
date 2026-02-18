@@ -118,13 +118,22 @@ app.get('/generated/:sessionId/:filename', (req, res, next) => {
   if (!isValidSessionId(sessionId)) {
     return res.status(400).json({ error: 'Session invalide' });
   }
-  const safeName = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
-  const filePath = path.join(getOutDatasPath(sessionId), safeName);
+  let decodedFilename = filename;
+  try {
+    decodedFilename = decodeURIComponent(filename);
+  } catch (_) {}
+  const baseName = path.basename(decodedFilename);
+  if (!baseName || baseName.includes('..') || baseName.includes('/') || baseName.includes('\\')) {
+    return res.status(400).json({ error: 'Nom de fichier invalide' });
+  }
+  const filePath = path.join(getOutDatasPath(sessionId), baseName);
   const resolved = path.resolve(filePath);
   const resolvedOut = path.resolve(getOutDatasPath(sessionId));
   if (!resolved.startsWith(resolvedOut) || !existsSync(filePath)) {
     return res.status(404).json({ error: 'Fichier non trouvé' });
   }
+  const safeForHeader = baseName.replace(/"/g, "'");
+  res.setHeader('Content-Disposition', `attachment; filename="${safeForHeader}"`);
   res.sendFile(filePath);
 });
 

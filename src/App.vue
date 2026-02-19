@@ -18,7 +18,7 @@ import logoImg from '@/assets/logo-v3-orange.svg'
           <nav class="main-nav">
             <RouterLink to="/documentation">Documentation</RouterLink>
             <RouterLink to="/generate">Generate</RouterLink>
-            <RouterLink to="/">Upload</RouterLink>
+            <RouterLink to="/upload">Upload</RouterLink>
             <RouterLink to="/analysis">Analysis</RouterLink>
           </nav>
         </div>

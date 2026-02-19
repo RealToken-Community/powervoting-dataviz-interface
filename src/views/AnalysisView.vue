@@ -29,6 +29,8 @@ ChartJS.register(
   LineElement,
 )
 
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
+
 const router = useRouter()
 const dataStore = useDataStore()
 const expandedWallets = ref<Record<string, boolean>>({})
@@ -2534,8 +2536,8 @@ const powerBreakdownChartOptions = {
 </script>
 
 <template>
-  <div class="analysis-view" v-if="dataStore.balances.length > 0">
-    <div class="analysis-header">
+  <div class="analysis-view" :class="{ 'analysis-view-embedded': props.embedded }" v-if="dataStore.balances.length > 0">
+    <div class="analysis-header" v-if="!props.embedded">
       <h2>📊 Analyse des données</h2>
       <p>Exploration et visualisation des balances REG et du pouvoir de vote</p>
     </div>
@@ -3002,8 +3004,8 @@ const powerBreakdownChartOptions = {
       </div>
     </div>
 
-    <!-- Snapshots historiques -->
-    <div class="historical-snapshots-section" v-if="allSnapshotsWithCurrent.length > 0">
+    <!-- Snapshots historiques (masqué en mode intégré, la liste est sur la home) -->
+    <div class="historical-snapshots-section" v-if="!props.embedded && allSnapshotsWithCurrent.length > 0">
       <div class="historical-snapshots-header">
         <h3>📸 Snapshots historiques ({{ allSnapshotsWithCurrent.length }})</h3>
         <p>Chargez un snapshot précédent pour analyse ou comparaison avec tout les fichiers historiques mis en dur dans le projet</p>
@@ -3083,6 +3085,11 @@ const powerBreakdownChartOptions = {
 <style scoped>
 .analysis-view {
   animation: fadeIn 0.5s ease;
+}
+
+.analysis-view-embedded {
+  padding-top: 0;
+  margin-top: 0;
 }
 
 .analysis-header {

@@ -536,12 +536,8 @@ app.post('/api/balance-calculator/start', ensureSession, async (req, res) => {
       }
     };
 
-    // En mode non-PTY, inquirer réimprime le prompt entier à chaque touche fléchée.
-    // On détecte les "rafraîchissements de prompt" et on injecte des codes ANSI cursor-up
-    // pour effacer les lignes précédentes avant d'écrire le nouveau prompt.
-    let prevPromptLineCount = 0;
+    // En mode non-PTY, à chaque question inquirer : clear le terminal et afficher la question en haut.
     const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').replace(/\r/g, '');
-    const countNonEmptyLines = (text) => stripAnsi(text).split('\n').filter((l) => l.trim().length > 0).length;
     const isPromptRefresh = (text) => {
       const clean = stripAnsi(text);
       return clean.includes('? ') && (clean.includes('❯') || clean.includes('(Use arrow keys)'));
@@ -552,13 +548,8 @@ app.post('/api/balance-calculator/start', ensureSession, async (req, res) => {
       let outputData = rawData;
 
       if (isPromptRefresh(rawData)) {
-        if (prevPromptLineCount > 0) {
-          // Remonter de N lignes et effacer jusqu'à la fin de l'écran (comme un vrai PTY)
-          outputData = `\x1b[${prevPromptLineCount}A\x1b[J${rawData}`;
-        }
-        prevPromptLineCount = countNonEmptyLines(rawData);
-      } else {
-        prevPromptLineCount = 0;
+        // Clear écran + curseur en haut, puis afficher la question tout en haut
+        outputData = `\x1b[2J\x1b[H${rawData}`;
       }
 
       addLog('stdout', outputData);

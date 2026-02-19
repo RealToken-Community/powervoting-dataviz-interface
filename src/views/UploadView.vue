@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
 import { transformCSVToJSON, transformPowerVotingCSV } from '@/utils/csvTransformer'
@@ -29,6 +30,7 @@ ChartJS.register(
 )
 
 const router = useRouter()
+const { t } = useI18n()
 const dataStore = useDataStore()
 
 const balancesFile = ref<File | null>(null)
@@ -653,8 +655,8 @@ const snapshotsChartOptions = computed(() => ({
           >
             <div class="file-icon">📂</div>
             <div class="file-info">
-              <span class="file-title">Balances REG</span>
-              <span class="file-subtitle">CSV ou JSON - Glissez-déposez ou cliquez</span>
+              <span class="file-title">{{ t('upload.balances') }}</span>
+              <span class="file-subtitle">{{ t('upload.dragDrop') }}</span>
             </div>
             <input
               type="file"
@@ -676,8 +678,8 @@ const snapshotsChartOptions = computed(() => ({
           >
             <div class="file-icon">⚡</div>
             <div class="file-info">
-              <span class="file-title">Power Voting REG</span>
-              <span class="file-subtitle">CSV ou JSON - Glissez-déposez ou cliquez</span>
+              <span class="file-title">{{ t('upload.powerVoting') }}</span>
+              <span class="file-subtitle">{{ t('upload.dragDrop') }}</span>
             </div>
             <input
               type="file"
@@ -699,8 +701,8 @@ const snapshotsChartOptions = computed(() => ({
           class="btn btn-primary"
           style="width: 100%;"
         >
-          <span v-if="!isLoading">🚀 Analyser les données</span>
-          <span v-else class="loading">⏳ Chargement...</span>
+          <span v-if="!isLoading">🚀 {{ t('upload.load') }}</span>
+          <span v-else class="loading">⏳ {{ t('upload.loading') }}</span>
         </button>
       </div>
     </div>
@@ -716,7 +718,7 @@ const snapshotsChartOptions = computed(() => ({
 
       <!-- Section Balances -->
       <div v-if="categorizedFiles.balances.length > 0" class="file-category">
-        <h4 class="category-title">💰 Balances ({{ categorizedFiles.balances.length }})</h4>
+        <h4 class="category-title">💰 {{ t('upload.balancesCount', { count: categorizedFiles.balances.length }) }}</h4>
         <div class="generated-files-grid">
           <div
             v-for="fileGroup in categorizedFiles.balances"
@@ -757,7 +759,7 @@ const snapshotsChartOptions = computed(() => ({
 
       <!-- Section Power Voting -->
       <div v-if="categorizedFiles.powerVoting.length > 0" class="file-category">
-        <h4 class="category-title">⚡ Power Voting ({{ categorizedFiles.powerVoting.length }})</h4>
+        <h4 class="category-title">⚡ {{ t('upload.powerVotingCount', { count: categorizedFiles.powerVoting.length }) }}</h4>
         <div class="generated-files-grid">
           <div
             v-for="fileGroup in categorizedFiles.powerVoting"

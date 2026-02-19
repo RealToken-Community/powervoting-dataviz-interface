@@ -10,75 +10,53 @@
         <!-- Section Generate -->
         <div class="doc-section">
           <div class="doc-section-header">
-            <h3>⚙️ Génération (Generate)</h3>
-            <RouterLink to="/generate" class="doc-link">Accéder à la page →</RouterLink>
+            <h3>⚙️ {{ t('documentation.generate') }}</h3>
+            <RouterLink to="/generate" class="doc-link">{{ t('documentation.generateAccess') }}</RouterLink>
           </div>
           <div class="doc-section-content">
-            <p>
-              La page <strong>Génération</strong> permet de créer des données de test pour les balances REG et le power voting 
-              en utilisant l'outil <code>balance-calculator</code>.
-            </p>
+            <p v-html="t('documentation.generateIntro')"></p>
             <div class="doc-features">
               <div class="doc-feature">
                 <span class="doc-feature-icon">1️⃣</span>
-                <div>
-                  <strong>Clone</strong> - Cloner et configurer le projet balance-calculator depuis un dépôt Git
-                </div>
+                <div v-html="t('documentation.generateFeature1')"></div>
               </div>
               <div class="doc-feature">
                 <span class="doc-feature-icon">2️⃣</span>
-                <div>
-                  <strong>Environnement</strong> - Configurer les variables d'environnement nécessaires (clés API)
-                </div>
+                <div v-html="t('documentation.generateFeature2')"></div>
               </div>
               <div class="doc-feature">
                 <span class="doc-feature-icon">3️⃣</span>
-                <div>
-                  <strong>Configuration</strong> - Modifier les options de calcul (optionsModifiers.ts)
-                </div>
+                <div v-html="t('documentation.generateFeature3')"></div>
               </div>
               <div class="doc-feature">
                 <span class="doc-feature-icon">4️⃣</span>
-                <div>
-                  <strong>Lancer balance-calculator</strong> - Exécuter l'outil en mode interactif pour générer les fichiers de données
-                </div>
+                <div v-html="t('documentation.generateFeature4')"></div>
               </div>
             </div>
-            <div class="doc-warning">
-              <strong>⚠️ Important :</strong> Cette interface est uniquement destinée aux tests. Ne jamais créer de données pour snapshot depuis cette page.
-            </div>
+            <div class="doc-warning" v-html="t('documentation.generateWarning')"></div>
           </div>
         </div>
 
         <!-- Section Upload -->
         <div class="doc-section">
           <div class="doc-section-header">
-            <h3>📤 Upload</h3>
-            <RouterLink to="/" class="doc-link">Accéder à la page →</RouterLink>
+            <h3>📤 {{ t('documentation.upload') }}</h3>
+            <RouterLink to="/upload" class="doc-link">{{ t('documentation.generateAccess') }}</RouterLink>
           </div>
           <div class="doc-section-content">
-            <p>
-              La page <strong>Upload</strong> permet de charger des fichiers de données existants (CSV ou JSON) 
-              pour les analyser et les visualiser.
-            </p>
+            <p v-html="t('documentation.uploadIntro')"></p>
             <div class="doc-features">
               <div class="doc-feature">
                 <span class="doc-feature-icon">📁</span>
-                <div>
-                  <strong>Import de fichiers</strong> - Télécharger des fichiers de balances REG ou de power voting
-                </div>
+                <div v-html="t('documentation.uploadFeature1')"></div>
               </div>
               <div class="doc-feature">
                 <span class="doc-feature-icon">✅</span>
-                <div>
-                  <strong>Validation</strong> - Vérification automatique du format et de la structure des données
-                </div>
+                <div v-html="t('documentation.uploadFeature2')"></div>
               </div>
               <div class="doc-feature">
                 <span class="doc-feature-icon">🔄</span>
-                <div>
-                  <strong>Transformation</strong> - Conversion automatique des données pour l'analyse
-                </div>
+                <div v-html="t('documentation.uploadFeature3')"></div>
               </div>
             </div>
           </div>
@@ -87,32 +65,23 @@
         <!-- Section Analysis -->
         <div class="doc-section">
           <div class="doc-section-header">
-            <h3>📊 Analysis</h3>
-            <RouterLink to="/analysis" class="doc-link">Accéder à la page →</RouterLink>
+            <h3>📊 {{ t('documentation.analysis') }}</h3>
+            <RouterLink to="/analysis" class="doc-link">{{ t('documentation.generateAccess') }}</RouterLink>
           </div>
           <div class="doc-section-content">
-            <p>
-              La page <strong>Analysis</strong> offre des outils de visualisation et d'analyse des données de power voting 
-              et de balances REG chargées.
-            </p>
+            <p v-html="t('documentation.analysisIntro')"></p>
             <div class="doc-features">
               <div class="doc-feature">
                 <span class="doc-feature-icon">📈</span>
-                <div>
-                  <strong>Graphiques</strong> - Visualisation des données sous forme de graphiques interactifs
-                </div>
+                <div v-html="t('documentation.analysisFeature1')"></div>
               </div>
               <div class="doc-feature">
                 <span class="doc-feature-icon">🔍</span>
-                <div>
-                  <strong>Analyse détaillée</strong> - Exploration des données avec filtres et recherches
-                </div>
+                <div v-html="t('documentation.analysisFeature2')"></div>
               </div>
               <div class="doc-feature">
                 <span class="doc-feature-icon">💾</span>
-                <div>
-                  <strong>Export</strong> - Possibilité d'exporter les résultats d'analyse
-                </div>
+                <div v-html="t('documentation.analysisFeature3')"></div>
               </div>
             </div>
           </div>
@@ -124,6 +93,9 @@
 
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 </script>
 
 <style scoped>

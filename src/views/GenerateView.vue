@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
 import { transformCSVToJSON, transformPowerVotingCSV } from '@/utils/csvTransformer'
 import { sessionHeaders, setSessionId } from '@/composables/useSessionId'
@@ -10,6 +11,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 
 const router = useRouter()
+const { t } = useI18n()
 const dataStore = useDataStore()
 
 const files = ref<Array<{
@@ -1545,7 +1547,7 @@ onUnmounted(() => {
       >
         <span class="no-project-icon">📦</span>
         <div class="no-project-text">
-          <strong>Aucun projet balance-calculator détecté pour cette session.</strong>
+          <strong>{{ t('generate.noProject') }}</strong>
           <p style="margin: 0.5rem 0 0 0; font-size: 0.95rem; opacity: 0.95;">
             Cliquez sur <strong>« Rebuild balance-calculator »</strong> ci-dessous pour cloner le dépôt et commencer.
           </p>
@@ -1615,7 +1617,7 @@ onUnmounted(() => {
                 :title="envLocalCheck.hasAllRequiredVars ? 'Les variables sont gérées depuis .env.local' : ''"
               >
                 <span v-if="!isLoadingEnv">🔄 Recharger</span>
-                <span v-else class="loading">⏳ Chargement...</span>
+                <span v-else class="loading">⏳ {{ t('generate.loading') }}</span>
               </button>
             </div>
             
@@ -1691,13 +1693,13 @@ onUnmounted(() => {
                 class="btn btn-secondary"
               >
                 <span v-if="!isLoadingConfig">🔄 Recharger</span>
-                <span v-else class="loading">⏳ Chargement...</span>
+                <span v-else class="loading">⏳ {{ t('generate.loading') }}</span>
               </button>
             </div>
             
             <div v-if="showConfigSection" style="display: flex; flex-direction: column; gap: 1rem;">
               <div v-if="isLoadingConfig" style="color: var(--text-secondary); font-style: italic;">
-                ⏳ Chargement de la configuration...
+                ⏳ {{ t('generate.loadingConfig') }}
               </div>
               <div v-else style="display: flex; flex-direction: column; gap: 0.5rem;">
                 <label style="font-weight: 600;">📝 optionsModifiers.ts</label>
@@ -1823,7 +1825,7 @@ onUnmounted(() => {
           <div class="form-group" style="margin-bottom: 1.5rem;">
             <label>🌿 Branche</label>
             <div v-if="isLoadingBranches" style="color: var(--text-secondary); font-style: italic;">
-              ⏳ Chargement des branches...
+              ⏳ {{ t('generate.loadingBranches') }}
             </div>
             <select 
               v-else-if="availableBranches.length > 0"
@@ -1837,7 +1839,7 @@ onUnmounted(() => {
             </select>
             <div v-else style="color: var(--text-secondary); font-style: italic;">
               <div v-if="error">⚠️ {{ error }}</div>
-              <div v-else>Aucune branche disponible. La branche par défaut sera utilisée.</div>
+              <div v-else>{{ t('generate.noBranch') }}</div>
             </div>
           </div>
 
@@ -1876,7 +1878,7 @@ onUnmounted(() => {
     <!-- Zone de drag and drop pour uploader des fichiers -->
     <div v-if="gitInfo.exists && gitInfo.isGitRepo" class="upload-files-section">
       <div class="upload-files-card">
-        <h3>📤 Uploader des fichiers vers outDatas</h3>
+        <h3>📤 {{ t('generate.uploadFiles') }}</h3>
         <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">
           Glissez-déposez ou sélectionnez des fichiers CSV/JSON pour les copier dans balance-calculator/outDatas
         </p>
@@ -1901,7 +1903,7 @@ onUnmounted(() => {
           @drop.prevent="handleDrop"
         >
           <div v-if="isUploadingFiles" class="upload-status">
-            <span class="loading">⏳ Upload en cours...</span>
+            <span class="loading">⏳ {{ t('generate.uploadInProgress') }}</span>
           </div>
           <div v-else class="upload-content">
             <div class="upload-icon">📁</div>
@@ -1965,7 +1967,7 @@ onUnmounted(() => {
       </div>
 
       <div v-if="files.length === 0" class="empty-state">
-        <p>Aucun fichier généré pour le moment</p>
+        <p>{{ t('generate.noFileGenerated') }}</p>
       </div>
 
       <div v-else class="files-list">

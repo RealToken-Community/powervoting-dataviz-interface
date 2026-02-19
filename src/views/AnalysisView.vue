@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
 import { Bar, Doughnut, Line } from 'vue-chartjs'
@@ -32,6 +33,7 @@ ChartJS.register(
 const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 
 const router = useRouter()
+const { t } = useI18n()
 const dataStore = useDataStore()
 const expandedWallets = ref<Record<string, boolean>>({})
 const expandedAddressResults = ref<Record<string, boolean>>({})
@@ -2581,7 +2583,7 @@ const powerBreakdownChartOptions = {
 
       <div class="stat-card power-card">
         <div class="stat-header">
-          <h3>⚡ Power Voting</h3>
+          <h3>⚡ {{ t('analysis.powerVoting') }}</h3>
         </div>
         <div class="stat-content" v-if="dataStore.powerVotingStats">
           <div class="stat-item">
@@ -2625,7 +2627,7 @@ const powerBreakdownChartOptions = {
       </div>
 
       <div class="chart-card">
-        <h3>📊 Distribution du Power Voting par adresse</h3>
+        <h3>📊 {{ t('analysis.distributionByAddress') }}</h3>
         <div class="chart-container" v-if="powerVotingDistributionChartData">
           <Bar :data="powerVotingDistributionChartData" :options="countChartOptions" />
         </div>

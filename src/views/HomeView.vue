@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
 import AnalysisView from '@/views/AnalysisView.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const dataStore = useDataStore()
@@ -43,7 +45,7 @@ onMounted(async () => {
       }
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Erreur lors du chargement des snapshots'
+    error.value = err instanceof Error ? err.message : t('home.errorLoadSnapshots')
   } finally {
     isLoading.value = false
   }
@@ -69,7 +71,7 @@ const selectSnapshot = async (snapshot: SnapshotInfo, updateUrl = false) => {
       router.replace(`/${snapshot.date}`)
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Erreur lors du chargement du snapshot'
+    error.value = err instanceof Error ? err.message : t('home.errorLoadSnapshot')
   } finally {
     isLoadingSnapshot.value = false
   }
@@ -85,23 +87,16 @@ const formatNumber = (num: number) => {
 <template>
   <div class="home-view">
     <section class="home-intro">
-        <h2 class="home-intro-title">Pouvoir de vote</h2>
-        <p class="home-intro-text">
-          Le pouvoir de vote (Power Voting) reflète le poids d’un participant dans les décisions de la Realtoken DAO.
-          Il est calculé à partir des positions REG (Real Estate Token) détenues en wallet et dans les pools de liquidité,
-          avec des multiplicateurs selon le type de pool (V2, V3) et l’état des positions.
-        </p>
-        <p class="home-intro-text">
-          Chaque snapshot fixe un instantané des balances et du pouvoir de vote à une date donnée.
-          Sélectionnez un snapshot ci-dessous pour explorer les données et visualiser les graphiques.
-        </p>
+        <h2 class="home-intro-title">{{ t('home.introTitle') }}</h2>
+      <p class="home-intro-text">{{ t('home.introPara1') }}</p>
+      <p class="home-intro-text">{{ t('home.introPara2') }}</p>
     </section>
 
     <aside class="home-left">
       <section class="home-snapshots">
-        <h3 class="home-snapshots-title">Snapshots</h3>
+        <h3 class="home-snapshots-title">{{ t('home.snapshots') }}</h3>
         <div v-if="error" class="home-error">{{ error }}</div>
-        <div v-else-if="isLoading" class="home-loading">Chargement...</div>
+        <div v-else-if="isLoading" class="home-loading">{{ t('home.loading') }}</div>
         <ul v-else-if="snapshots.length > 0" class="home-list">
           <li
             v-for="snapshot in snapshots"
@@ -117,12 +112,12 @@ const formatNumber = (num: number) => {
             >
               <span class="home-list-date">{{ snapshot.dateFormatted }}</span>
               <template v-if="snapshot.metrics">
-                <span class="home-list-meta">{{ snapshot.metrics.walletCount }} portefeuilles · REG {{ formatNumber(snapshot.metrics.totalREG) }}</span>
+                <span class="home-list-meta">{{ snapshot.metrics.walletCount }} {{ t('home.wallets') }} · REG {{ formatNumber(snapshot.metrics.totalREG) }}</span>
               </template>
             </button>
           </li>
         </ul>
-        <p v-else class="home-empty">Aucun snapshot disponible.</p>
+        <p v-else class="home-empty">{{ t('home.noSnapshot') }}</p>
       </section>
     </aside>
 
@@ -130,10 +125,10 @@ const formatNumber = (num: number) => {
       <Transition name="analysis-transition" mode="out-in">
         <div v-if="isLoadingSnapshot" key="loading" class="home-right-placeholder">
           <span class="home-placeholder-spinner"></span>
-          <p>Chargement du snapshot...</p>
+          <p>{{ t('home.loadingSnapshot') }}</p>
         </div>
         <div v-else-if="!selectedSnapshot" key="empty" class="home-right-placeholder">
-          <p>Choisissez un snapshot dans la liste pour afficher l’analyse.</p>
+          <p>{{ t('home.chooseSnapshot') }}</p>
         </div>
         <AnalysisView
           v-else

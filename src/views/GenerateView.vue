@@ -650,6 +650,7 @@ const closeBalancesModal = () => {
   stopLogsStream()
   showBalancesModal.value = false
   isLoading.value = false
+  success.value = ''
   pendingPrompt.value = null
   promptAnswer.value = ''
   promptAnswers.value = []
@@ -1688,6 +1689,11 @@ onUnmounted(() => {
         <button type="button" @click="closeBalancesModal" class="modal-close">×</button>
       </div>
 
+      <!-- Notif visible : Balance-calculator lancé... (en cours d'exécution dans le terminal ci-dessous) -->
+      <div v-if="success && currentProcessId" class="terminal-section-notif">
+        ✅ {{ success }} <span class="terminal-section-notif-parens">(en cours d'exécution dans le terminal ci-dessous)</span>
+      </div>
+
       <div class="terminal-inline-body">
         <!-- Aide rapide pour le terminal interactif -->
         <div class="terminal-help">
@@ -1708,7 +1714,10 @@ onUnmounted(() => {
 
       <div class="terminal-inline-footer">
         <span v-if="isLoading" class="loading-indicator">⏳ Lancement...</span>
-        <span v-else-if="currentProcessId" class="running-indicator">✅ Balance-calculator en cours d'exécution</span>
+        <span v-else-if="currentProcessId" class="running-indicator">
+          ✅ Balance-calculator en cours d'exécution
+          <span class="running-notif">({{ success || 'lancé' }})</span>
+        </span>
         <button type="button" @click="closeBalancesModal" class="btn btn-secondary">Fermer</button>
       </div>
     </div>
@@ -2455,6 +2464,21 @@ onUnmounted(() => {
   color: var(--text-primary);
 }
 
+.terminal-section-notif {
+  padding: 0.75rem 1.5rem;
+  margin: 0 1.5rem;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.terminal-section-notif-parens {
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
 .terminal-inline-body {
   padding: 1.5rem;
 }
@@ -2468,10 +2492,20 @@ onUnmounted(() => {
   border-top: 1px solid var(--border-color);
 }
 
-.loading-indicator,
-.running-indicator {
+.loading-indicator {
   font-size: 0.9rem;
   color: var(--text-secondary);
+}
+
+.running-indicator {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.running-indicator .running-notif {
+  color: var(--primary-color);
+  font-weight: 500;
+  margin-left: 0.25rem;
 }
 
 .terminal-help {

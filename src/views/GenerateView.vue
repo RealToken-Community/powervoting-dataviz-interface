@@ -1469,16 +1469,6 @@ onUnmounted(() => {
 
 <template>
   <div class="generate-view">
-    <!-- Bannière d'information importante -->
-    <div class="info-banner">
-      <div class="info-banner-content">
-        <span class="info-banner-icon">⚠️</span>
-        <div class="info-banner-text">
-          <strong>Attention :</strong> Ne jamais créer de données pour snapshot depuis cette interface. Cette interface est uniquement destinée aux tests de données.
-        </div>
-      </div>
-    </div>
-
     <div class="generate-card">
       <div class="card-header">
         <h2>⚙️ Génération des données</h2>
@@ -1927,40 +1917,6 @@ onUnmounted(() => {
 <style scoped>
 .generate-view {
   animation: fadeIn 0.5s ease;
-}
-
-.info-banner {
-  background: linear-gradient(135deg, rgba(255, 193, 7, 0.15), rgba(255, 152, 0, 0.15));
-  border: 2px solid rgba(255, 193, 7, 0.5);
-  border-radius: 0.75rem;
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 2rem;
-  box-shadow: 0 4px 12px rgba(255, 193, 7, 0.2);
-  animation: slideIn 0.5s ease;
-}
-
-.info-banner-content {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.info-banner-icon {
-  font-size: 1.5rem;
-  flex-shrink: 0;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-.info-banner-text {
-  flex: 1;
-  color: var(--text-primary);
-  font-size: 1rem;
-  line-height: 1.6;
-}
-
-.info-banner-text strong {
-  color: #ff9800;
-  font-weight: 700;
 }
 
 .no-project-banner {

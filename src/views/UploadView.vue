@@ -640,8 +640,8 @@ const snapshotsChartOptions = computed(() => ({
   <div class="upload-view">
     <div class="upload-card">
       <div class="card-header">
-        <h2>📊 Chargement des données</h2>
-        <p>Importez vos fichiers balances REG et power voting pour commencer l'analyse</p>
+        <h2>📊 {{ t('upload.title') }}</h2>
+        <p>{{ t('upload.subtitle') }}</p>
       </div>
 
       <div class="upload-section">
@@ -915,11 +915,11 @@ const snapshotsChartOptions = computed(() => ({
           :disabled="isLoading"
           class="snapshot-row"
           type="button"
-          :title="'Charger le snapshot du ' + formatSnapshotDate(snapshot.date) + ' et ouvrir l\'analyse'"
+          :title="t('upload.loadSnapshotTitle', { date: formatSnapshotDate(snapshot.date) })"
         >
           <div class="snapshot-date-col">
             <div class="snapshot-date">{{ formatSnapshotDate(snapshot.date) }}</div>
-            <span class="snapshot-click-hint">Cliquer pour voir l’analyse →</span>
+            <span class="snapshot-click-hint">{{ t('upload.clickToViewAnalysis') }}</span>
           </div>
           <div class="snapshot-metrics-row" v-if="snapshot.metrics">
             <div class="snapshot-metric-item">
@@ -951,7 +951,7 @@ const snapshotsChartOptions = computed(() => ({
                     {{ formatDiff(getSnapshotDiff(snapshot)!.totalREG) }}
                   </span>
                 </div>
-                <span class="metric-label">REG</span>
+                <span class="metric-label">{{ t('upload.metricReg') }}</span>
               </div>
             </div>
             <div class="snapshot-metric-item">
@@ -967,7 +967,7 @@ const snapshotsChartOptions = computed(() => ({
                     {{ formatDiff(getSnapshotDiff(snapshot)!.totalPowerVoting) }}
                   </span>
                 </div>
-                <span class="metric-label">Power</span>
+                <span class="metric-label">{{ t('upload.metricPower') }}</span>
               </div>
             </div>
           </div>
@@ -987,23 +987,18 @@ const snapshotsChartOptions = computed(() => ({
     <div class="info-cards">
       <div class="info-card">
         <div class="info-icon">📈</div>
-        <h3>Analyses avancées</h3>
-        <p>
-          Visualisez les distributions de balances et de pouvoir de vote avec des graphiques
-          interactifs
-        </p>
+        <h3>{{ t('upload.advancedAnalysis') }}</h3>
+        <p>{{ t('upload.advancedAnalysisDesc') }}</p>
       </div>
       <div class="info-card">
         <div class="info-icon">🔍</div>
-        <h3>Statistiques détaillées</h3>
-        <p>
-          Obtenez des statistiques complètes sur vos données : moyenne, médiane, écart-type, etc.
-        </p>
+        <h3>{{ t('upload.detailedStats') }}</h3>
+        <p>{{ t('upload.detailedStatsDesc') }}</p>
       </div>
       <div class="info-card">
         <div class="info-icon">💾</div>
-        <h3>Multiple formats</h3>
-        <p>Support des fichiers CSV et JSON pour une flexibilité maximale</p>
+        <h3>{{ t('upload.multipleFormats') }}</h3>
+        <p>{{ t('upload.multipleFormatsDesc') }}</p>
       </div>
     </div>
   </div>

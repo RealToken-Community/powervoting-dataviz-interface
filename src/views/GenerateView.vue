@@ -1535,8 +1535,8 @@ onUnmounted(() => {
   <div class="generate-view">
     <div class="generate-card">
       <div class="card-header">
-        <h2>⚙️ Génération des données</h2>
-        <p>Générez des balances REG et du power voting en utilisant balance-calculator</p>
+        <h2>⚙️ {{ t('generate.generationTitle') }}</h2>
+        <p>{{ t('generate.generationSubtitle') }}</p>
       </div>
 
       <!-- Message par défaut quand aucun projet n'est détecté pour cette session -->
@@ -1548,9 +1548,7 @@ onUnmounted(() => {
         <span class="no-project-icon">📦</span>
         <div class="no-project-text">
           <strong>{{ t('generate.noProject') }}</strong>
-          <p style="margin: 0.5rem 0 0 0; font-size: 0.95rem; opacity: 0.95;">
-            Cliquez sur <strong>« Rebuild balance-calculator »</strong> ci-dessous pour cloner le dépôt et commencer.
-          </p>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.95rem; opacity: 0.95;" v-html="t('generate.noProjectHint')"></p>
         </div>
       </div>
 
@@ -1564,7 +1562,7 @@ onUnmounted(() => {
             @click.prevent="openRebuildModal"
             class="btn btn-secondary"
           >
-            🔄 Rebuild balance-calculator
+            🔄 {{ t('generate.rebuildButton') }}
           </button>
             <div v-if="gitInfo.exists && gitInfo.isGitRepo" style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.875rem; color: var(--text-secondary);">
               <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -1574,17 +1572,17 @@ onUnmounted(() => {
                 </span>
               </div>
               <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span style="font-weight: 600;">Origin:</span>
+                <span style="font-weight: 600;">{{ t('generate.origin') }}:</span>
                 <span style="font-family: monospace; background: var(--card-bg); padding: 0.25rem 0.5rem; border-radius: 0.25rem; border: 1px solid var(--border-color); max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   {{ gitInfo.remote || 'N/A' }}
                 </span>
               </div>
             </div>
             <div v-else-if="gitInfo.exists && !gitInfo.isGitRepo" style="font-size: 0.875rem; color: #ffa500; font-style: italic;">
-              ⚠️ Le dossier existe mais n'est pas un dépôt Git valide
+              ⚠️ {{ t('generate.invalidGitFolder') }}
             </div>
             <div v-else style="font-size: 0.875rem; color: var(--text-secondary); font-style: italic;">
-              balance-calculator n'est pas encore cloné
+              {{ t('generate.notClonedYet') }}
             </div>
           </div>
         </div>
@@ -1627,7 +1625,7 @@ onUnmounted(() => {
               </div>
               <div v-else style="display: flex; flex-direction: column; gap: 1rem;">
                 <div style="font-size: 0.875rem; color: var(--text-secondary);">
-                  Variables d'environnement requises pour balance-calculator
+                  {{ t('generate.envRequired') }}
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                   <div v-for="key in requiredEnvVars" :key="key" style="display: flex; align-items: center; gap: 1rem;">
@@ -1789,7 +1787,7 @@ onUnmounted(() => {
     <div v-if="showRebuildModal" class="modal-overlay" @click.self="closeRebuildModal">
       <div class="modal-content" style="max-width: 900px;">
         <div class="modal-header">
-          <h3>🔄 Rebuild balance-calculator</h3>
+          <h3>🔄 {{ t('generate.rebuildButton') }}</h3>
           <button @click="closeRebuildModal" class="modal-close">×</button>
         </div>
         
@@ -1954,7 +1952,7 @@ onUnmounted(() => {
         <div v-if="deleteNotifVisible && deletePendingFileName" class="delete-pending-notif" :key="deletePendingFileName">
           <span class="delete-pending-icon">🗑️</span>
           <span class="delete-pending-text">{{ deletePendingFileName }} sera supprimé dans 10 secondes</span>
-          <button type="button" class="delete-pending-cancel" @click="cancelDeleteFile">Annuler</button>
+          <button type="button" class="delete-pending-cancel" @click="cancelDeleteFile">{{ t('generate.cancel') }}</button>
           <div class="delete-pending-progress" aria-hidden="true">
             <div class="delete-pending-progress-bar" :key="deletePendingFileName"></div>
           </div>
@@ -1962,8 +1960,8 @@ onUnmounted(() => {
       </Transition>
 
       <div class="files-header">
-        <h3>📁 Fichiers générés ({{ files.length }})</h3>
-        <button @click="loadFiles" class="btn-refresh">🔄 Actualiser</button>
+        <h3>📁 {{ t('generate.generatedFilesTitle', { count: files.length }) }}</h3>
+        <button @click="loadFiles" class="btn-refresh">🔄 {{ t('generate.refresh') }}</button>
       </div>
 
       <div v-if="files.length === 0" class="empty-state">

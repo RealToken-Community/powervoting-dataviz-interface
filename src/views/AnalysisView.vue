@@ -2540,7 +2540,7 @@ const powerBreakdownChartOptions = {
 <template>
   <div class="analysis-view" :class="{ 'analysis-view-embedded': props.embedded }" v-if="dataStore.balances.length > 0">
     <div class="analysis-header" v-if="!props.embedded">
-      <h2>📊 Analyse des données</h2>
+      <h2>📊 {{ t('analysis.dataAnalysis') }}</h2>
       <p>Exploration et visualisation des balances REG et du pouvoir de vote</p>
     </div>
 
@@ -2548,30 +2548,30 @@ const powerBreakdownChartOptions = {
     <div class="stats-grid">
       <div class="stat-card balance-card">
         <div class="stat-header">
-          <h3>💰 Balances REG</h3>
+          <h3>💰 {{ t('analysis.balancesReg') }}</h3>
         </div>
         <div class="stat-content" v-if="dataStore.balanceStats">
           <div class="stat-item">
-            <span class="stat-label">Total</span>
+            <span class="stat-label">{{ t('analysis.total') }}</span>
             <span class="stat-value">{{ formatNumber(dataStore.balanceStats.total) }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Moyenne</span>
+            <span class="stat-label">{{ t('analysis.mean') }}</span>
             <span class="stat-value">{{ formatNumber(dataStore.balanceStats.mean) }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Médiane</span>
+            <span class="stat-label">{{ t('analysis.median') }}</span>
             <span class="stat-value">{{ formatNumber(dataStore.balanceStats.median) }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Min / Max</span>
+            <span class="stat-label">{{ t('analysis.minMax') }}</span>
             <span class="stat-value">
               {{ formatNumber(dataStore.balanceStats.min) }} /
               {{ formatNumber(dataStore.balanceStats.max) }}
             </span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Écart-type</span>
+            <span class="stat-label">{{ t('analysis.stdDev') }}</span>
             <span class="stat-value">{{ formatNumber(dataStore.balanceStats.stdDev) }}</span>
           </div>
           <div class="stat-item">
@@ -2587,30 +2587,30 @@ const powerBreakdownChartOptions = {
         </div>
         <div class="stat-content" v-if="dataStore.powerVotingStats">
           <div class="stat-item">
-            <span class="stat-label">Total</span>
+            <span class="stat-label">{{ t('analysis.total') }}</span>
             <span class="stat-value">{{ formatNumber(dataStore.powerVotingStats.total) }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Moyenne</span>
+            <span class="stat-label">{{ t('analysis.mean') }}</span>
             <span class="stat-value">{{ formatNumber(dataStore.powerVotingStats.mean) }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Médiane</span>
+            <span class="stat-label">{{ t('analysis.median') }}</span>
             <span class="stat-value">{{ formatNumber(dataStore.powerVotingStats.median) }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Min / Max</span>
+            <span class="stat-label">{{ t('analysis.minMax') }}</span>
             <span class="stat-value">
               {{ formatNumber(dataStore.powerVotingStats.min) }} /
               {{ formatNumber(dataStore.powerVotingStats.max) }}
             </span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Écart-type</span>
+            <span class="stat-label">{{ t('analysis.stdDev') }}</span>
             <span class="stat-value">{{ formatNumber(dataStore.powerVotingStats.stdDev) }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Nb adresses</span>
+            <span class="stat-label">{{ t('analysis.nbAddresses') }}</span>
             <span class="stat-value">{{ dataStore.powerVotingStats.count }}</span>
           </div>
         </div>
@@ -2620,7 +2620,7 @@ const powerBreakdownChartOptions = {
     <!-- Charts -->
     <div class="charts-grid">
       <div class="chart-card">
-        <h3>📈 Distribution des Balances REG par adresse</h3>
+        <h3>📈 {{ t('analysis.distributionBalancesByAddress') }}</h3>
         <div class="chart-container" v-if="balanceDistributionChartData">
           <Bar :data="balanceDistributionChartData" :options="countChartOptions" />
         </div>
@@ -2635,34 +2635,32 @@ const powerBreakdownChartOptions = {
     </div>
 
     <p class="chart-note" v-if="balanceDistributionChartData">
-      Chaque barre représente une tranche de balances REG (axe horizontal). La hauteur de la barre
-      indique combien de wallets se situent dans cette tranche (axe vertical). Exemple : « 100‑500 »
-      signifie “4 845 wallets détiennent entre 100 et 500 REG équivalents”.
+      {{ t('analysis.chartNoteBalances') }}
     </p>
 
     <!-- Power Concentration Section -->
     <div class="section-header" v-if="powerConcentrationData">
-      <h2>⚖️ Concentration du pouvoir</h2>
-      <p>Analyse de la répartition du pouvoir de vote entre les adresses</p>
+      <h2>⚖️ {{ t('analysis.powerConcentration') }}</h2>
+      <p>{{ t('analysis.powerConcentrationDesc') }}</p>
     </div>
 
     <div v-if="powerConcentrationData" class="concentration-section">
       <!-- Gini Coefficient Card -->
       <div class="stat-card gini-card">
         <div class="stat-header">
-          <h3>📊 Indice de Gini</h3>
+          <h3>📊 {{ t('analysis.giniIndex') }}</h3>
         </div>
         <div class="stat-content">
           <div class="stat-item">
-            <span class="stat-label">Coefficient</span>
+            <span class="stat-label">{{ t('analysis.coefficient') }}</span>
             <span class="stat-value gini-value">{{ giniCoefficient !== null ? giniCoefficient.toFixed(4) : 'N/A' }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Total Power Voting</span>
+            <span class="stat-label">{{ t('analysis.totalPowerVoting') }}</span>
             <span class="stat-value">{{ formatNumber(powerConcentrationData.totalPower) }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Nombre d'adresses</span>
+            <span class="stat-label">{{ t('analysis.addressCount') }}</span>
             <span class="stat-value">{{ formatInteger(powerConcentrationData.totalAddresses) }}</span>
           </div>
         </div>
@@ -2670,20 +2668,20 @@ const powerBreakdownChartOptions = {
 
       <!-- Concentration Table -->
       <div class="concentration-table-card">
-        <h3>📈 Répartition par percentile</h3>
+        <h3>📈 {{ t('analysis.percentileBreakdown') }}</h3>
         <div class="concentration-table">
           <div class="concentration-table-header">
-            <div class="concentration-col">Percentile</div>
-            <div class="concentration-col">Nb adresses</div>
-            <div class="concentration-col">Power détenu</div>
-            <div class="concentration-col">% du total</div>
+            <div class="concentration-col">{{ t('analysis.percentile') }}</div>
+            <div class="concentration-col">{{ t('analysis.nbAddresses') }}</div>
+            <div class="concentration-col">{{ t('analysis.powerHeld') }}</div>
+            <div class="concentration-col">{{ t('analysis.pctTotal') }}</div>
           </div>
           <div
             v-for="item in powerConcentrationData.concentration.filter(c => [5, 10, 15, 20, 25, 50, 75, 90, 95, 100].includes(c.percentile))"
             :key="item.percentile"
             class="concentration-table-row"
           >
-            <div class="concentration-col percentile-col">Top {{ item.percentile }}%</div>
+            <div class="concentration-col percentile-col">{{ t('analysis.topX', { p: item.percentile }) }}</div>
             <div class="concentration-col">{{ formatInteger(item.addressCount) }}</div>
             <div class="concentration-col">{{ formatNumber(item.powerHeld) }}</div>
             <div class="concentration-col percentage-col">{{ formatNumber(item.powerPercentage) }}%</div>
@@ -2694,19 +2692,19 @@ const powerBreakdownChartOptions = {
       <!-- Charts Grid -->
       <div class="charts-grid">
         <div class="chart-card">
-          <h3>📊 Concentration du pouvoir par percentile</h3>
+          <h3>📊 {{ t('analysis.concentrationByPercentile') }}</h3>
           <div class="chart-container" v-if="powerConcentrationChartData">
             <Bar :data="powerConcentrationChartData" :options="powerConcentrationChartOptions" />
           </div>
         </div>
 
         <div class="chart-card">
-          <h3>📈 Courbe de Lorenz (distribution cumulative)</h3>
+          <h3>📈 {{ t('analysis.lorenzCurve') }}</h3>
           <div class="chart-container" v-if="lorenzCurveData">
             <Line :data="lorenzCurveData" :options="lorenzCurveChartOptions" />
           </div>
           <p class="chart-note" style="margin-top: 1rem; font-size: 0.875rem; color: var(--text-secondary);">
-            La courbe de Lorenz montre la distribution cumulative du pouvoir. Plus la courbe s'éloigne de la ligne diagonale (égalité parfaite), plus la concentration est élevée.
+            {{ t('analysis.lorenzNote') }}
           </p>
         </div>
       </div>
@@ -2714,22 +2712,22 @@ const powerBreakdownChartOptions = {
 
     <!-- Pools Analysis Section -->
     <div class="section-header">
-      <h2>🌊 Analyse Pools V2 & V3</h2>
-      <p>Répartition de la liquidité et impact sur le Power Voting</p>
+      <h2>🌊 {{ t('analysis.poolsAnalysis') }}</h2>
+      <p>{{ t('analysis.liquidityBreakdown') }}</p>
     </div>
 
     <div class="stats-grid" v-if="dataStore.poolAnalysis">
       <div class="stat-card v2-card">
         <div class="stat-header">
-          <h3>💧 Pools V2</h3>
+          <h3>💧 {{ t('analysis.poolsV2') }}</h3>
         </div>
         <div class="stat-content">
           <div class="stat-item">
-            <span class="stat-label">Total REG</span>
+            <span class="stat-label">{{ t('analysis.totalReg') }}</span>
             <span class="stat-value">{{ formatNumber(dataStore.poolAnalysis.v2.totalREG) }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Nb Positions</span>
+            <span class="stat-label">{{ t('analysis.nbPositions') }}</span>
             <span class="stat-value">{{ dataStore.poolAnalysis.v2.count }}</span>
           </div>
         </div>
@@ -2737,15 +2735,15 @@ const powerBreakdownChartOptions = {
 
       <div class="stat-card v3-card">
         <div class="stat-header">
-          <h3>🦄 Pools V3</h3>
+          <h3>🦄 {{ t('analysis.poolsV3') }}</h3>
         </div>
         <div class="stat-content">
           <div class="stat-item">
-            <span class="stat-label">Total REG</span>
+            <span class="stat-label">{{ t('analysis.totalReg') }}</span>
             <span class="stat-value">{{ formatNumber(dataStore.poolAnalysis.v3.totalREG) }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Nb Positions</span>
+            <span class="stat-label">{{ t('analysis.nbPositions') }}</span>
             <span class="stat-value">{{ dataStore.poolAnalysis.v3.count }}</span>
           </div>
         </div>
@@ -2754,14 +2752,14 @@ const powerBreakdownChartOptions = {
 
     <div class="charts-grid">
       <div class="chart-card">
-        <h3>🥧 Répartition V2 vs V3</h3>
+        <h3>🥧 {{ t('analysis.breakdownV2V3') }}</h3>
         <div class="chart-container" v-if="poolsDistributionChartData">
           <Doughnut :data="poolsDistributionChartData" :options="chartOptions" />
         </div>
       </div>
 
       <div class="chart-card">
-        <h3>🏦 Répartition par DEX</h3>
+        <h3>🏦 {{ t('analysis.breakdownByDex') }}</h3>
         <div class="chart-container" v-if="dexsDistributionChartData">
           <Bar :data="dexsDistributionChartData" :options="chartOptions" />
         </div>
@@ -2770,165 +2768,138 @@ const powerBreakdownChartOptions = {
 
 
     <div class="section-header" style="margin-top: 3rem;">
-      <h2>⚡ Impact du Boost DEX</h2>
-      <p>
-        Vue synthétique du ratio Power Voting ÷ totalBalanceREG pour les wallets ayant des dépôts de REG sur un DEX.
-        Ce graphique montre l'impact global du boost DEX sur le pouvoir de vote. 
-        Il utilise les mêmes adresses que le graphique précédent, avec une différenciation par type de pool (V2 en bleu, V3 en vert).
-      </p>
+      <h2>⚡ {{ t('analysis.dexBoostImpact') }}</h2>
+      <p>{{ t('analysis.dexBoostSectionDesc') }}</p>
     </div>
 
     <div class="charts-grid correlation-grid">
       <div class="chart-card full-width">
-        <h3>📊 Boost DEX : Power Voting ÷ totalBalanceREG (wallets avec dépôts DEX)</h3>
+        <h3>📊 {{ t('analysis.ratioChart') }}</h3>
         <div class="chart-container" v-if="dexBoostChartData">
           <Line :data="dexBoostChartData" :options="dexBoostChartOptions" />
         </div>
         <div class="chart-empty" v-else>
-          <p>Aucun wallet avec dépôt DEX n'a été détecté.</p>
+          <p>{{ t('analysis.noWalletDex') }}</p>
         </div>
       </div>
     </div>
 
     <div class="chart-explainer" style="margin-top: 1rem;">
-      <p>
-        Ce graphique présente le <strong>ratio Power Voting ÷ totalBalanceREG</strong> pour les wallets ayant des dépôts de REG sur un DEX.
-        Contrairement au graphique précédent qui décompose les ratios par type de pool, celui-ci offre une <strong>vue synthétique</strong> de l'impact du boost DEX.
-        Il utilise les <strong>mêmes adresses</strong> que le graphique "Efficacité des positions LP" pour faciliter la comparaison.
-      </p>
+      <p v-html="t('analysis.ratioChartIntro')"></p>
       <ul style="margin: 1rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
         <li style="margin-bottom: 0.75rem;">
-          <strong>Formule</strong> : <code>Power Voting ÷ totalBalanceREG</code>
+          <strong>{{ t('analysis.formulaLabel') }}</strong> : <code>Power Voting ÷ totalBalanceREG</code>
           <br />
-          <span style="font-size: 0.9em; opacity: 0.8;">
-            → Le totalBalanceREG inclut le REG en wallet + le REG en pools (mais sans les equivalentREG des positions LP).
-            Ce ratio montre l'efficacité globale du boost DEX sur le pouvoir de vote.
-          </span>
+          <span style="font-size: 0.9em; opacity: 0.8;">{{ t('analysis.formulaDetail') }}</span>
         </li>
+        <li style="margin-bottom: 0.75rem;">{{ t('analysis.addressesShown') }}</li>
         <li style="margin-bottom: 0.75rem;">
-          <strong>Adresses affichées</strong> : Les 30 plus gros wallets V2 et V3 (mêmes que le graphique précédent), triés par liquidité décroissante.
-        </li>
-        <li style="margin-bottom: 0.75rem;">
-          <strong>Légende des couleurs</strong> :
-          <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu</strong> : Wallets avec positions V2 (Power Voting ÷ totalBalanceREG)
-          <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert</strong> : Wallets avec positions V3 (Power Voting ÷ totalBalanceREG)
-          <br />• <strong style="color: rgba(148, 163, 184, 0.8);">Gris (pointillé)</strong> : Référence 1:1 (parité)
+          <strong>{{ t('analysis.legendColors') }}</strong> :
+          <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu</strong> : {{ t('analysis.blueV2') }}
+          <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert</strong> : {{ t('analysis.greenV3') }}
+          <br />• <strong style="color: rgba(148, 163, 184, 0.8);">Gris (pointillé)</strong> : {{ t('analysis.greyRef') }}
           <br />
-          <br /><strong>Indicateurs de range pour les pools V3</strong> (points sur la courbe verte) :
-          <br />• <strong style="color: rgba(34, 197, 94, 1);">🟢 Point vert</strong> : Toutes les pools V3 sont actives (in range)
-          <br />• <strong style="color: rgba(239, 68, 68, 1);">🔴 Point rouge</strong> : Toutes les pools V3 sont inactives (out of range), ou ratio = 1 (position inactive et loin du cours), ou ratio > 1 avec toutes les pools V3 inactives (range proche du cours mais inactif)
-          <br />• <strong style="color: rgba(234, 179, 8, 1);">🟡 Point jaune</strong> : Mixte (pools V3 actives et inactives, calculé au prorata des poids)
+          <br /><strong>{{ t('analysis.rangeIndicatorsTitle') }}</strong> :
+          <br />• <strong style="color: rgba(34, 197, 94, 1);">🟢</strong> {{ t('analysis.greenPoint') }}
+          <br />• <strong style="color: rgba(239, 68, 68, 1);">🔴</strong> {{ t('analysis.redPoint') }}
+          <br />• <strong style="color: rgba(234, 179, 8, 1);">🟡</strong> {{ t('analysis.yellowPoint') }}
         </li>
       </ul>
       <p style="margin-top: 1rem;">
-        <strong>Interprétation</strong> : 
+        <strong>{{ t('analysis.interpretationTitle') }}</strong> :
         <ul style="margin: 0.5rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
-          <li><strong>Au-dessus de 1:1</strong> → Le wallet obtient plus de Power que sa simple détention de REG grâce au boost DEX</li>
-          <li><strong>À 1:1</strong> → Pas de boost, le Power est égal au REG détenu</li>
-          <li><strong>En dessous de 1:1</strong> → Le wallet obtient moins de Power que son REG (cas rare, possible pénalité)</li>
+          <li>{{ t('analysis.above11') }}</li>
+          <li>{{ t('analysis.at11') }}</li>
+          <li>{{ t('analysis.below11') }}</li>
         </ul>
       </p>
       <p class="axis-note" style="margin-top: 1rem;">
-        <strong>Note</strong> : Ce graphique montre les 30 plus gros wallets V2 et V3 (par liquidité en pools) ayant des dépôts DEX, 
-        identiques au graphique "Efficacité des positions LP". Le ratio est calculé sans inclure les equivalentREG des positions LP, 
-        uniquement le totalBalanceREG du wallet. Les wallets sont séparés visuellement par type de pool (V2 en bleu, V3 en vert).
+        <strong>{{ t('common.note') }}</strong> : {{ t('analysis.noteRatioChart') }}
       </p>
     </div>
 
     <div class="section-header" style="margin-top: 3rem;">
-      <h2>📊 Décomposition du Power Voting</h2>
-      <p>
-        Vue détaillée du Power Voting par source : Power total, Power issu des pools, et Power issu du REG direct.
-        Ce graphique combine les informations des deux graphiques précédents pour offrir une vue complète de la répartition du pouvoir de vote.
-      </p>
+      <h2>📊 {{ t('analysis.decomposition') }}</h2>
+      <p>{{ t('analysis.decompositionSectionDesc') }}</p>
     </div>
 
     <div class="charts-grid correlation-grid">
       <div class="chart-card full-width">
-        <h3>📊 Power Voting : Total, Pools et REG direct</h3>
+        <h3>📊 {{ t('analysis.totalPoolsReg') }}</h3>
         <div class="chart-container" v-if="powerBreakdownChartData">
           <Line :data="powerBreakdownChartData" :options="powerBreakdownChartOptions" />
         </div>
         <div class="chart-empty" v-else>
-          <p>Aucun wallet avec dépôt DEX n'a été détecté.</p>
+          <p>{{ t('analysis.noWalletDex') }}</p>
         </div>
       </div>
     </div>
 
     <div class="chart-explainer" style="margin-top: 1rem;">
-      <p>
-        Ce graphique présente la <strong>décomposition du Power Voting</strong> pour les wallets ayant des dépôts de REG sur un DEX.
-        Il montre trois composantes du pouvoir de vote : le Power total, le Power issu des pools, et le Power issu du REG direct en wallet.
-        Il utilise les <strong>mêmes adresses</strong> que les graphiques précédents pour faciliter la comparaison.
-      </p>
+      <p v-html="t('analysis.decompositionIntro')"></p>
       <ul style="margin: 1rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
         <li style="margin-bottom: 0.75rem;">
-          <strong>Power Voting Total</strong> : Le pouvoir de vote total du wallet (somme de toutes les sources)
+          <strong>{{ t('analysis.powerTotalLabel') }}</strong> : {{ t('analysis.powerTotalDesc') }}
         </li>
         <li style="margin-bottom: 0.75rem;">
-          <strong>Power issu de l'apport REG dans les pools</strong> : Le pouvoir de vote généré par le REG directement déposé dans les positions LP
+          <strong>{{ t('analysis.powerFromRegInPoolsLabel') }}</strong> : {{ t('analysis.powerFromRegInPoolsDesc') }}
         </li>
         <li style="margin-bottom: 0.75rem;">
-          <strong>Power issu de l'equivalent REG dans les pools</strong> : Le pouvoir de vote généré par les tokens non-REG (avec equivalent REG) dans les positions LP
+          <strong>{{ t('analysis.powerFromEquivalentRegLabel') }}</strong> : {{ t('analysis.powerFromEquivalentRegDesc') }}
         </li>
         <li style="margin-bottom: 0.75rem;">
-          <strong>Power issu du REG direct en wallet</strong> : Le pouvoir de vote généré par le REG détenu directement en wallet (hors pools)
+          <strong>{{ t('analysis.powerFromDirectRegLabel') }}</strong> : {{ t('analysis.powerFromDirectRegDesc') }}
         </li>
+        <li style="margin-bottom: 0.75rem;">{{ t('analysis.decompositionAddressesShown') }}</li>
         <li style="margin-bottom: 0.75rem;">
-          <strong>Adresses affichées</strong> : Les 30 plus gros wallets V2 et V3 (mêmes que les graphiques précédents), triés par liquidité décroissante.
-        </li>
-        <li style="margin-bottom: 0.75rem;">
-          <strong>Légende des couleurs</strong> :
-          <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu (plein)</strong> : Power Voting Total V2
-          <br />• <strong style="color: rgba(59, 130, 246, 1);">Bleu (pointillé moyen)</strong> : Power issu de l'apport REG dans les pools V2
-          <br />• <strong style="color: rgba(244, 114, 182, 1);">Rose clair (pointillé large)</strong> : Power issu de l'equivalent REG dans les pools V2
-          <br />• <strong style="color: rgba(96, 165, 250, 1);">Bleu clair (pointillé fin)</strong> : Power issu du REG direct en wallet V2
-          <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert (plein)</strong> : Power Voting Total V3
-          <br />• <strong style="color: rgba(74, 222, 128, 1);">Vert (pointillé moyen)</strong> : Power issu de l'apport REG dans les pools V3
-          <br />• <strong style="color: rgba(244, 114, 182, 1);">Rose clair (pointillé large)</strong> : Power issu de l'equivalent REG dans les pools V3
-          <br />• <strong style="color: rgba(134, 239, 172, 1);">Vert clair (pointillé fin)</strong> : Power issu du REG direct en wallet V3
+          <strong>{{ t('analysis.legendColors') }}</strong> :
+          <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu (plein)</strong> : {{ t('analysis.blueSolidV2') }}
+          <br />• <strong style="color: rgba(59, 130, 246, 1);">Bleu (pointillé moyen)</strong> : {{ t('analysis.blueDashedV2') }}
+          <br />• <strong style="color: rgba(244, 114, 182, 1);">Rose clair (pointillé large)</strong> : {{ t('analysis.pinkV2') }}
+          <br />• <strong style="color: rgba(96, 165, 250, 1);">Bleu clair (pointillé fin)</strong> : {{ t('analysis.lightBlueV2') }}
+          <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert (plein)</strong> : {{ t('analysis.greenSolidV3') }}
+          <br />• <strong style="color: rgba(74, 222, 128, 1);">Vert (pointillé moyen)</strong> : {{ t('analysis.greenDashedV3') }}
+          <br />• <strong style="color: rgba(244, 114, 182, 1);">Rose clair (pointillé large)</strong> : {{ t('analysis.pinkV3') }}
+          <br />• <strong style="color: rgba(134, 239, 172, 1);">Vert clair (pointillé fin)</strong> : {{ t('analysis.lightGreenV3') }}
         </li>
       </ul>
       <p style="margin-top: 1rem;">
-        <strong>Interprétation</strong> : 
+        <strong>{{ t('analysis.interpretationTitle') }}</strong> :
         <ul style="margin: 0.5rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
-          <li><strong>Power Total</strong> → Représente le pouvoir de vote complet du wallet, somme de toutes les sources</li>
-          <li><strong>Power Apport REG vs Equivalent REG</strong> → Permet de visualiser la contribution relative du REG directement déposé versus les tokens avec equivalent REG dans les pools</li>
-          <li><strong>Power Pools vs Power Direct</strong> → Permet de visualiser la contribution relative des positions LP par rapport au REG direct en wallet</li>
-          <li><strong>Différence V2/V3</strong> → Les wallets V2 et V3 sont séparés visuellement pour comparer l'impact des différents types de pools</li>
+          <li>{{ t('analysis.interpPowerTotal') }}</li>
+          <li>{{ t('analysis.interpRegVsEquivalent') }}</li>
+          <li>{{ t('analysis.interpPoolsVsDirect') }}</li>
+          <li>{{ t('analysis.interpV2V3Diff') }}</li>
         </ul>
       </p>
       <p class="axis-note" style="margin-top: 1rem;">
-        <strong>Note</strong> : Ce graphique montre les 30 plus gros wallets V2 et V3 (par liquidité en pools) ayant des dépôts DEX, 
-        identiques aux graphiques précédents. Le Power issu des pools est divisé en deux composantes : l'apport REG direct et l'equivalent REG.
-        Le Power issu du REG direct en wallet est calculé comme la différence entre le Power total et le Power des pools.
-        Les wallets sont séparés visuellement par type de pool (V2 en bleu, V3 en vert).
+        <strong>{{ t('common.note') }}</strong> : {{ t('analysis.noteDecomposition') }}
       </p>
     </div>
 
     <div class="pool-wallet-summary" v-if="dataStore.poolWalletBreakdown" style="margin: 1.5rem 0;">
       <div class="summary-item">
-        <span class="summary-label">Wallets V2</span>
+        <span class="summary-label">{{ t('analysis.walletsV2') }}</span>
         <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v2Wallets) }}</span>
       </div>
       <div class="summary-item">
-        <span class="summary-label">Wallets V3</span>
+        <span class="summary-label">{{ t('analysis.walletsV3') }}</span>
         <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v3Wallets) }}</span>
       </div>
       <div class="summary-item">
-        <span class="summary-label">Wallets V2 &amp; V3</span>
+        <span class="summary-label">{{ t('analysis.walletsV2AndV3') }}</span>
         <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.both) }}</span>
       </div>
     </div>
 
     <!-- Formulaire de recherche d'adresse -->
     <div class="address-search-section" style="margin: 2rem 0; padding: 1.5rem; background: var(--card-bg); border-radius: 1rem; border: 1px solid var(--border-color);">
-      <h3 style="margin: 0 0 1rem 0; color: var(--text-primary);">🔍 Recherche d'adresse</h3>
+      <h3 style="margin: 0 0 1rem 0; color: var(--text-primary);">🔍 {{ t('analysis.addressSearch') }}</h3>
       <form @submit.prevent="searchAddressDetails" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
         <input
           v-model="addressSearchInput"
           type="text"
-          placeholder="Entrez une adresse (0x...)"
+          :placeholder="t('analysis.addressPlaceholder')"
           style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--bg-secondary); color: var(--text-primary); font-family: monospace;"
         />
         <button
@@ -2936,7 +2907,7 @@ const powerBreakdownChartOptions = {
           :disabled="isSearchingAddressDetails"
           style="padding: 0.75rem 1.5rem; background: var(--primary-color); color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 600;"
         >
-          {{ isSearchingAddressDetails ? 'Recherche...' : 'Rechercher' }}
+          {{ isSearchingAddressDetails ? t('analysis.searching') : t('analysis.search') }}
         </button>
       </form>
 
@@ -2946,7 +2917,7 @@ const powerBreakdownChartOptions = {
           <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary); font-family: monospace;">{{ addressDetails.address }}</h4>
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
             <div>
-              <span style="color: var(--text-secondary); font-size: 0.875rem;">REG total</span>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regTotal') }}</span>
               <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.totalREG) }}</div>
             </div>
             <div>
@@ -2954,11 +2925,11 @@ const powerBreakdownChartOptions = {
               <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.walletREG) }}</div>
             </div>
             <div>
-              <span style="color: var(--text-secondary); font-size: 0.875rem;">REG en pools</span>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regInPools') }}</span>
               <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.poolREG) }}</div>
             </div>
             <div>
-              <span style="color: var(--text-secondary); font-size: 0.875rem;">Power Voting</span>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.powerVoting') }}</span>
               <div style="font-size: 1.25rem; font-weight: 600; color: var(--accent-color);">{{ formatNumber(addressDetails.powerVoting) }}</div>
             </div>
           </div>
@@ -2966,7 +2937,7 @@ const powerBreakdownChartOptions = {
 
         <!-- Détails des positions -->
         <div v-if="addressDetails.positions && addressDetails.positions.length > 0">
-          <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Positions dans les pools</h4>
+          <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">{{ t('analysis.positionsInPools') }}</h4>
           <div style="display: grid; gap: 1rem;">
             <div
               v-for="(position, index) in addressDetails.positions"
@@ -2975,25 +2946,25 @@ const powerBreakdownChartOptions = {
             >
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
                 <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">DEX / Pool</span>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.dexPool') }}</span>
                   <div style="font-weight: 600; color: var(--text-primary);">{{ position.dex }} {{ position.poolType?.toUpperCase() || 'V2' }}</div>
                 </div>
                 <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">Version</span>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.version') }}</span>
                   <div style="font-weight: 600; color: var(--text-primary);">{{ position.poolType === 'v3' ? 'V3' : 'V2' }}</div>
                 </div>
                 <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">REG équivalent</span>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regEquivalent') }}</span>
                   <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.regAmount) }}</div>
                 </div>
                 <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">État</span>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.status') }}</span>
                   <div style="font-weight: 600;" :style="{ color: position.isActive ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)' }">
-                    {{ position.isActive ? '🟢 Actif (in range)' : '🔴 Inactif (out of range)' }}
+                    {{ position.isActive ? '🟢 ' + t('analysis.activeInRange') : '🔴 ' + t('analysis.inactiveOutOfRange') }}
                   </div>
                 </div>
                 <div v-if="position.counterpartAmount > 0">
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">Contrepartie</span>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.counterpart') }}</span>
                   <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.counterpartAmount) }} {{ position.counterpartToken || '' }}</div>
                 </div>
               </div>
@@ -3001,7 +2972,7 @@ const powerBreakdownChartOptions = {
           </div>
         </div>
         <div v-else style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; color: var(--text-secondary); text-align: center;">
-          Aucune position dans les pools
+          {{ t('analysis.noPositionInPools') }}
         </div>
       </div>
     </div>
@@ -3009,8 +2980,8 @@ const powerBreakdownChartOptions = {
     <!-- Snapshots historiques (masqué en mode intégré, la liste est sur la home) -->
     <div class="historical-snapshots-section" v-if="!props.embedded && allSnapshotsWithCurrent.length > 0">
       <div class="historical-snapshots-header">
-        <h3>📸 Snapshots historiques ({{ allSnapshotsWithCurrent.length }})</h3>
-        <p>Chargez un snapshot précédent pour analyse ou comparaison avec tout les fichiers historiques mis en dur dans le projet</p>
+        <h3>📸 {{ t('analysis.historicalSnapshots', { count: allSnapshotsWithCurrent.length }) }}</h3>
+        <p>{{ t('analysis.historicalSnapshotsDesc') }}</p>
       </div>
       <div class="historical-snapshots-list">
         <button

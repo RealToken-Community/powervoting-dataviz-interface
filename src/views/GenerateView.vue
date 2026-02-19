@@ -24,6 +24,10 @@ const isLoading = ref(false)
 const isRebuilding = ref(false)
 const error = ref<string>('')
 const success = ref<string>('')
+// Notif téléchargement (section Fichiers générés, 10s avec animation)
+const downloadSuccessMessage = ref('')
+const downloadSuccessVisible = ref(false)
+const downloadNotifTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 // Upload de fichiers
 const isDraggingFiles = ref(false)
 const isUploadingFiles = ref(false)
@@ -1191,10 +1195,24 @@ const deleteFile = async (filename: string) => {
   }
 }
 
+// Afficher la notif téléchargement dans la section Fichiers générés (10s puis disparition)
+const showDownloadSuccess = (message: string) => {
+  if (downloadNotifTimeout.value) {
+    clearTimeout(downloadNotifTimeout.value)
+    downloadNotifTimeout.value = null
+  }
+  downloadSuccessMessage.value = message
+  downloadSuccessVisible.value = true
+  downloadNotifTimeout.value = setTimeout(() => {
+    downloadSuccessVisible.value = false
+    downloadSuccessMessage.value = ''
+    downloadNotifTimeout.value = null
+  }, 10000)
+}
+
 // Fonction pour télécharger un fichier
 const downloadFile = async (file: { name: string; url: string }) => {
   error.value = ''
-  success.value = ''
   const absoluteUrl = file.url.startsWith('http') ? file.url : `${window.location.origin}${file.url}`
   try {
     const response = await fetch(absoluteUrl, {
@@ -1213,7 +1231,7 @@ const downloadFile = async (file: { name: string; url: string }) => {
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(downloadUrl)
-    success.value = `✅ Fichier ${file.name} téléchargé avec succès`
+    showDownloadSuccess(`Fichier ${file.name} téléchargé avec succès`)
   } catch (err) {
     try {
       const link = document.createElement('a')
@@ -1224,7 +1242,7 @@ const downloadFile = async (file: { name: string; url: string }) => {
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
-      success.value = `✅ Téléchargement de ${file.name} lancé`
+      showDownloadSuccess(`Téléchargement de ${file.name} lancé`)
     } catch (fallbackErr) {
       error.value = err instanceof Error ? err.message : 'Erreur lors du téléchargement'
     }
@@ -1875,6 +1893,17 @@ onUnmounted(() => {
     </div>
 
     <div v-if="gitInfo.exists && gitInfo.isGitRepo" class="files-section">
+      <!-- Notif téléchargement : 10s en haut de la section avec barre de temps -->
+      <Transition name="download-notif">
+        <div v-if="downloadSuccessVisible && downloadSuccessMessage" class="download-success-notif" :key="downloadSuccessMessage">
+          <span class="download-success-icon">✅</span>
+          <span class="download-success-text">{{ downloadSuccessMessage }}</span>
+          <div class="download-success-progress" aria-hidden="true">
+            <div class="download-success-progress-bar" :key="downloadSuccessMessage"></div>
+          </div>
+        </div>
+      </Transition>
+
       <div class="files-header">
         <h3>📁 Fichiers générés ({{ files.length }})</h3>
         <button @click="loadFiles" class="btn-refresh">🔄 Actualiser</button>
@@ -2237,6 +2266,65 @@ onUnmounted(() => {
 .preview-size {
   color: var(--text-muted);
   font-size: 0.8rem;
+}
+
+/* Notif téléchargement (section Fichiers générés) — 10s avec barre de temps */
+.download-notif-enter-active,
+.download-notif-leave-active {
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+.download-notif-enter-from,
+.download-notif-leave-to {
+  opacity: 0;
+  transform: translateY(-0.5rem);
+}
+
+.download-success-notif {
+  position: relative;
+  margin-bottom: 1.25rem;
+  padding: 0.9rem 1.25rem;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  border-radius: 0.75rem;
+  color: var(--text-primary);
+  font-size: 1rem;
+  overflow: hidden;
+}
+
+.download-success-icon {
+  margin-right: 0.5rem;
+}
+
+.download-success-text {
+  font-weight: 500;
+}
+
+.download-success-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(34, 197, 94, 0.25);
+  border-radius: 0 0 0.75rem 0.75rem;
+}
+
+.download-success-progress-bar {
+  height: 100%;
+  width: 100%;
+  background: var(--primary-color);
+  border-radius: 0 0 0 0.75rem;
+  transform-origin: right;
+  animation: download-progress-shrink 10s linear forwards;
+}
+
+@keyframes download-progress-shrink {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
 }
 
 .files-section {

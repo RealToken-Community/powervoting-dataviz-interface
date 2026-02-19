@@ -1699,6 +1699,13 @@ onUnmounted(() => {
       </div>
 
       <div class="terminal-inline-body">
+        <!-- Aide rapide pour le terminal interactif -->
+        <div class="terminal-help">
+          <span class="terminal-help-item"><kbd>↑</kbd><kbd>↓</kbd> Naviguer</span>
+          <span class="terminal-help-item"><kbd>Espace</kbd> Activer / Désactiver une option</span>
+          <span class="terminal-help-item"><kbd>Entrée</kbd> Valider</span>
+        </div>
+
         <!-- Terminal interactif avec xterm.js -->
         <div class="form-group" style="margin-bottom: 0;">
           <div
@@ -2509,6 +2516,40 @@ onUnmounted(() => {
 .running-indicator {
   font-size: 0.9rem;
   color: var(--text-secondary);
+}
+
+.terminal-help {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.terminal-help-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.terminal-help kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem 0.45rem;
+  background: var(--primary-color);
+  border: 1px solid var(--primary-dark);
+  border-bottom-width: 2px;
+  border-radius: 0.3rem;
+  font-family: inherit;
+  font-size: 0.75rem;
+  color: #111;
+  white-space: nowrap;
 }
 
 .form-group {

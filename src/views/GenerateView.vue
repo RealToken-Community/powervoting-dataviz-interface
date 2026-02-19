@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDataStore } from '@/stores/dataStore'
 import { transformCSVToJSON, transformPowerVotingCSV } from '@/utils/csvTransformer'
-import { sessionHeaders } from '@/composables/useSessionId'
+import { sessionHeaders, setSessionId } from '@/composables/useSessionId'
 import Papa from 'papaparse'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -28,6 +28,10 @@ const success = ref<string>('')
 const downloadSuccessMessage = ref('')
 const downloadSuccessVisible = ref(false)
 const downloadNotifTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+// Notif suppression différée (rouge, 10s, bouton Annuler)
+const deletePendingFileName = ref<string | null>(null)
+const deleteNotifVisible = ref(false)
+const deleteNotifTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 // Upload de fichiers
 const isDraggingFiles = ref(false)
 const isUploadingFiles = ref(false)
@@ -142,9 +146,15 @@ const API_BASE = '/api'
 
 const loadGitInfo = async () => {
   try {
-    const response = await fetch(`${API_BASE}/balance-calculator/git-info`, { headers: sessionHeaders() })
+    const response = await fetch(`${API_BASE}/balance-calculator/git-info`, { credentials: 'include', headers: sessionHeaders() })
     if (!response.ok) throw new Error('Erreur lors de la récupération des infos Git')
-    gitInfo.value = await response.json()
+    const data = await response.json()
+    // Récupération après redémarrage : le serveur peut suggérer d'adopter le seul workspace existant
+    if (data.suggestedSessionId) {
+      setSessionId(data.suggestedSessionId)
+    }
+    const { suggestedSessionId: _, ...rest } = data
+    gitInfo.value = rest
   } catch (err) {
     console.error('Erreur lors du chargement des infos Git:', err)
     gitInfo.value = {
@@ -164,6 +174,7 @@ const fixPermissions = async () => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/fix-permissions`, {
       method: 'POST',
+      credentials: 'include',
       headers: sessionHeaders(),
     })
     
@@ -202,7 +213,7 @@ const checkEnvLocal = async () => {
 
 const loadFiles = async () => {
   try {
-    const response = await fetch(`${API_BASE}/files`, { headers: sessionHeaders() })
+    const response = await fetch(`${API_BASE}/files`, { credentials: 'include', headers: sessionHeaders() })
     if (!response.ok) throw new Error('Erreur lors du chargement des fichiers')
     files.value = await response.json()
   } catch (err) {
@@ -288,6 +299,7 @@ const uploadFiles = async () => {
 
     const response = await fetch(`${API_BASE}/files/upload`, {
       method: 'POST',
+      credentials: 'include',
       headers: sessionHeaders(),
       body: formData,
     })
@@ -319,7 +331,7 @@ const loadOptionsModifiers = async () => {
   error.value = ''
   
   try {
-    const response = await fetch(`${API_BASE}/balance-calculator/config/options-modifiers`, { headers: sessionHeaders() })
+    const response = await fetch(`${API_BASE}/balance-calculator/config/options-modifiers`, { credentials: 'include', headers: sessionHeaders() })
     const data = await response.json()
     
     // Si le fichier n'existe pas, c'est OK, on peut le créer
@@ -356,6 +368,7 @@ const saveOptionsModifiers = async () => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/config/options-modifiers`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: optionsModifiersContent.value,
@@ -380,7 +393,7 @@ const loadEnv = async () => {
   error.value = ''
   
   try {
-    const response = await fetch(`${API_BASE}/balance-calculator/config/env`, { headers: sessionHeaders() })
+    const response = await fetch(`${API_BASE}/balance-calculator/config/env`, { credentials: 'include', headers: sessionHeaders() })
     
     // Vérifier le Content-Type avant de parser
     const contentType = response.headers.get('content-type')
@@ -468,7 +481,7 @@ const updateEnvVariable = async (key: string) => {
   
   try {
     // Charger d'abord le contenu actuel du .env
-    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, { headers: sessionHeaders() })
+    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, { credentials: 'include', headers: sessionHeaders() })
     
     // Vérifier le Content-Type avant de parser
     const contentType = loadResponse.headers.get('content-type')
@@ -521,6 +534,7 @@ const updateEnvVariable = async (key: string) => {
     // Sauvegarder
     const saveResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: content,
@@ -554,7 +568,7 @@ const updateAllEnvVariables = async () => {
   
   try {
     // Charger d'abord le contenu actuel du .env
-    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, { headers: sessionHeaders() })
+    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, { credentials: 'include', headers: sessionHeaders() })
     
     // Vérifier le Content-Type avant de parser
     const contentType = loadResponse.headers.get('content-type')
@@ -617,6 +631,7 @@ const updateAllEnvVariables = async () => {
     // Sauvegarder
     const saveResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: content,
@@ -759,6 +774,7 @@ const sendKeyToProcess = async (key: string, showInLogs = true) => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ answer: key }),
     })
@@ -899,6 +915,7 @@ const startBalanceCalculator = async () => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/start`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     })
@@ -1123,6 +1140,7 @@ const rebuildCalculator = async (event?: Event) => {
     // Lancer le rebuild avec le repository sélectionné
     const response = await fetch(`${API_BASE}/rebuild`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         repositoryUrl: selectedRepository.value,
@@ -1174,13 +1192,37 @@ watch(showRebuildModal, async (isOpen) => {
   }
 })
 
-const deleteFile = async (filename: string) => {
-  if (!confirm(`Êtes-vous sûr de vouloir supprimer ${filename} ?`)) return
+// Demander la suppression : affiche la notif rouge 10s, suppression réelle au bout de 10s sauf si Annuler
+const requestDeleteFile = (filename: string) => {
+  if (deleteNotifTimeout.value) {
+    clearTimeout(deleteNotifTimeout.value)
+    deleteNotifTimeout.value = null
+  }
+  deletePendingFileName.value = filename
+  deleteNotifVisible.value = true
+  deleteNotifTimeout.value = setTimeout(() => {
+    doDeleteFile(filename)
+    deleteNotifVisible.value = false
+    deletePendingFileName.value = null
+    deleteNotifTimeout.value = null
+  }, 10000)
+}
+
+const cancelDeleteFile = () => {
+  if (deleteNotifTimeout.value) {
+    clearTimeout(deleteNotifTimeout.value)
+    deleteNotifTimeout.value = null
+  }
+  deleteNotifVisible.value = false
+  deletePendingFileName.value = null
+}
+
+const doDeleteFile = async (filename: string) => {
   error.value = ''
-  success.value = ''
   try {
     const response = await fetch(`${API_BASE}/files/delete`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename }),
     })
@@ -1188,7 +1230,7 @@ const deleteFile = async (filename: string) => {
     if (!response.ok) {
       throw new Error(data.error || `Erreur ${response.status}`)
     }
-    success.value = 'Fichier supprimé'
+    showDownloadSuccess(`${filename} supprimé`)
     await loadFiles()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Erreur inconnue'
@@ -1377,6 +1419,7 @@ const initXterm = async () => {
     try {
       await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
         method: 'POST',
+        credentials: 'include',
         headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ answer: data }),
       })
@@ -1904,6 +1947,18 @@ onUnmounted(() => {
         </div>
       </Transition>
 
+      <!-- Notif suppression différée : rouge, 10s, barre de temps, Annuler à droite -->
+      <Transition name="download-notif">
+        <div v-if="deleteNotifVisible && deletePendingFileName" class="delete-pending-notif" :key="deletePendingFileName">
+          <span class="delete-pending-icon">🗑️</span>
+          <span class="delete-pending-text">{{ deletePendingFileName }} sera supprimé dans 10 secondes</span>
+          <button type="button" class="delete-pending-cancel" @click="cancelDeleteFile">Annuler</button>
+          <div class="delete-pending-progress" aria-hidden="true">
+            <div class="delete-pending-progress-bar" :key="deletePendingFileName"></div>
+          </div>
+        </div>
+      </Transition>
+
       <div class="files-header">
         <h3>📁 Fichiers générés ({{ files.length }})</h3>
         <button @click="loadFiles" class="btn-refresh">🔄 Actualiser</button>
@@ -1940,7 +1995,7 @@ onUnmounted(() => {
             </button>
             <button
               type="button"
-              @click.prevent="deleteFile(file.name)"
+              @click.prevent="requestDeleteFile(file.name)"
               class="btn btn-small btn-danger"
             >
               🗑️ Supprimer
@@ -2325,6 +2380,70 @@ onUnmounted(() => {
   to {
     transform: scaleX(0);
   }
+}
+
+/* Notif suppression différée (rouge, 10s, Annuler à droite) */
+.delete-pending-notif {
+  position: relative;
+  margin-bottom: 1.25rem;
+  padding: 0.9rem 1.25rem;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: 0.75rem;
+  color: var(--text-primary);
+  font-size: 1rem;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.delete-pending-icon {
+  flex-shrink: 0;
+}
+
+.delete-pending-text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.delete-pending-cancel {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0.4rem 0.9rem;
+  background: rgba(239, 68, 68, 0.3);
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.delete-pending-cancel:hover {
+  background: rgba(239, 68, 68, 0.45);
+  border-color: rgba(239, 68, 68, 0.8);
+}
+
+.delete-pending-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(239, 68, 68, 0.25);
+  border-radius: 0 0 0.75rem 0.75rem;
+}
+
+.delete-pending-progress-bar {
+  height: 100%;
+  width: 100%;
+  background: #ef4444;
+  border-radius: 0 0 0 0.75rem;
+  transform-origin: right;
+  animation: download-progress-shrink 10s linear forwards;
 }
 
 .files-section {

@@ -284,7 +284,7 @@ const loadMockData = async () => {
 const loadGeneratedFiles = async () => {
   isLoadingGeneratedFiles.value = true
   try {
-    const response = await fetch('/api/files', { headers: sessionHeaders() })
+    const response = await fetch('/api/files', { credentials: 'include', headers: sessionHeaders() })
     if (response.ok) {
       generatedFiles.value = await response.json()
     }

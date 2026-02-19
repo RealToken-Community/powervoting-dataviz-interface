@@ -50,8 +50,7 @@ const formatNumber = (num: number) => {
 
 <template>
   <div class="home-view">
-    <aside class="home-left">
-      <section class="home-intro">
+    <section class="home-intro">
         <h2 class="home-intro-title">Pouvoir de vote</h2>
         <p class="home-intro-text">
           Le pouvoir de vote (Power Voting) reflète le poids d’un participant dans les décisions de la Realtoken DAO.
@@ -62,8 +61,9 @@ const formatNumber = (num: number) => {
           Chaque snapshot fixe un instantané des balances et du pouvoir de vote à une date donnée.
           Sélectionnez un snapshot ci-dessous pour explorer les données et visualiser les graphiques.
         </p>
-      </section>
+    </section>
 
+    <aside class="home-left">
       <section class="home-snapshots">
         <h3 class="home-snapshots-title">Snapshots</h3>
         <div v-if="error" class="home-error">{{ error }}</div>
@@ -114,25 +114,25 @@ const formatNumber = (num: number) => {
 <style scoped>
 .home-view {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
+  grid-template-columns: 1fr 3fr;
+  grid-template-rows: auto 1fr;
   gap: 2rem;
   align-items: start;
   min-height: calc(100vh - 200px);
 }
 
-.home-left {
-  position: sticky;
-  top: 6rem;
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-}
-
 .home-intro {
+  grid-column: 1 / -1;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: 1rem;
   padding: 1.5rem;
+}
+
+.home-left {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .home-intro-title {

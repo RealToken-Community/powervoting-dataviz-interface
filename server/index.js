@@ -249,17 +249,21 @@ app.get('/api/balance-calculator/logs/:processId', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders(); // Envoyer les headers immédiatement pour que le proxy sache que c'est du SSE
   
   const processData = activeProcesses.get(processId);
   if (processData) {
     // Envoyer les logs existants
     processData.logs.forEach(log => {
       res.write(`data: ${JSON.stringify(log)}\n\n`);
+      if (res.flush) res.flush();
     });
     
     // Écouter les nouveaux logs
     const logListener = (log) => {
       res.write(`data: ${JSON.stringify(log)}\n\n`);
+      if (res.flush) res.flush();
     };
     processData.listeners.push(logListener);
     
@@ -272,6 +276,7 @@ app.get('/api/balance-calculator/logs/:processId', (req, res) => {
     });
   } else {
     res.write(`data: ${JSON.stringify({ type: 'error', message: 'Process not found' })}\n\n`);
+    if (res.flush) res.flush();
     res.end();
   }
 });
@@ -347,9 +352,9 @@ app.post('/api/balance-calculator/start', ensureSession, async (req, res) => {
       addLog('error', '❌ THEGRAPH_API_KEY n\'est pas défini');
       addLog('info', '💡 Créez un fichier .env dans balance-calculator/ avec: THEGRAPH_API_KEY=votre_cle');
       addLog('info', '💡 Ou définissez la variable d\'environnement dans le conteneur Docker');
-      
-      // Nettoyer et arrêter
-      activeProcesses.delete(processId);
+      // Laisser le processus dans activeProcesses pour que le client puisse lire les logs
+      // Le client connectera l'EventSource après avoir reçu le processId
+      setTimeout(() => activeProcesses.delete(processId), 5 * 60 * 1000);
       return;
     }
     
@@ -531,12 +536,32 @@ app.post('/api/balance-calculator/start', ensureSession, async (req, res) => {
       }
     };
 
+    // En mode non-PTY, inquirer réimprime le prompt entier à chaque touche fléchée.
+    // On détecte les "rafraîchissements de prompt" et on injecte des codes ANSI cursor-up
+    // pour effacer les lignes précédentes avant d'écrire le nouveau prompt.
+    let prevPromptLineCount = 0;
+    const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').replace(/\r/g, '');
+    const countNonEmptyLines = (text) => stripAnsi(text).split('\n').filter((l) => l.trim().length > 0).length;
+    const isPromptRefresh = (text) => {
+      const clean = stripAnsi(text);
+      return clean.includes('? ') && (clean.includes('❯') || clean.includes('(Use arrow keys)'));
+    };
+
     proc.stdout.on('data', (data) => {
       const rawData = data.toString();
-      
-      // Avec xterm.js, on envoie les données brutes avec tous les codes ANSI
-      // xterm.js peut gérer nativement les codes ANSI, donc pas besoin de nettoyer
-      addLog('stdout', rawData);
+      let outputData = rawData;
+
+      if (isPromptRefresh(rawData)) {
+        if (prevPromptLineCount > 0) {
+          // Remonter de N lignes et effacer jusqu'à la fin de l'écran (comme un vrai PTY)
+          outputData = `\x1b[${prevPromptLineCount}A\x1b[J${rawData}`;
+        }
+        prevPromptLineCount = countNonEmptyLines(rawData);
+      } else {
+        prevPromptLineCount = 0;
+      }
+
+      addLog('stdout', outputData);
       console.log('Balance calculator output (raw):', rawData.substring(0, 200));
     });
 

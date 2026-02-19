@@ -20,6 +20,7 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        timeout: 0, // Pas de timeout pour les connexions SSE (EventSource)
       },
       '/generated': {
         target: 'http://localhost:3001',

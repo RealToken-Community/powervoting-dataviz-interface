@@ -48,6 +48,7 @@ const terminalInput = ref<string>('')
 const terminalOutput = ref<HTMLElement | null>(null)
 const terminalInputRef = ref<HTMLInputElement | null>(null)
 const terminalContainer = ref<HTMLElement | null>(null)
+const terminalSectionRef = ref<HTMLElement | null>(null)
 const xtermTerminal = ref<Terminal | null>(null)
 const fitAddon = ref<FitAddon | null>(null)
 
@@ -791,7 +792,13 @@ const startLogsStream = (processId: string) => {
   
   // Créer un nouveau EventSource pour les logs
   eventSource.value = new EventSource(`${API_BASE}/balance-calculator/logs/${processId}`)
-  
+
+  eventSource.value.onopen = () => {
+    if (xtermTerminal.value) {
+      xtermTerminal.value.write('\r\n\x1b[32m● Connexion au flux de logs établie.\x1b[0m\r\n\r\n')
+    }
+  }
+
   // Focus sur le terminal xterm après un court délai
   setTimeout(() => {
     if (xtermTerminal.value) {
@@ -842,9 +849,16 @@ const startLogsStream = (processId: string) => {
     }
   }
   
-  eventSource.value.onerror = (err) => {
-    console.error('EventSource error:', err)
-    // Ne pas fermer automatiquement, laisser l'utilisateur le faire
+  eventSource.value.onerror = () => {
+    const es = eventSource.value
+    if (es?.readyState === EventSource.CLOSED) {
+      console.warn('EventSource logs fermé.')
+      if (xtermTerminal.value) {
+        xtermTerminal.value.write('\r\n\x1b[31m⚠ Connexion au flux de logs interrompue.\x1b[0m\r\n')
+      }
+    } else if (es?.readyState === EventSource.CONNECTING) {
+      console.warn('EventSource logs en reconnexion…')
+    }
   }
 }
 
@@ -857,12 +871,15 @@ const stopLogsStream = () => {
 }
 
 const startBalanceCalculator = async () => {
-  // Ouvrir le modal si ce n'est pas déjà fait
+  // Ouvrir la section terminal si ce n'est pas déjà fait
   if (!showBalancesModal.value) {
     showBalancesModal.value = true
-    // Attendre que le modal soit monté avant d'initialiser xterm
+    // Attendre que la section soit montée avant d'initialiser xterm
     await nextTick()
     await initXterm()
+    // Scroller vers la section terminal
+    await nextTick()
+    terminalSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
   
   isLoading.value = true
@@ -888,6 +905,7 @@ const startBalanceCalculator = async () => {
 
     const data = await response.json()
     success.value = data.message || 'Balance-calculator lancé...'
+    isLoading.value = false
     
     // Démarrer le stream de logs
     if (data.processId) {
@@ -1372,12 +1390,9 @@ const cleanupXterm = () => {
   }
 }
 
-// Surveiller l'ouverture du modal pour initialiser xterm
-watch(showBalancesModal, async (isOpen) => {
-  if (isOpen) {
-    await nextTick()
-    initXterm()
-  } else {
+// Surveiller la fermeture de la section pour nettoyer xterm
+watch(showBalancesModal, (isOpen) => {
+  if (!isOpen) {
     cleanupXterm()
   }
 })
@@ -1659,7 +1674,8 @@ onUnmounted(() => {
           <h3><span class="step-number">4</span> Lancer balance calculator</h3>
           <div class="button-group">
             <button
-              @click="showBalancesModal = true"
+              type="button"
+              @click="startBalanceCalculator"
               :disabled="isLoading"
               class="btn btn-primary"
             >
@@ -1675,112 +1691,28 @@ onUnmounted(() => {
       <div v-if="success" class="success-message">✅ {{ success }}</div>
     </div>
 
-    <!-- Modale pour la génération des balances -->
-    <div v-if="showBalancesModal" class="modal-overlay" @click.self="closeBalancesModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>🚀 Balance-calculator - Mode interactif</h3>
-          <button @click="closeBalancesModal" class="modal-close">×</button>
-        </div>
-        
-        <div class="modal-body">
-          <!-- Bouton pour lancer balance-calculator -->
-          <div class="form-group" style="margin-bottom: 1.5rem;">
-            <button
-              @click="startBalanceCalculator"
-              :disabled="isLoading || currentProcessId !== null"
-              class="btn btn-primary"
-              style="width: 100%;"
-            >
-              <span v-if="!isLoading && !currentProcessId">🚀 Lancer balance-calculator</span>
-              <span v-else-if="isLoading">⏳ Lancement...</span>
-              <span v-else>✅ Balance-calculator en cours d'exécution</span>
-            </button>
-          </div>
+    <!-- Section terminal balance-calculator (inline, pleine largeur) -->
+    <div v-if="showBalancesModal" ref="terminalSectionRef" class="terminal-inline-section">
+      <div class="terminal-inline-header">
+        <h3>🚀 Balance-calculator - Mode interactif</h3>
+        <button type="button" @click="closeBalancesModal" class="modal-close">×</button>
+      </div>
 
-          <!-- Terminal interactif avec xterm.js -->
-          <div class="form-group">
-            <label>💻 Terminal interactif</label>
-            <div 
-              ref="terminalContainer" 
-              class="xterm-terminal-container"
-              style="width: 100%; height: 600px; background: #1e1e1e; border-radius: 0.5rem; padding: 1rem; overflow: hidden;"
-            ></div>
-          </div>
-
-          <!-- Zone de prompt interactif (désactivée - on utilise le terminal maintenant) -->
-          <div v-if="false && pendingPrompt" class="prompt-container">
-            <div class="prompt-header">
-              <span>💡 Question interactive</span>
-            </div>
-            <div class="prompt-question">{{ pendingPrompt.question }}</div>
-            
-            <div v-if="(pendingPrompt.type === 'select' || pendingPrompt.type === 'checkbox') && pendingPrompt.options && pendingPrompt.options.length > 0" class="prompt-options">
-              <!-- Checkbox (sélection multiple) -->
-              <template v-if="pendingPrompt.type === 'checkbox'">
-                <label
-                  v-for="(option, index) in pendingPrompt.options"
-                  :key="index"
-                  class="prompt-option"
-                >
-                  <input
-                    type="checkbox"
-                    :value="option"
-                    v-model="promptAnswers"
-                  />
-                  <span>{{ option }}</span>
-                </label>
-              </template>
-              <!-- Select (sélection unique) -->
-              <template v-else>
-                <label
-                  v-for="(option, index) in pendingPrompt.options"
-                  :key="index"
-                  class="prompt-option"
-                >
-                  <input
-                    type="radio"
-                    :value="option"
-                    v-model="promptAnswer"
-                    name="prompt-option"
-                  />
-                  <span>{{ option }}</span>
-                </label>
-              </template>
-            </div>
-            
-            <div v-else-if="pendingPrompt.type === 'confirm'" class="prompt-options">
-              <label class="prompt-option">
-                <input type="radio" value="y" v-model="promptAnswer" name="prompt-confirm" />
-                <span>Oui</span>
-              </label>
-              <label class="prompt-option">
-                <input type="radio" value="n" v-model="promptAnswer" name="prompt-confirm" />
-                <span>Non</span>
-              </label>
-            </div>
-            
-            <div v-else-if="pendingPrompt.type === 'input'" class="prompt-input">
-              <input
-                type="text"
-                v-model="promptAnswer"
-                @keyup.enter="sendPromptAnswer"
-                class="form-input"
-                placeholder="Tapez votre réponse..."
-              />
-            </div>
-            
-            <div class="prompt-actions">
-              <button @click="sendPromptAnswer" :disabled="pendingPrompt.type === 'checkbox' ? promptAnswers.length === 0 : !promptAnswer" class="btn btn-primary btn-small">
-                📤 Envoyer
-              </button>
-            </div>
-          </div>
+      <div class="terminal-inline-body">
+        <!-- Terminal interactif avec xterm.js -->
+        <div class="form-group" style="margin-bottom: 0;">
+          <div
+            ref="terminalContainer"
+            class="xterm-terminal-container"
+            style="width: 100%; height: 600px; background: #1e1e1e; border-radius: 0.5rem; padding: 1rem; overflow: hidden;"
+          ></div>
         </div>
+      </div>
 
-        <div class="modal-footer">
-          <button @click="closeBalancesModal" class="btn btn-secondary">Fermer</button>
-        </div>
+      <div class="terminal-inline-footer">
+        <span v-if="isLoading" class="loading-indicator">⏳ Lancement...</span>
+        <span v-else-if="currentProcessId" class="running-indicator">✅ Balance-calculator en cours d'exécution</span>
+        <button type="button" @click="closeBalancesModal" class="btn btn-secondary">Fermer</button>
       </div>
     </div>
 
@@ -2534,6 +2466,49 @@ onUnmounted(() => {
   gap: 1rem;
   padding: 1.5rem;
   border-top: 1px solid var(--border-color);
+}
+
+/* Section terminal inline (remplace la modale pour balance-calculator) */
+.terminal-inline-section {
+  margin-top: 2rem;
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-xl);
+  animation: fadeIn 0.3s ease;
+}
+
+.terminal-inline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.terminal-inline-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.terminal-inline-body {
+  padding: 1.5rem;
+}
+
+.terminal-inline-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.loading-indicator,
+.running-indicator {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
 }
 
 .form-group {

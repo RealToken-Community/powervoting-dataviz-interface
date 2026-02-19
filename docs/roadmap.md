@@ -6,6 +6,10 @@ Deploy:
 - update all port and url parametrable (docker-compose)
 - add verification var in initializer config
 
+## V1.5
+
+- for each snapshot in public/snapshot/<date>, we cn create specific analysis url (for each snapshot), for compare and share analysis snapshot
+
 ## V2.0
 
 **remove adresse from balance REG and power voting info for min/max (for reduce ecart-type)(Analysis page)**
@@ -18,6 +22,8 @@ Deploy:
 
 **Display all available file selection options right away.(Generate page tools)**
 - In the code, look for the function that lists — it’s something like that — and add or adjust it. In balance-calculator, replace pageSize with 5 (in the askUseFile function).
+
+
 
 
 ## Design 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
 import { transformCSVToJSON, transformPowerVotingCSV } from '@/utils/csvTransformer'
@@ -29,6 +30,7 @@ ChartJS.register(
 )
 
 const router = useRouter()
+const { t } = useI18n()
 const dataStore = useDataStore()
 
 const balancesFile = ref<File | null>(null)
@@ -284,7 +286,7 @@ const loadMockData = async () => {
 const loadGeneratedFiles = async () => {
   isLoadingGeneratedFiles.value = true
   try {
-    const response = await fetch('/api/files', { headers: sessionHeaders() })
+    const response = await fetch('/api/files', { credentials: 'include', headers: sessionHeaders() })
     if (response.ok) {
       generatedFiles.value = await response.json()
     }
@@ -638,8 +640,8 @@ const snapshotsChartOptions = computed(() => ({
   <div class="upload-view">
     <div class="upload-card">
       <div class="card-header">
-        <h2>📊 Chargement des données</h2>
-        <p>Importez vos fichiers balances REG et power voting pour commencer l'analyse</p>
+        <h2>📊 {{ t('upload.title') }}</h2>
+        <p>{{ t('upload.subtitle') }}</p>
       </div>
 
       <div class="upload-section">
@@ -653,8 +655,8 @@ const snapshotsChartOptions = computed(() => ({
           >
             <div class="file-icon">📂</div>
             <div class="file-info">
-              <span class="file-title">Balances REG</span>
-              <span class="file-subtitle">CSV ou JSON - Glissez-déposez ou cliquez</span>
+              <span class="file-title">{{ t('upload.balances') }}</span>
+              <span class="file-subtitle">{{ t('upload.dragDrop') }}</span>
             </div>
             <input
               type="file"
@@ -676,8 +678,8 @@ const snapshotsChartOptions = computed(() => ({
           >
             <div class="file-icon">⚡</div>
             <div class="file-info">
-              <span class="file-title">Power Voting REG</span>
-              <span class="file-subtitle">CSV ou JSON - Glissez-déposez ou cliquez</span>
+              <span class="file-title">{{ t('upload.powerVoting') }}</span>
+              <span class="file-subtitle">{{ t('upload.dragDrop') }}</span>
             </div>
             <input
               type="file"
@@ -699,8 +701,8 @@ const snapshotsChartOptions = computed(() => ({
           class="btn btn-primary"
           style="width: 100%;"
         >
-          <span v-if="!isLoading">🚀 Analyser les données</span>
-          <span v-else class="loading">⏳ Chargement...</span>
+          <span v-if="!isLoading">🚀 {{ t('upload.load') }}</span>
+          <span v-else class="loading">⏳ {{ t('upload.loading') }}</span>
         </button>
       </div>
     </div>
@@ -716,7 +718,7 @@ const snapshotsChartOptions = computed(() => ({
 
       <!-- Section Balances -->
       <div v-if="categorizedFiles.balances.length > 0" class="file-category">
-        <h4 class="category-title">💰 Balances ({{ categorizedFiles.balances.length }})</h4>
+        <h4 class="category-title">💰 {{ t('upload.balancesCount', { count: categorizedFiles.balances.length }) }}</h4>
         <div class="generated-files-grid">
           <div
             v-for="fileGroup in categorizedFiles.balances"
@@ -757,7 +759,7 @@ const snapshotsChartOptions = computed(() => ({
 
       <!-- Section Power Voting -->
       <div v-if="categorizedFiles.powerVoting.length > 0" class="file-category">
-        <h4 class="category-title">⚡ Power Voting ({{ categorizedFiles.powerVoting.length }})</h4>
+        <h4 class="category-title">⚡ {{ t('upload.powerVotingCount', { count: categorizedFiles.powerVoting.length }) }}</h4>
         <div class="generated-files-grid">
           <div
             v-for="fileGroup in categorizedFiles.powerVoting"
@@ -913,11 +915,11 @@ const snapshotsChartOptions = computed(() => ({
           :disabled="isLoading"
           class="snapshot-row"
           type="button"
-          :title="'Charger le snapshot du ' + formatSnapshotDate(snapshot.date) + ' et ouvrir l\'analyse'"
+          :title="t('upload.loadSnapshotTitle', { date: formatSnapshotDate(snapshot.date) })"
         >
           <div class="snapshot-date-col">
             <div class="snapshot-date">{{ formatSnapshotDate(snapshot.date) }}</div>
-            <span class="snapshot-click-hint">Cliquer pour voir l’analyse →</span>
+            <span class="snapshot-click-hint">{{ t('upload.clickToViewAnalysis') }}</span>
           </div>
           <div class="snapshot-metrics-row" v-if="snapshot.metrics">
             <div class="snapshot-metric-item">
@@ -949,7 +951,7 @@ const snapshotsChartOptions = computed(() => ({
                     {{ formatDiff(getSnapshotDiff(snapshot)!.totalREG) }}
                   </span>
                 </div>
-                <span class="metric-label">REG</span>
+                <span class="metric-label">{{ t('upload.metricReg') }}</span>
               </div>
             </div>
             <div class="snapshot-metric-item">
@@ -965,7 +967,7 @@ const snapshotsChartOptions = computed(() => ({
                     {{ formatDiff(getSnapshotDiff(snapshot)!.totalPowerVoting) }}
                   </span>
                 </div>
-                <span class="metric-label">Power</span>
+                <span class="metric-label">{{ t('upload.metricPower') }}</span>
               </div>
             </div>
           </div>
@@ -985,23 +987,18 @@ const snapshotsChartOptions = computed(() => ({
     <div class="info-cards">
       <div class="info-card">
         <div class="info-icon">📈</div>
-        <h3>Analyses avancées</h3>
-        <p>
-          Visualisez les distributions de balances et de pouvoir de vote avec des graphiques
-          interactifs
-        </p>
+        <h3>{{ t('upload.advancedAnalysis') }}</h3>
+        <p>{{ t('upload.advancedAnalysisDesc') }}</p>
       </div>
       <div class="info-card">
         <div class="info-icon">🔍</div>
-        <h3>Statistiques détaillées</h3>
-        <p>
-          Obtenez des statistiques complètes sur vos données : moyenne, médiane, écart-type, etc.
-        </p>
+        <h3>{{ t('upload.detailedStats') }}</h3>
+        <p>{{ t('upload.detailedStatsDesc') }}</p>
       </div>
       <div class="info-card">
         <div class="info-icon">💾</div>
-        <h3>Multiple formats</h3>
-        <p>Support des fichiers CSV et JSON pour une flexibilité maximale</p>
+        <h3>{{ t('upload.multipleFormats') }}</h3>
+        <p>{{ t('upload.multipleFormatsDesc') }}</p>
       </div>
     </div>
   </div>

@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import { setLocale } from '@/i18n'
 import logoImg from '@/assets/logo-v3-orange.svg'
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -11,15 +15,20 @@ import logoImg from '@/assets/logo-v3-orange.svg'
           <RouterLink to="/" class="header-logo">
             <img :src="logoImg" alt="RealToken DAO" class="header-logo-img" />
             <h1 class="app-title">
-              <span class="gradient-text">Power Voting REG</span>
-              <span class="subtitle">Data Visualization & Analysis</span>
+              <span class="gradient-text">{{ t('app.title') }}</span>
+              <span class="subtitle">{{ t('app.subtitle') }}</span>
             </h1>
           </RouterLink>
           <nav class="main-nav">
-            <RouterLink to="/documentation">Documentation</RouterLink>
-            <RouterLink to="/generate">Generate</RouterLink>
-            <RouterLink to="/">Upload</RouterLink>
-            <RouterLink to="/analysis">Analysis</RouterLink>
+            <RouterLink to="/documentation">{{ t('nav.documentation') }}</RouterLink>
+            <RouterLink to="/generate">{{ t('nav.generate') }}</RouterLink>
+            <RouterLink to="/upload">{{ t('nav.upload') }}</RouterLink>
+            <RouterLink to="/analysis">{{ t('nav.analysis') }}</RouterLink>
+            <span class="lang-switcher">
+              <button type="button" class="lang-btn" :class="{ active: $i18n.locale === 'en' }" @click="setLocale('en')">{{ t('nav.langEn') }}</button>
+              <span class="lang-sep">|</span>
+              <button type="button" class="lang-btn" :class="{ active: $i18n.locale === 'fr' }" @click="setLocale('fr')">{{ t('nav.langFr') }}</button>
+            </span>
           </nav>
         </div>
       </div>
@@ -34,7 +43,7 @@ import logoImg from '@/assets/logo-v3-orange.svg'
     <footer class="app-footer">
       <div class="container">
         <img :src="logoImg" alt="RealToken DAO" class="footer-logo-img" />
-        <p>&copy; 2025 RealT Power Voting Analysis | A Realtoken DAO tool, created and managed by the Power Voting Committee</p>
+        <p>{{ t('app.footer') }}</p>
       </div>
     </footer>
   </div>
@@ -202,6 +211,41 @@ body {
   background: var(--primary-color);
   color: var(--text-primary);
   box-shadow: var(--shadow-md);
+}
+
+.lang-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.5rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--border-color);
+}
+
+.lang-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+  transition: color 0.2s, background 0.2s;
+}
+
+.lang-btn:hover {
+  color: var(--text-primary);
+}
+
+.lang-btn.active {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+.lang-sep {
+  color: var(--text-muted);
+  font-size: 0.75rem;
 }
 
 /* Main */

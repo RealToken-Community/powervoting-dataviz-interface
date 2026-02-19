@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
 import { transformCSVToJSON, transformPowerVotingCSV } from '@/utils/csvTransformer'
-import { sessionHeaders } from '@/composables/useSessionId'
+import { sessionHeaders, setSessionId } from '@/composables/useSessionId'
 import Papa from 'papaparse'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 
 const router = useRouter()
+const { t } = useI18n()
 const dataStore = useDataStore()
 
 const files = ref<Array<{
@@ -24,6 +26,14 @@ const isLoading = ref(false)
 const isRebuilding = ref(false)
 const error = ref<string>('')
 const success = ref<string>('')
+// Notif téléchargement (section Fichiers générés, 10s avec animation)
+const downloadSuccessMessage = ref('')
+const downloadSuccessVisible = ref(false)
+const downloadNotifTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+// Notif suppression différée (rouge, 10s, bouton Annuler)
+const deletePendingFileName = ref<string | null>(null)
+const deleteNotifVisible = ref(false)
+const deleteNotifTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 // Upload de fichiers
 const isDraggingFiles = ref(false)
 const isUploadingFiles = ref(false)
@@ -48,6 +58,7 @@ const terminalInput = ref<string>('')
 const terminalOutput = ref<HTMLElement | null>(null)
 const terminalInputRef = ref<HTMLInputElement | null>(null)
 const terminalContainer = ref<HTMLElement | null>(null)
+const terminalSectionRef = ref<HTMLElement | null>(null)
 const xtermTerminal = ref<Terminal | null>(null)
 const fitAddon = ref<FitAddon | null>(null)
 
@@ -137,9 +148,15 @@ const API_BASE = '/api'
 
 const loadGitInfo = async () => {
   try {
-    const response = await fetch(`${API_BASE}/balance-calculator/git-info`, { headers: sessionHeaders() })
+    const response = await fetch(`${API_BASE}/balance-calculator/git-info`, { credentials: 'include', headers: sessionHeaders() })
     if (!response.ok) throw new Error('Erreur lors de la récupération des infos Git')
-    gitInfo.value = await response.json()
+    const data = await response.json()
+    // Récupération après redémarrage : le serveur peut suggérer d'adopter le seul workspace existant
+    if (data.suggestedSessionId) {
+      setSessionId(data.suggestedSessionId)
+    }
+    const { suggestedSessionId: _, ...rest } = data
+    gitInfo.value = rest
   } catch (err) {
     console.error('Erreur lors du chargement des infos Git:', err)
     gitInfo.value = {
@@ -159,6 +176,7 @@ const fixPermissions = async () => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/fix-permissions`, {
       method: 'POST',
+      credentials: 'include',
       headers: sessionHeaders(),
     })
     
@@ -197,7 +215,7 @@ const checkEnvLocal = async () => {
 
 const loadFiles = async () => {
   try {
-    const response = await fetch(`${API_BASE}/files`, { headers: sessionHeaders() })
+    const response = await fetch(`${API_BASE}/files`, { credentials: 'include', headers: sessionHeaders() })
     if (!response.ok) throw new Error('Erreur lors du chargement des fichiers')
     files.value = await response.json()
   } catch (err) {
@@ -283,6 +301,7 @@ const uploadFiles = async () => {
 
     const response = await fetch(`${API_BASE}/files/upload`, {
       method: 'POST',
+      credentials: 'include',
       headers: sessionHeaders(),
       body: formData,
     })
@@ -314,7 +333,7 @@ const loadOptionsModifiers = async () => {
   error.value = ''
   
   try {
-    const response = await fetch(`${API_BASE}/balance-calculator/config/options-modifiers`, { headers: sessionHeaders() })
+    const response = await fetch(`${API_BASE}/balance-calculator/config/options-modifiers`, { credentials: 'include', headers: sessionHeaders() })
     const data = await response.json()
     
     // Si le fichier n'existe pas, c'est OK, on peut le créer
@@ -351,6 +370,7 @@ const saveOptionsModifiers = async () => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/config/options-modifiers`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: optionsModifiersContent.value,
@@ -375,7 +395,7 @@ const loadEnv = async () => {
   error.value = ''
   
   try {
-    const response = await fetch(`${API_BASE}/balance-calculator/config/env`, { headers: sessionHeaders() })
+    const response = await fetch(`${API_BASE}/balance-calculator/config/env`, { credentials: 'include', headers: sessionHeaders() })
     
     // Vérifier le Content-Type avant de parser
     const contentType = response.headers.get('content-type')
@@ -463,7 +483,7 @@ const updateEnvVariable = async (key: string) => {
   
   try {
     // Charger d'abord le contenu actuel du .env
-    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, { headers: sessionHeaders() })
+    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, { credentials: 'include', headers: sessionHeaders() })
     
     // Vérifier le Content-Type avant de parser
     const contentType = loadResponse.headers.get('content-type')
@@ -516,6 +536,7 @@ const updateEnvVariable = async (key: string) => {
     // Sauvegarder
     const saveResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: content,
@@ -549,7 +570,7 @@ const updateAllEnvVariables = async () => {
   
   try {
     // Charger d'abord le contenu actuel du .env
-    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, { headers: sessionHeaders() })
+    const loadResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, { credentials: 'include', headers: sessionHeaders() })
     
     // Vérifier le Content-Type avant de parser
     const contentType = loadResponse.headers.get('content-type')
@@ -612,6 +633,7 @@ const updateAllEnvVariables = async () => {
     // Sauvegarder
     const saveResponse = await fetch(`${API_BASE}/balance-calculator/config/env`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: content,
@@ -649,6 +671,7 @@ const closeBalancesModal = () => {
   stopLogsStream()
   showBalancesModal.value = false
   isLoading.value = false
+  success.value = ''
   pendingPrompt.value = null
   promptAnswer.value = ''
   promptAnswers.value = []
@@ -753,6 +776,7 @@ const sendKeyToProcess = async (key: string, showInLogs = true) => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ answer: key }),
     })
@@ -791,7 +815,13 @@ const startLogsStream = (processId: string) => {
   
   // Créer un nouveau EventSource pour les logs
   eventSource.value = new EventSource(`${API_BASE}/balance-calculator/logs/${processId}`)
-  
+
+  eventSource.value.onopen = () => {
+    if (xtermTerminal.value) {
+      xtermTerminal.value.write('\r\n\x1b[32m● Connexion au flux de logs établie.\x1b[0m\r\n\r\n')
+    }
+  }
+
   // Focus sur le terminal xterm après un court délai
   setTimeout(() => {
     if (xtermTerminal.value) {
@@ -842,9 +872,16 @@ const startLogsStream = (processId: string) => {
     }
   }
   
-  eventSource.value.onerror = (err) => {
-    console.error('EventSource error:', err)
-    // Ne pas fermer automatiquement, laisser l'utilisateur le faire
+  eventSource.value.onerror = () => {
+    const es = eventSource.value
+    if (es?.readyState === EventSource.CLOSED) {
+      console.warn('EventSource logs fermé.')
+      if (xtermTerminal.value) {
+        xtermTerminal.value.write('\r\n\x1b[31m⚠ Connexion au flux de logs interrompue.\x1b[0m\r\n')
+      }
+    } else if (es?.readyState === EventSource.CONNECTING) {
+      console.warn('EventSource logs en reconnexion…')
+    }
   }
 }
 
@@ -857,12 +894,15 @@ const stopLogsStream = () => {
 }
 
 const startBalanceCalculator = async () => {
-  // Ouvrir le modal si ce n'est pas déjà fait
+  // Ouvrir la section terminal si ce n'est pas déjà fait
   if (!showBalancesModal.value) {
     showBalancesModal.value = true
-    // Attendre que le modal soit monté avant d'initialiser xterm
+    // Attendre que la section soit montée avant d'initialiser xterm
     await nextTick()
     await initXterm()
+    // Scroller vers la section terminal
+    await nextTick()
+    terminalSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
   
   isLoading.value = true
@@ -877,6 +917,7 @@ const startBalanceCalculator = async () => {
   try {
     const response = await fetch(`${API_BASE}/balance-calculator/start`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     })
@@ -888,6 +929,7 @@ const startBalanceCalculator = async () => {
 
     const data = await response.json()
     success.value = data.message || 'Balance-calculator lancé...'
+    isLoading.value = false
     
     // Démarrer le stream de logs
     if (data.processId) {
@@ -1043,6 +1085,8 @@ const startRebuildLogsStream = (processId: string) => {
             // Réactiver le bouton immédiatement pour permettre un nouveau rebuild
             isRebuilding.value = false
             rebuildProcessId.value = null
+            // Fermer la modale automatiquement quand le clone/rebuild est terminé avec succès
+            closeRebuildModal()
             
             // Attendre beaucoup plus longtemps pour que tous les logs soient envoyés et que le système de fichiers soit à jour
             // Ne pas rafraîchir immédiatement pour éviter de couper les logs
@@ -1098,6 +1142,7 @@ const rebuildCalculator = async (event?: Event) => {
     // Lancer le rebuild avec le repository sélectionné
     const response = await fetch(`${API_BASE}/rebuild`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         repositoryUrl: selectedRepository.value,
@@ -1149,13 +1194,37 @@ watch(showRebuildModal, async (isOpen) => {
   }
 })
 
-const deleteFile = async (filename: string) => {
-  if (!confirm(`Êtes-vous sûr de vouloir supprimer ${filename} ?`)) return
+// Demander la suppression : affiche la notif rouge 10s, suppression réelle au bout de 10s sauf si Annuler
+const requestDeleteFile = (filename: string) => {
+  if (deleteNotifTimeout.value) {
+    clearTimeout(deleteNotifTimeout.value)
+    deleteNotifTimeout.value = null
+  }
+  deletePendingFileName.value = filename
+  deleteNotifVisible.value = true
+  deleteNotifTimeout.value = setTimeout(() => {
+    doDeleteFile(filename)
+    deleteNotifVisible.value = false
+    deletePendingFileName.value = null
+    deleteNotifTimeout.value = null
+  }, 10000)
+}
+
+const cancelDeleteFile = () => {
+  if (deleteNotifTimeout.value) {
+    clearTimeout(deleteNotifTimeout.value)
+    deleteNotifTimeout.value = null
+  }
+  deleteNotifVisible.value = false
+  deletePendingFileName.value = null
+}
+
+const doDeleteFile = async (filename: string) => {
   error.value = ''
-  success.value = ''
   try {
     const response = await fetch(`${API_BASE}/files/delete`, {
       method: 'POST',
+      credentials: 'include',
       headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename }),
     })
@@ -1163,26 +1232,40 @@ const deleteFile = async (filename: string) => {
     if (!response.ok) {
       throw new Error(data.error || `Erreur ${response.status}`)
     }
-    success.value = 'Fichier supprimé'
+    showDownloadSuccess(`${filename} supprimé`)
     await loadFiles()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Erreur inconnue'
   }
 }
 
+// Afficher la notif téléchargement dans la section Fichiers générés (10s puis disparition)
+const showDownloadSuccess = (message: string) => {
+  if (downloadNotifTimeout.value) {
+    clearTimeout(downloadNotifTimeout.value)
+    downloadNotifTimeout.value = null
+  }
+  downloadSuccessMessage.value = message
+  downloadSuccessVisible.value = true
+  downloadNotifTimeout.value = setTimeout(() => {
+    downloadSuccessVisible.value = false
+    downloadSuccessMessage.value = ''
+    downloadNotifTimeout.value = null
+  }, 10000)
+}
+
 // Fonction pour télécharger un fichier
 const downloadFile = async (file: { name: string; url: string }) => {
+  error.value = ''
+  const absoluteUrl = file.url.startsWith('http') ? file.url : `${window.location.origin}${file.url}`
   try {
-    // file.url est déjà au format /generated/filename
-    // En développement, Vite proxy vers le backend, donc on utilise directement l'URL
-    // En production, l'URL sera relative et fonctionnera aussi
-    const response = await fetch(file.url, {
+    const response = await fetch(absoluteUrl, {
       method: 'GET',
+      credentials: 'include',
     })
     if (!response.ok) {
       throw new Error(`Erreur lors du téléchargement: ${response.status} ${response.statusText}`)
     }
-    
     const blob = await response.blob()
     const downloadUrl = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -1192,10 +1275,21 @@ const downloadFile = async (file: { name: string; url: string }) => {
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(downloadUrl)
-    
-    success.value = `✅ Fichier ${file.name} téléchargé avec succès`
+    showDownloadSuccess(`Fichier ${file.name} téléchargé avec succès`)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Erreur lors du téléchargement'
+    try {
+      const link = document.createElement('a')
+      link.href = absoluteUrl
+      link.download = file.name
+      link.rel = 'noopener'
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      showDownloadSuccess(`Téléchargement de ${file.name} lancé`)
+    } catch (fallbackErr) {
+      error.value = err instanceof Error ? err.message : 'Erreur lors du téléchargement'
+    }
   }
 }
 
@@ -1327,6 +1421,7 @@ const initXterm = async () => {
     try {
       await fetch(`${API_BASE}/balance-calculator/answer/${currentProcessId.value}`, {
         method: 'POST',
+        credentials: 'include',
         headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ answer: data }),
       })
@@ -1359,12 +1454,9 @@ const cleanupXterm = () => {
   }
 }
 
-// Surveiller l'ouverture du modal pour initialiser xterm
-watch(showBalancesModal, async (isOpen) => {
-  if (isOpen) {
-    await nextTick()
-    initXterm()
-  } else {
+// Surveiller la fermeture de la section pour nettoyer xterm
+watch(showBalancesModal, (isOpen) => {
+  if (!isOpen) {
     cleanupXterm()
   }
 })
@@ -1441,20 +1533,10 @@ onUnmounted(() => {
 
 <template>
   <div class="generate-view">
-    <!-- Bannière d'information importante -->
-    <div class="info-banner">
-      <div class="info-banner-content">
-        <span class="info-banner-icon">⚠️</span>
-        <div class="info-banner-text">
-          <strong>Attention :</strong> Ne jamais créer de données pour snapshot depuis cette interface. Cette interface est uniquement destinée aux tests de données.
-        </div>
-      </div>
-    </div>
-
     <div class="generate-card">
       <div class="card-header">
-        <h2>⚙️ Génération des données</h2>
-        <p>Générez des balances REG et du power voting en utilisant balance-calculator</p>
+        <h2>⚙️ {{ t('generate.generationTitle') }}</h2>
+        <p>{{ t('generate.generationSubtitle') }}</p>
       </div>
 
       <!-- Message par défaut quand aucun projet n'est détecté pour cette session -->
@@ -1465,10 +1547,8 @@ onUnmounted(() => {
       >
         <span class="no-project-icon">📦</span>
         <div class="no-project-text">
-          <strong>Aucun projet balance-calculator détecté pour cette session.</strong>
-          <p style="margin: 0.5rem 0 0 0; font-size: 0.95rem; opacity: 0.95;">
-            Cliquez sur <strong>« Rebuild balance-calculator »</strong> ci-dessous pour cloner le dépôt et commencer.
-          </p>
+          <strong>{{ t('generate.noProject') }}</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.95rem; opacity: 0.95;" v-html="t('generate.noProjectHint')"></p>
         </div>
       </div>
 
@@ -1482,7 +1562,7 @@ onUnmounted(() => {
             @click.prevent="openRebuildModal"
             class="btn btn-secondary"
           >
-            🔄 Rebuild balance-calculator
+            🔄 {{ t('generate.rebuildButton') }}
           </button>
             <div v-if="gitInfo.exists && gitInfo.isGitRepo" style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.875rem; color: var(--text-secondary);">
               <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -1492,17 +1572,17 @@ onUnmounted(() => {
                 </span>
               </div>
               <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span style="font-weight: 600;">Origin:</span>
+                <span style="font-weight: 600;">{{ t('generate.origin') }}:</span>
                 <span style="font-family: monospace; background: var(--card-bg); padding: 0.25rem 0.5rem; border-radius: 0.25rem; border: 1px solid var(--border-color); max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   {{ gitInfo.remote || 'N/A' }}
                 </span>
               </div>
             </div>
             <div v-else-if="gitInfo.exists && !gitInfo.isGitRepo" style="font-size: 0.875rem; color: #ffa500; font-style: italic;">
-              ⚠️ Le dossier existe mais n'est pas un dépôt Git valide
+              ⚠️ {{ t('generate.invalidGitFolder') }}
             </div>
             <div v-else style="font-size: 0.875rem; color: var(--text-secondary); font-style: italic;">
-              balance-calculator n'est pas encore cloné
+              {{ t('generate.notClonedYet') }}
             </div>
           </div>
         </div>
@@ -1535,7 +1615,7 @@ onUnmounted(() => {
                 :title="envLocalCheck.hasAllRequiredVars ? 'Les variables sont gérées depuis .env.local' : ''"
               >
                 <span v-if="!isLoadingEnv">🔄 Recharger</span>
-                <span v-else class="loading">⏳ Chargement...</span>
+                <span v-else class="loading">⏳ {{ t('generate.loading') }}</span>
               </button>
             </div>
             
@@ -1545,7 +1625,7 @@ onUnmounted(() => {
               </div>
               <div v-else style="display: flex; flex-direction: column; gap: 1rem;">
                 <div style="font-size: 0.875rem; color: var(--text-secondary);">
-                  Variables d'environnement requises pour balance-calculator
+                  {{ t('generate.envRequired') }}
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                   <div v-for="key in requiredEnvVars" :key="key" style="display: flex; align-items: center; gap: 1rem;">
@@ -1611,13 +1691,13 @@ onUnmounted(() => {
                 class="btn btn-secondary"
               >
                 <span v-if="!isLoadingConfig">🔄 Recharger</span>
-                <span v-else class="loading">⏳ Chargement...</span>
+                <span v-else class="loading">⏳ {{ t('generate.loading') }}</span>
               </button>
             </div>
             
             <div v-if="showConfigSection" style="display: flex; flex-direction: column; gap: 1rem;">
               <div v-if="isLoadingConfig" style="color: var(--text-secondary); font-style: italic;">
-                ⏳ Chargement de la configuration...
+                ⏳ {{ t('generate.loadingConfig') }}
               </div>
               <div v-else style="display: flex; flex-direction: column; gap: 0.5rem;">
                 <label style="font-weight: 600;">📝 optionsModifiers.ts</label>
@@ -1646,7 +1726,8 @@ onUnmounted(() => {
           <h3><span class="step-number">4</span> Lancer balance calculator</h3>
           <div class="button-group">
             <button
-              @click="showBalancesModal = true"
+              type="button"
+              @click="startBalanceCalculator"
               :disabled="isLoading"
               class="btn btn-primary"
             >
@@ -1662,112 +1743,43 @@ onUnmounted(() => {
       <div v-if="success" class="success-message">✅ {{ success }}</div>
     </div>
 
-    <!-- Modale pour la génération des balances -->
-    <div v-if="showBalancesModal" class="modal-overlay" @click.self="closeBalancesModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>🚀 Balance-calculator - Mode interactif</h3>
-          <button @click="closeBalancesModal" class="modal-close">×</button>
-        </div>
-        
-        <div class="modal-body">
-          <!-- Bouton pour lancer balance-calculator -->
-          <div class="form-group" style="margin-bottom: 1.5rem;">
-            <button
-              @click="startBalanceCalculator"
-              :disabled="isLoading || currentProcessId !== null"
-              class="btn btn-primary"
-              style="width: 100%;"
-            >
-              <span v-if="!isLoading && !currentProcessId">🚀 Lancer balance-calculator</span>
-              <span v-else-if="isLoading">⏳ Lancement...</span>
-              <span v-else>✅ Balance-calculator en cours d'exécution</span>
-            </button>
-          </div>
+    <!-- Section terminal balance-calculator (inline, pleine largeur) -->
+    <div v-if="showBalancesModal" ref="terminalSectionRef" class="terminal-inline-section">
+      <div class="terminal-inline-header">
+        <h3>🚀 Balance-calculator - Mode interactif</h3>
+        <button type="button" @click="closeBalancesModal" class="modal-close">×</button>
+      </div>
 
-          <!-- Terminal interactif avec xterm.js -->
-          <div class="form-group">
-            <label>💻 Terminal interactif</label>
-            <div 
-              ref="terminalContainer" 
-              class="xterm-terminal-container"
-              style="width: 100%; height: 600px; background: #1e1e1e; border-radius: 0.5rem; padding: 1rem; overflow: hidden;"
-            ></div>
-          </div>
+      <!-- Notif visible : Balance-calculator lancé... (en cours d'exécution dans le terminal ci-dessous) -->
+      <div v-if="success && currentProcessId" class="terminal-section-notif">
+        ✅ {{ success }} <span class="terminal-section-notif-parens">(en cours d'exécution dans le terminal ci-dessous)</span>
+      </div>
 
-          <!-- Zone de prompt interactif (désactivée - on utilise le terminal maintenant) -->
-          <div v-if="false && pendingPrompt" class="prompt-container">
-            <div class="prompt-header">
-              <span>💡 Question interactive</span>
-            </div>
-            <div class="prompt-question">{{ pendingPrompt.question }}</div>
-            
-            <div v-if="(pendingPrompt.type === 'select' || pendingPrompt.type === 'checkbox') && pendingPrompt.options && pendingPrompt.options.length > 0" class="prompt-options">
-              <!-- Checkbox (sélection multiple) -->
-              <template v-if="pendingPrompt.type === 'checkbox'">
-                <label
-                  v-for="(option, index) in pendingPrompt.options"
-                  :key="index"
-                  class="prompt-option"
-                >
-                  <input
-                    type="checkbox"
-                    :value="option"
-                    v-model="promptAnswers"
-                  />
-                  <span>{{ option }}</span>
-                </label>
-              </template>
-              <!-- Select (sélection unique) -->
-              <template v-else>
-                <label
-                  v-for="(option, index) in pendingPrompt.options"
-                  :key="index"
-                  class="prompt-option"
-                >
-                  <input
-                    type="radio"
-                    :value="option"
-                    v-model="promptAnswer"
-                    name="prompt-option"
-                  />
-                  <span>{{ option }}</span>
-                </label>
-              </template>
-            </div>
-            
-            <div v-else-if="pendingPrompt.type === 'confirm'" class="prompt-options">
-              <label class="prompt-option">
-                <input type="radio" value="y" v-model="promptAnswer" name="prompt-confirm" />
-                <span>Oui</span>
-              </label>
-              <label class="prompt-option">
-                <input type="radio" value="n" v-model="promptAnswer" name="prompt-confirm" />
-                <span>Non</span>
-              </label>
-            </div>
-            
-            <div v-else-if="pendingPrompt.type === 'input'" class="prompt-input">
-              <input
-                type="text"
-                v-model="promptAnswer"
-                @keyup.enter="sendPromptAnswer"
-                class="form-input"
-                placeholder="Tapez votre réponse..."
-              />
-            </div>
-            
-            <div class="prompt-actions">
-              <button @click="sendPromptAnswer" :disabled="pendingPrompt.type === 'checkbox' ? promptAnswers.length === 0 : !promptAnswer" class="btn btn-primary btn-small">
-                📤 Envoyer
-              </button>
-            </div>
-          </div>
+      <div class="terminal-inline-body">
+        <!-- Aide rapide pour le terminal interactif -->
+        <div class="terminal-help">
+          <span class="terminal-help-item"><kbd>↑</kbd><kbd>↓</kbd> Naviguer</span>
+          <span class="terminal-help-item"><kbd>Espace</kbd> Activer / Désactiver une option</span>
+          <span class="terminal-help-item"><kbd>Entrée</kbd> Valider</span>
         </div>
 
-        <div class="modal-footer">
-          <button @click="closeBalancesModal" class="btn btn-secondary">Fermer</button>
+        <!-- Terminal interactif avec xterm.js -->
+        <div class="form-group" style="margin-bottom: 0;">
+          <div
+            ref="terminalContainer"
+            class="xterm-terminal-container"
+            style="width: 100%; height: 600px; background: #1e1e1e; border-radius: 0.5rem; padding: 1rem; overflow: hidden;"
+          ></div>
         </div>
+      </div>
+
+      <div class="terminal-inline-footer">
+        <span v-if="isLoading" class="loading-indicator">⏳ Lancement...</span>
+        <span v-else-if="currentProcessId" class="running-indicator">
+          ✅ Balance-calculator en cours d'exécution
+          <span class="running-notif">({{ success || 'lancé' }})</span>
+        </span>
+        <button type="button" @click="closeBalancesModal" class="btn btn-secondary">Fermer</button>
       </div>
     </div>
 
@@ -1775,7 +1787,7 @@ onUnmounted(() => {
     <div v-if="showRebuildModal" class="modal-overlay" @click.self="closeRebuildModal">
       <div class="modal-content" style="max-width: 900px;">
         <div class="modal-header">
-          <h3>🔄 Rebuild balance-calculator</h3>
+          <h3>🔄 {{ t('generate.rebuildButton') }}</h3>
           <button @click="closeRebuildModal" class="modal-close">×</button>
         </div>
         
@@ -1811,7 +1823,7 @@ onUnmounted(() => {
           <div class="form-group" style="margin-bottom: 1.5rem;">
             <label>🌿 Branche</label>
             <div v-if="isLoadingBranches" style="color: var(--text-secondary); font-style: italic;">
-              ⏳ Chargement des branches...
+              ⏳ {{ t('generate.loadingBranches') }}
             </div>
             <select 
               v-else-if="availableBranches.length > 0"
@@ -1825,7 +1837,7 @@ onUnmounted(() => {
             </select>
             <div v-else style="color: var(--text-secondary); font-style: italic;">
               <div v-if="error">⚠️ {{ error }}</div>
-              <div v-else>Aucune branche disponible. La branche par défaut sera utilisée.</div>
+              <div v-else>{{ t('generate.noBranch') }}</div>
             </div>
           </div>
 
@@ -1864,7 +1876,7 @@ onUnmounted(() => {
     <!-- Zone de drag and drop pour uploader des fichiers -->
     <div v-if="gitInfo.exists && gitInfo.isGitRepo" class="upload-files-section">
       <div class="upload-files-card">
-        <h3>📤 Uploader des fichiers vers outDatas</h3>
+        <h3>📤 {{ t('generate.uploadFiles') }}</h3>
         <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">
           Glissez-déposez ou sélectionnez des fichiers CSV/JSON pour les copier dans balance-calculator/outDatas
         </p>
@@ -1889,7 +1901,7 @@ onUnmounted(() => {
           @drop.prevent="handleDrop"
         >
           <div v-if="isUploadingFiles" class="upload-status">
-            <span class="loading">⏳ Upload en cours...</span>
+            <span class="loading">⏳ {{ t('generate.uploadInProgress') }}</span>
           </div>
           <div v-else class="upload-content">
             <div class="upload-icon">📁</div>
@@ -1924,13 +1936,36 @@ onUnmounted(() => {
     </div>
 
     <div v-if="gitInfo.exists && gitInfo.isGitRepo" class="files-section">
+      <!-- Notif téléchargement : 10s en haut de la section avec barre de temps -->
+      <Transition name="download-notif">
+        <div v-if="downloadSuccessVisible && downloadSuccessMessage" class="download-success-notif" :key="downloadSuccessMessage">
+          <span class="download-success-icon">✅</span>
+          <span class="download-success-text">{{ downloadSuccessMessage }}</span>
+          <div class="download-success-progress" aria-hidden="true">
+            <div class="download-success-progress-bar" :key="downloadSuccessMessage"></div>
+          </div>
+        </div>
+      </Transition>
+
+      <!-- Notif suppression différée : rouge, 10s, barre de temps, Annuler à droite -->
+      <Transition name="download-notif">
+        <div v-if="deleteNotifVisible && deletePendingFileName" class="delete-pending-notif" :key="deletePendingFileName">
+          <span class="delete-pending-icon">🗑️</span>
+          <span class="delete-pending-text">{{ deletePendingFileName }} sera supprimé dans 10 secondes</span>
+          <button type="button" class="delete-pending-cancel" @click="cancelDeleteFile">{{ t('generate.cancel') }}</button>
+          <div class="delete-pending-progress" aria-hidden="true">
+            <div class="delete-pending-progress-bar" :key="deletePendingFileName"></div>
+          </div>
+        </div>
+      </Transition>
+
       <div class="files-header">
-        <h3>📁 Fichiers générés ({{ files.length }})</h3>
-        <button @click="loadFiles" class="btn-refresh">🔄 Actualiser</button>
+        <h3>📁 {{ t('generate.generatedFilesTitle', { count: files.length }) }}</h3>
+        <button @click="loadFiles" class="btn-refresh">🔄 {{ t('generate.refresh') }}</button>
       </div>
 
       <div v-if="files.length === 0" class="empty-state">
-        <p>Aucun fichier généré pour le moment</p>
+        <p>{{ t('generate.noFileGenerated') }}</p>
       </div>
 
       <div v-else class="files-list">
@@ -1960,7 +1995,7 @@ onUnmounted(() => {
             </button>
             <button
               type="button"
-              @click.prevent="deleteFile(file.name)"
+              @click.prevent="requestDeleteFile(file.name)"
               class="btn btn-small btn-danger"
             >
               🗑️ Supprimer
@@ -1975,40 +2010,6 @@ onUnmounted(() => {
 <style scoped>
 .generate-view {
   animation: fadeIn 0.5s ease;
-}
-
-.info-banner {
-  background: linear-gradient(135deg, rgba(255, 193, 7, 0.15), rgba(255, 152, 0, 0.15));
-  border: 2px solid rgba(255, 193, 7, 0.5);
-  border-radius: 0.75rem;
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 2rem;
-  box-shadow: 0 4px 12px rgba(255, 193, 7, 0.2);
-  animation: slideIn 0.5s ease;
-}
-
-.info-banner-content {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.info-banner-icon {
-  font-size: 1.5rem;
-  flex-shrink: 0;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-.info-banner-text {
-  flex: 1;
-  color: var(--text-primary);
-  font-size: 1rem;
-  line-height: 1.6;
-}
-
-.info-banner-text strong {
-  color: #ff9800;
-  font-weight: 700;
 }
 
 .no-project-banner {
@@ -2322,6 +2323,129 @@ onUnmounted(() => {
   font-size: 0.8rem;
 }
 
+/* Notif téléchargement (section Fichiers générés) — 10s avec barre de temps */
+.download-notif-enter-active,
+.download-notif-leave-active {
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+.download-notif-enter-from,
+.download-notif-leave-to {
+  opacity: 0;
+  transform: translateY(-0.5rem);
+}
+
+.download-success-notif {
+  position: relative;
+  margin-bottom: 1.25rem;
+  padding: 0.9rem 1.25rem;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  border-radius: 0.75rem;
+  color: var(--text-primary);
+  font-size: 1rem;
+  overflow: hidden;
+}
+
+.download-success-icon {
+  margin-right: 0.5rem;
+}
+
+.download-success-text {
+  font-weight: 500;
+}
+
+.download-success-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(34, 197, 94, 0.25);
+  border-radius: 0 0 0.75rem 0.75rem;
+}
+
+.download-success-progress-bar {
+  height: 100%;
+  width: 100%;
+  background: var(--primary-color);
+  border-radius: 0 0 0 0.75rem;
+  transform-origin: right;
+  animation: download-progress-shrink 10s linear forwards;
+}
+
+@keyframes download-progress-shrink {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* Notif suppression différée (rouge, 10s, Annuler à droite) */
+.delete-pending-notif {
+  position: relative;
+  margin-bottom: 1.25rem;
+  padding: 0.9rem 1.25rem;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: 0.75rem;
+  color: var(--text-primary);
+  font-size: 1rem;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.delete-pending-icon {
+  flex-shrink: 0;
+}
+
+.delete-pending-text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.delete-pending-cancel {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0.4rem 0.9rem;
+  background: rgba(239, 68, 68, 0.3);
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.delete-pending-cancel:hover {
+  background: rgba(239, 68, 68, 0.45);
+  border-color: rgba(239, 68, 68, 0.8);
+}
+
+.delete-pending-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(239, 68, 68, 0.25);
+  border-radius: 0 0 0.75rem 0.75rem;
+}
+
+.delete-pending-progress-bar {
+  height: 100%;
+  width: 100%;
+  background: #ef4444;
+  border-radius: 0 0 0 0.75rem;
+  transform-origin: right;
+  animation: download-progress-shrink 10s linear forwards;
+}
+
 .files-section {
   background: var(--card-bg);
   backdrop-filter: blur(10px);
@@ -2521,6 +2645,108 @@ onUnmounted(() => {
   gap: 1rem;
   padding: 1.5rem;
   border-top: 1px solid var(--border-color);
+}
+
+/* Section terminal inline (remplace la modale pour balance-calculator) */
+.terminal-inline-section {
+  margin-top: 2rem;
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-xl);
+  animation: fadeIn 0.3s ease;
+}
+
+.terminal-inline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.terminal-inline-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.terminal-section-notif {
+  padding: 0.75rem 1.5rem;
+  margin: 0 1.5rem;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.terminal-section-notif-parens {
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.terminal-inline-body {
+  padding: 1.5rem;
+}
+
+.terminal-inline-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.loading-indicator {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.running-indicator {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.running-indicator .running-notif {
+  color: var(--primary-color);
+  font-weight: 500;
+  margin-left: 0.25rem;
+}
+
+.terminal-help {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.terminal-help-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.terminal-help kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem 0.45rem;
+  background: var(--primary-color);
+  border: 1px solid var(--primary-dark);
+  border-bottom-width: 2px;
+  border-radius: 0.3rem;
+  font-family: inherit;
+  font-size: 0.75rem;
+  color: #111;
+  white-space: nowrap;
 }
 
 .form-group {

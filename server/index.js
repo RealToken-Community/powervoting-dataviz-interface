@@ -61,20 +61,49 @@ async function cleanupInactiveWorkspaces() {
 
 fs.mkdir(workspacesDir, { recursive: true }).catch(console.error);
 
+// Parser le header Cookie (sans dépendance cookie-parser)
+function parseCookies(cookieHeader) {
+  if (!cookieHeader || typeof cookieHeader !== 'string') return {};
+  return cookieHeader.split(';').reduce((acc, s) => {
+    const idx = s.indexOf('=');
+    if (idx === -1) return acc;
+    const key = s.slice(0, idx).trim();
+    const val = s.slice(idx + 1).trim().replace(/^"|"$/g, '');
+    if (key) acc[key] = decodeURIComponent(val);
+    return acc;
+  }, {});
+}
+
+const SESSION_COOKIE_NAME = 'powervoting_session_id';
+const SESSION_COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 an
+
+function setSessionCookie(res, sessionId) {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=${sessionId}; Path=/; Max-Age=${SESSION_COOKIE_MAX_AGE}; SameSite=Lax; HttpOnly`);
+}
+
+function generateSessionId() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 const app = express();
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
-// Middleware: require valid X-Session-Id for generation/upload (per-user isolation)
+// Middleware: lier workspace à la session. Priorité: cookie (persistant) > X-Session-Id > génération.
+// Le cookie est (re)défini à chaque requête pour que le lien survive aux redémarrages serveur et reste transparent.
 function ensureSession(req, res, next) {
-  const sessionId = (req.headers['x-session-id'] || req.query.sessionId || '').trim();
-  if (!isValidSessionId(sessionId)) {
-    return res.status(400).json({
-      error: 'Session invalide ou manquante',
-      hint: 'Envoyez un UUID valide dans le header X-Session-Id (généré côté client, stocké en localStorage)',
-    });
-  }
+  const cookies = parseCookies(req.headers.cookie);
+  const fromCookie = (cookies[SESSION_COOKIE_NAME] || '').trim();
+  const fromHeader = (req.headers['x-session-id'] || req.query.sessionId || '').trim();
+  let sessionId = fromCookie;
+  if (!isValidSessionId(sessionId)) sessionId = fromHeader;
+  if (!isValidSessionId(sessionId)) sessionId = generateSessionId();
   req.sessionId = sessionId;
+  setSessionCookie(res, sessionId);
   next();
 }
 
@@ -118,13 +147,22 @@ app.get('/generated/:sessionId/:filename', (req, res, next) => {
   if (!isValidSessionId(sessionId)) {
     return res.status(400).json({ error: 'Session invalide' });
   }
-  const safeName = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
-  const filePath = path.join(getOutDatasPath(sessionId), safeName);
+  let decodedFilename = filename;
+  try {
+    decodedFilename = decodeURIComponent(filename);
+  } catch (_) {}
+  const baseName = path.basename(decodedFilename);
+  if (!baseName || baseName.includes('..') || baseName.includes('/') || baseName.includes('\\')) {
+    return res.status(400).json({ error: 'Nom de fichier invalide' });
+  }
+  const filePath = path.join(getOutDatasPath(sessionId), baseName);
   const resolved = path.resolve(filePath);
   const resolvedOut = path.resolve(getOutDatasPath(sessionId));
   if (!resolved.startsWith(resolvedOut) || !existsSync(filePath)) {
     return res.status(404).json({ error: 'Fichier non trouvé' });
   }
+  const safeForHeader = baseName.replace(/"/g, "'");
+  res.setHeader('Content-Disposition', `attachment; filename="${safeForHeader}"`);
   res.sendFile(filePath);
 });
 
@@ -240,17 +278,21 @@ app.get('/api/balance-calculator/logs/:processId', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders(); // Envoyer les headers immédiatement pour que le proxy sache que c'est du SSE
   
   const processData = activeProcesses.get(processId);
   if (processData) {
     // Envoyer les logs existants
     processData.logs.forEach(log => {
       res.write(`data: ${JSON.stringify(log)}\n\n`);
+      if (res.flush) res.flush();
     });
     
     // Écouter les nouveaux logs
     const logListener = (log) => {
       res.write(`data: ${JSON.stringify(log)}\n\n`);
+      if (res.flush) res.flush();
     };
     processData.listeners.push(logListener);
     
@@ -263,6 +305,7 @@ app.get('/api/balance-calculator/logs/:processId', (req, res) => {
     });
   } else {
     res.write(`data: ${JSON.stringify({ type: 'error', message: 'Process not found' })}\n\n`);
+    if (res.flush) res.flush();
     res.end();
   }
 });
@@ -338,9 +381,9 @@ app.post('/api/balance-calculator/start', ensureSession, async (req, res) => {
       addLog('error', '❌ THEGRAPH_API_KEY n\'est pas défini');
       addLog('info', '💡 Créez un fichier .env dans balance-calculator/ avec: THEGRAPH_API_KEY=votre_cle');
       addLog('info', '💡 Ou définissez la variable d\'environnement dans le conteneur Docker');
-      
-      // Nettoyer et arrêter
-      activeProcesses.delete(processId);
+      // Laisser le processus dans activeProcesses pour que le client puisse lire les logs
+      // Le client connectera l'EventSource après avoir reçu le processId
+      setTimeout(() => activeProcesses.delete(processId), 5 * 60 * 1000);
       return;
     }
     
@@ -522,12 +565,23 @@ app.post('/api/balance-calculator/start', ensureSession, async (req, res) => {
       }
     };
 
+    // En mode non-PTY, à chaque question inquirer : clear le terminal et afficher la question en haut.
+    const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').replace(/\r/g, '');
+    const isPromptRefresh = (text) => {
+      const clean = stripAnsi(text);
+      return clean.includes('? ') && (clean.includes('❯') || clean.includes('(Use arrow keys)'));
+    };
+
     proc.stdout.on('data', (data) => {
       const rawData = data.toString();
-      
-      // Avec xterm.js, on envoie les données brutes avec tous les codes ANSI
-      // xterm.js peut gérer nativement les codes ANSI, donc pas besoin de nettoyer
-      addLog('stdout', rawData);
+      let outputData = rawData;
+
+      if (isPromptRefresh(rawData)) {
+        // Clear écran + curseur en haut, puis afficher la question tout en haut
+        outputData = `\x1b[2J\x1b[H${rawData}`;
+      }
+
+      addLog('stdout', outputData);
       console.log('Balance calculator output (raw):', rawData.substring(0, 200));
     });
 
@@ -1194,12 +1248,58 @@ app.post('/api/balance-calculator/fix-permissions', ensureSession, async (req, r
   }
 });
 
+// Récupérer les infos Git d'un workspace (par sessionId)
+async function getGitInfoForSession(sessionId) {
+  const balanceCalculatorPath = getBalanceCalculatorPath(sessionId);
+  if (!existsSync(balanceCalculatorPath)) {
+    return { branch: null, remote: null, exists: false, isGitRepo: false };
+  }
+  let isGitRepo = false;
+  try {
+    await execAsync(`cd ${balanceCalculatorPath} && git rev-parse --git-dir`, { timeout: 5000 });
+    isGitRepo = true;
+  } catch {
+    return { branch: null, remote: null, exists: true, isGitRepo: false };
+  }
+  let branch = null;
+  let remote = null;
+  try {
+    const { stdout: branchOutput } = await execAsync(`cd ${balanceCalculatorPath} && git rev-parse --abbrev-ref HEAD`, { timeout: 5000 });
+    branch = branchOutput.trim();
+  } catch (err) {
+    console.warn('Erreur branche:', err.message);
+  }
+  try {
+    const { stdout: remoteOutput } = await execAsync(`cd ${balanceCalculatorPath} && git remote get-url origin`, { timeout: 5000 });
+    remote = remoteOutput.trim();
+  } catch (err) {
+    console.warn('Erreur remote:', err.message);
+  }
+  return { branch, remote, exists: true, isGitRepo: true };
+}
+
 // Endpoint pour récupérer les informations Git de balance-calculator (par session)
+// Persistance : le session ID est côté client (localStorage), les workspaces sont sur disque.
+// Donc après un redémarrage du serveur, chaque client renvoie son session ID et retrouve son workspace.
+// suggestedSessionId : uniquement si la session actuelle n'a pas de workspace ET qu'il n'existe qu'UN SEUL
+// workspace sur le serveur (récupération après perte de session). Avec plusieurs workspaces on ne suggère rien.
 app.get('/api/balance-calculator/git-info', ensureSession, async (req, res) => {
   try {
-    await touchSessionUsed(req.sessionId);
     const balanceCalculatorPath = getBalanceCalculatorPath(req.sessionId);
     if (!existsSync(balanceCalculatorPath)) {
+      let suggestedSessionId = null;
+      if (existsSync(workspacesDir)) {
+        const entries = await fs.readdir(workspacesDir, { withFileTypes: true }).catch(() => []);
+        const dirs = entries.filter((e) => e.isDirectory() && e.name !== req.sessionId);
+        const withBalanceCalculator = dirs.filter((d) => existsSync(path.join(workspacesDir, d.name, 'balance-calculator')));
+        if (withBalanceCalculator.length === 1) {
+          suggestedSessionId = withBalanceCalculator[0].name;
+        }
+      }
+      if (suggestedSessionId) {
+        const gitInfo = await getGitInfoForSession(suggestedSessionId);
+        return res.json({ ...gitInfo, suggestedSessionId });
+      }
       return res.json({
         branch: null,
         remote: null,
@@ -1207,45 +1307,9 @@ app.get('/api/balance-calculator/git-info', ensureSession, async (req, res) => {
         isGitRepo: false,
       });
     }
-    let isGitRepo = false;
-    try {
-      await execAsync(`cd ${balanceCalculatorPath} && git rev-parse --git-dir`, { timeout: 5000 });
-      isGitRepo = true;
-    } catch (err) {
-      // Ce n'est pas un dépôt Git valide
-      return res.json({
-        branch: null,
-        remote: null,
-        exists: true,
-        isGitRepo: false,
-      });
-    }
-    
-    let branch = null;
-    let remote = null;
-    
-    try {
-      // Récupérer la branche actuelle
-      const { stdout: branchOutput } = await execAsync(`cd ${balanceCalculatorPath} && git rev-parse --abbrev-ref HEAD`, { timeout: 5000 });
-      branch = branchOutput.trim();
-    } catch (err) {
-      console.warn('Erreur lors de la récupération de la branche:', err.message);
-    }
-    
-    try {
-      // Récupérer l'URL du remote origin
-      const { stdout: remoteOutput } = await execAsync(`cd ${balanceCalculatorPath} && git remote get-url origin`, { timeout: 5000 });
-      remote = remoteOutput.trim();
-    } catch (err) {
-      console.warn('Erreur lors de la récupération du remote:', err.message);
-    }
-    
-    res.json({
-      branch,
-      remote,
-      exists: true,
-      isGitRepo: true,
-    });
+    await touchSessionUsed(req.sessionId);
+    const gitInfo = await getGitInfoForSession(req.sessionId);
+    res.json(gitInfo);
   } catch (error) {
     console.error('Erreur lors de la récupération des infos Git:', error);
     res.status(500).json({ error: error.message });

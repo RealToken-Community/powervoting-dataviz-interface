@@ -33,6 +33,12 @@ const router = createRouter({
       name: 'analysis',
       component: AnalysisView,
     },
+    {
+      path: '/:date',
+      name: 'homeSnapshot',
+      component: HomeView,
+      props: true,
+    },
   ],
 })
 

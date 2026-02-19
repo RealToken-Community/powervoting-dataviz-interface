@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
 import AnalysisView from '@/views/AnalysisView.vue'
 
+const route = useRoute()
+const router = useRouter()
 const dataStore = useDataStore()
 const snapshots = ref<SnapshotInfo[]>([])
 const selectedSnapshot = ref<SnapshotInfo | null>(null)
@@ -11,12 +14,33 @@ const isLoading = ref(true)
 const isLoadingSnapshot = ref(false)
 const error = ref<string>('')
 
+function findSnapshotByDate(date: string): SnapshotInfo | undefined {
+  return snapshots.value.find((s) => s.date === date)
+}
+
+async function applySnapshotFromRoute() {
+  const date = route.params.date as string | undefined
+  if (!date || snapshots.value.length === 0) return
+  const snapshot = findSnapshotByDate(date)
+  if (snapshot && snapshot.date !== selectedSnapshot.value?.date) {
+    await selectSnapshot(snapshot, false)
+  }
+}
+
 onMounted(async () => {
   try {
     snapshots.value = await loadSnapshotManifest()
-    // Par défaut : charger le dernier snapshot en date (déjà le premier, liste triée du plus récent au plus ancien)
     if (snapshots.value.length > 0) {
-      await selectSnapshot(snapshots.value[0])
+      const dateFromUrl = route.params.date as string | undefined
+      const snapshot = dateFromUrl ? findSnapshotByDate(dateFromUrl) : null
+      if (snapshot) {
+        await selectSnapshot(snapshot, false)
+      } else {
+        await selectSnapshot(snapshots.value[0], false)
+        if (dateFromUrl) {
+          router.replace('/')
+        }
+      }
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Erreur lors du chargement des snapshots'
@@ -25,7 +49,14 @@ onMounted(async () => {
   }
 })
 
-const selectSnapshot = async (snapshot: SnapshotInfo) => {
+watch(
+  () => route.params.date,
+  () => {
+    if (snapshots.value.length > 0) applySnapshotFromRoute()
+  }
+)
+
+const selectSnapshot = async (snapshot: SnapshotInfo, updateUrl = false) => {
   if (selectedSnapshot.value?.date === snapshot.date) return
   isLoadingSnapshot.value = true
   error.value = ''
@@ -34,6 +65,9 @@ const selectSnapshot = async (snapshot: SnapshotInfo) => {
     dataStore.setBalancesData(balances)
     dataStore.setPowerVotingData(powerVoting)
     selectedSnapshot.value = snapshot
+    if (updateUrl) {
+      router.replace(`/${snapshot.date}`)
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Erreur lors du chargement du snapshot'
   } finally {
@@ -79,7 +113,7 @@ const formatNumber = (num: number) => {
               type="button"
               class="home-list-btn"
               :disabled="isLoadingSnapshot"
-              @click="selectSnapshot(snapshot)"
+              @click="selectSnapshot(snapshot, true)"
             >
               <span class="home-list-date">{{ snapshot.dateFormatted }}</span>
               <template v-if="snapshot.metrics">

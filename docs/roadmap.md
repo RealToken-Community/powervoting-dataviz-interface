@@ -3,12 +3,8 @@
 ## V1.0
 
 Deploy: 
-- update all port and url parametrable (docker-compose)
-- add verification var in initializer config
+- See with Sigri
 
-## V1.5
-
-- for each snapshot in public/snapshot/<date>, we cn create specific analysis url (for each snapshot), for compare and share analysis snapshot
 
 ## V2.0
 

@@ -3,8 +3,8 @@
 ## V1.0
 
 Deploy: 
-- update all port and url parametrable (docker-compose)
-- add verification var in initializer config
+- See with Sigri
+
 
 ## V2.0
 
@@ -18,6 +18,8 @@ Deploy:
 
 **Display all available file selection options right away.(Generate page tools)**
 - In the code, look for the function that lists — it’s something like that — and add or adjust it. In balance-calculator, replace pageSize with 5 (in the askUseFile function).
+
+
 
 
 ## Design 

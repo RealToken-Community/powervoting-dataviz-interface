@@ -1464,11 +1464,93 @@ const searchAddressDetails = async () => {
       powerVoting,
       positions,
     }
+    await loadAddressEvolutionBySnapshot(addressToSearch)
   } catch (err) {
     console.error('Erreur lors de la recherche des détails:', err)
     addressDetails.value = null
+    addressEvolutionBySnapshot.value = []
   } finally {
     isSearchingAddressDetails.value = false
+  }
+}
+
+// Évolution de l'adresse recherchée sur tous les snapshots (rang + %)
+const addressEvolutionBySnapshot = ref<Array<{
+  date: string
+  dateFormatted: string
+  isCurrent: boolean
+  rank: number | null
+  rankChange: number | null
+  pct: number
+  pctChange: number | null
+}>>([])
+const isLoadingAddressEvolution = ref(false)
+
+const loadAddressEvolutionBySnapshot = async (addressLower: string) => {
+  addressEvolutionBySnapshot.value = []
+  isLoadingAddressEvolution.value = true
+  try {
+    const rows: Array<{ date: string; dateFormatted: string; isCurrent: boolean; rank: number | null; rankChange: number | null; pct: number; pctChange: number | null }> = []
+    let prevRank: number | null = null
+    let prevPct: number | null = null
+
+    // Ligne snapshot actuel
+    const sorted = [...dataStore.powerVoting]
+      .map((p) => ({ address: (p.address || '').toLowerCase(), power: parseFloat(String(p.powerVoting || 0)) || 0 }))
+      .filter((x) => x.power > 0)
+      .sort((a, b) => b.power - a.power)
+    const totalPower = sorted.reduce((s, x) => s + x.power, 0)
+    const currentIdx = sorted.findIndex((x) => x.address === addressLower)
+    const currentRank = currentIdx >= 0 ? currentIdx + 1 : null
+    const currentPower = currentIdx >= 0 ? sorted[currentIdx].power : 0
+    const currentPct = totalPower > 0 ? (currentPower / totalPower) * 100 : 0
+    rows.push({
+      date: 'Actuel',
+      dateFormatted: 'Snapshot actuel',
+      isCurrent: true,
+      rank: currentRank,
+      rankChange: null,
+      pct: currentPct,
+      pctChange: null,
+    })
+    prevRank = currentRank
+    prevPct = currentPct
+
+    // Lignes pour chaque snapshot historique (ordre: du plus récent au plus ancien)
+    for (const snapshot of availableSnapshots.value) {
+      const { powerVoting } = await loadSnapshot(snapshot)
+      const raw = powerVoting?.result?.powerVoting || powerVoting
+      const arr = Array.isArray(raw) ? raw : []
+      const withPower = arr
+        .map((p: any) => ({ address: (p.address || '').toLowerCase(), power: parseFloat(String(p.powerVoting || 0)) || 0 }))
+        .filter((x: { address: string; power: number }) => x.power > 0)
+      const snapTotal = withPower.reduce((s: number, x: { power: number }) => s + x.power, 0)
+      const sortedSnap = [...withPower].sort((a, b) => b.power - a.power)
+      const idx = sortedSnap.findIndex((x: { address: string }) => x.address === addressLower)
+      const rank = idx >= 0 ? idx + 1 : null
+      const power = idx >= 0 ? sortedSnap[idx].power : 0
+      const pct = snapTotal > 0 ? (power / snapTotal) * 100 : 0
+      // Évolution vs snapshot "suivant" (plus récent) : rank - prevRank > 0 = on était moins bien classé = places gagnées
+      const rankChange = prevRank != null && rank != null ? rank - prevRank : null
+      const pctChange = prevPct != null ? pct - prevPct : null
+      rows.push({
+        date: snapshot.date,
+        dateFormatted: formatSnapshotDate(snapshot.date),
+        isCurrent: false,
+        rank,
+        rankChange,
+        pct,
+        pctChange,
+      })
+      prevRank = rank
+      prevPct = pct
+    }
+    addressEvolutionBySnapshot.value = rows
+  } catch (e) {
+    console.warn('Erreur chargement évolution par snapshot:', e)
+    addressEvolutionBySnapshot.value = []
+  } finally {
+    isLoadingAddressEvolution.value = false
   }
 }
 
@@ -3300,6 +3382,57 @@ const powerBreakdownChartOptions = {
         </div>
         <div v-else style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; color: var(--text-secondary); text-align: center;">
           {{ t('analysis.noPositionInPools') }}
+        </div>
+
+        <!-- Évolution de l'adresse par snapshot (rang + % vs précédent) -->
+        <div class="address-evolution-section" style="margin-top: 2rem;">
+          <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">📈 {{ t('analysis.addressEvolutionBySnapshot') }}</h4>
+          <p v-if="isLoadingAddressEvolution" style="color: var(--text-secondary); margin: 0;">{{ t('analysis.loadingPreviousSnapshot') }}</p>
+          <div v-else-if="addressEvolutionBySnapshot.length > 0" class="address-evolution-table-wrapper" style="overflow-x: auto;">
+            <table class="address-evolution-table">
+              <thead>
+                <tr>
+                  <th class="addr-evol-col-date">{{ t('analysis.snapshotDate') }}</th>
+                  <th class="addr-evol-col-rank">{{ t('analysis.rank') }}</th>
+                  <th class="addr-evol-col-evol">{{ t('analysis.placeChange') }}</th>
+                  <th class="addr-evol-col-pct">{{ t('analysis.pctTotalPower') }}</th>
+                  <th class="addr-evol-col-pctdiff">{{ t('analysis.pctChange') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(row, idx) in addressEvolutionBySnapshot"
+                  :key="row.date + (row.dateFormatted || '')"
+                  class="address-evolution-row"
+                  :class="{ 'address-evolution-current': row.isCurrent }"
+                >
+                  <td class="addr-evol-col-date">{{ row.dateFormatted }}</td>
+                  <td class="addr-evol-col-rank">
+                    <span v-if="row.rank === null">—</span>
+                    <span v-else>#{{ row.rank }}</span>
+                  </td>
+                  <td class="addr-evol-col-evol">
+                    <span v-if="row.rankChange === null">—</span>
+                    <span v-else-if="row.rankChange === 0">—</span>
+                    <span v-else-if="row.rankChange > 0" class="top-holders-positive">
+                      {{ row.rankChange }} {{ row.rankChange === 1 ? t('analysis.placeGained') : t('analysis.placesGained') }}
+                    </span>
+                    <span v-else class="top-holders-negative">
+                      {{ Math.abs(row.rankChange) }} {{ Math.abs(row.rankChange) === 1 ? t('analysis.placeLost') : t('analysis.placesLost') }}
+                    </span>
+                  </td>
+                  <td class="addr-evol-col-pct">{{ formatNumber(row.pct) }}%</td>
+                  <td class="addr-evol-col-pctdiff">
+                    <span v-if="row.pctChange === null">—</span>
+                    <span v-else-if="row.pctChange === 0">—</span>
+                    <span v-else :class="row.pctChange > 0 ? 'top-holders-positive' : 'top-holders-negative'">
+                      {{ row.pctChange > 0 ? '+' : '' }}{{ formatNumber(row.pctChange) }}%
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -5331,5 +5464,64 @@ const powerBreakdownChartOptions = {
 
 .previous-top20-row:hover {
   background: var(--bg-tertiary);
+}
+
+/* Évolution adresse par snapshot (recherche d'adresse) */
+.address-evolution-table-wrapper {
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.address-evolution-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.address-evolution-table th,
+.address-evolution-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.address-evolution-table thead th {
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--glass-bg);
+}
+
+.addr-evol-col-date {
+  min-width: 120px;
+}
+
+.addr-evol-col-rank {
+  width: 5rem;
+  text-align: center;
+}
+
+.addr-evol-col-evol,
+.addr-evol-col-pct,
+.addr-evol-col-pctdiff {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.addr-evol-col-pct {
+  min-width: 6rem;
+}
+
+.addr-evol-col-pctdiff {
+  min-width: 6rem;
+}
+
+.address-evolution-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.address-evolution-row.address-evolution-current {
+  background: rgba(255, 140, 66, 0.08);
+  font-weight: 500;
 }
 </style>

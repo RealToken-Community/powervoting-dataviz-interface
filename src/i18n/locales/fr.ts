@@ -232,6 +232,8 @@ export default {
     currentRank: 'Rang actuel',
     copySectionLink: 'Copier le lien vers cette section',
     copied: 'Copié !',
+    addressEvolutionBySnapshot: 'Évolution par snapshot (rang et % du pouvoir de vote)',
+    snapshotDate: 'Snapshot',
   },
   common: {
     error: 'Erreur',

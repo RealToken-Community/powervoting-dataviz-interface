@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
@@ -292,6 +292,40 @@ onMounted(async () => {
   }
 })
 
+const copiedAnchorId = ref<string | null>(null)
+const copySectionLink = async (ev: MouseEvent, anchorId: string) => {
+  ev.preventDefault()
+  ev.stopPropagation()
+  const urlSansHash = window.location.href.replace(/#.*$/, '')
+  const urlAvecAncre = urlSansHash + '#' + anchorId
+  const copieOk = () => {
+    copiedAnchorId.value = anchorId
+    setTimeout(() => { copiedAnchorId.value = null }, 2000)
+  }
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(urlAvecAncre)
+      copieOk()
+      return
+    }
+  } catch {
+    /* fallback ci-dessous */
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = urlAvecAncre
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    document.execCommand('copy')
+    copieOk()
+  } catch {
+    copiedAnchorId.value = null
+  }
+  document.body.removeChild(textarea)
+}
+
 const formatNumber = (num: number) => {
   return new Intl.NumberFormat('fr-FR', {
     minimumFractionDigits: 2,
@@ -325,6 +359,268 @@ const formatDiff = (diff: number, isInteger = false) => {
   if (diff === 0) return ''
   const formatted = isInteger ? formatInteger(Math.abs(diff)) : formatNumber(Math.abs(diff))
   return diff > 0 ? `+${formatted}` : `-${formatted}`
+}
+
+// --- Comparaison top holders Power Voting vs snapshot précédent ---
+const previousSnapshotPowerData = ref<{
+  sortedByPower: Array<{ address: string; power: number }>
+  totalPower: number
+  date: string
+} | null>(null)
+const isLoadingPreviousForTopHolders = ref(false)
+
+function getPreviousSnapshotForComparison(): SnapshotInfo | null {
+  const currentDate = dataStore.currentSnapshotDate
+  if (!currentDate || availableSnapshots.value.length === 0) return null
+  if (currentDate === 'Actuel') return availableSnapshots.value[0]
+  const idx = availableSnapshots.value.findIndex((s) => s.date === currentDate)
+  if (idx === -1 || idx >= availableSnapshots.value.length - 1) return null
+  return availableSnapshots.value[idx + 1]
+}
+
+async function loadPreviousSnapshotForTopHolders() {
+  const prev = getPreviousSnapshotForComparison()
+  previousSnapshotPowerData.value = null
+  if (!prev) return
+  isLoadingPreviousForTopHolders.value = true
+  try {
+    const { powerVoting } = await loadSnapshot(prev)
+    const raw = powerVoting?.result?.powerVoting || powerVoting
+    const arr = Array.isArray(raw) ? raw : []
+    const withPower = arr
+      .map((p: any) => ({
+        address: (p.address || '').toLowerCase(),
+        power: parseFloat(String(p.powerVoting || 0)) || 0,
+      }))
+      .filter((x) => x.power > 0)
+    const totalPower = withPower.reduce((s, x) => s + x.power, 0)
+    const sortedByPower = [...withPower].sort((a, b) => b.power - a.power)
+    previousSnapshotPowerData.value = { sortedByPower, totalPower, date: prev.date }
+  } catch (e) {
+    console.warn('Could not load previous snapshot for top holders comparison', e)
+  } finally {
+    isLoadingPreviousForTopHolders.value = false
+  }
+}
+
+const top20HoldersComparison = computed(() => {
+  if (dataStore.powerVoting.length === 0) return null
+  const list = [...dataStore.powerVoting]
+    .map((p) => ({
+      address: (p.address || '').toLowerCase(),
+      power: parseFloat(String(p.powerVoting || 0)) || 0,
+      addressDisplay: p.address || '',
+    }))
+    .filter((x) => x.power > 0)
+    .sort((a, b) => b.power - a.power)
+    .slice(0, 20)
+  const totalPower = dataStore.powerVoting.reduce(
+    (s, p) => s + parseFloat(String(p.powerVoting || 0)) || 0,
+    0,
+  )
+  if (totalPower <= 0) return null
+  const prev = previousSnapshotPowerData.value
+  const prevRankByAddress = new Map<string, number>()
+  if (prev) {
+    prev.sortedByPower.forEach((item, i) => {
+      prevRankByAddress.set(item.address, i + 1)
+    })
+  }
+  const prevTotal = prev?.totalPower ?? 0
+  return list.map((item, i) => {
+    const currentRank = i + 1
+    const currentPct = (item.power / totalPower) * 100
+    const prevRank = prev ? prevRankByAddress.get(item.address) ?? null : null
+    const prevPct =
+      prev && prevTotal > 0
+        ? ((prev.sortedByPower.find((x) => x.address === item.address)?.power ?? 0) / prevTotal) * 100
+        : null
+    const placeChange = prevRank != null ? prevRank - currentRank : null
+    const pctDiff = prevPct != null ? currentPct - prevPct : null
+    return {
+      rank: currentRank,
+      address: item.addressDisplay,
+      power: item.power,
+      pctTotal: currentPct,
+      placeChange,
+      pctDiff,
+    }
+  })
+})
+
+watch(
+  () => [dataStore.currentSnapshotDate, availableSnapshots.value.length] as const,
+  () => {
+    loadPreviousSnapshotForTopHolders()
+  },
+  { immediate: true },
+)
+
+// Ancien top 20 (snapshot précédent) : où sont-ils dans le classement actuel ?
+const previousTop20CurrentRanks = computed(() => {
+  const prev = previousSnapshotPowerData.value
+  if (!prev || prev.sortedByPower.length === 0 || dataStore.powerVoting.length === 0) return null
+  const currentSorted = [...dataStore.powerVoting]
+    .map((p) => ({ address: (p.address || '').toLowerCase(), power: parseFloat(String(p.powerVoting || 0)) || 0 }))
+    .filter((x) => x.power > 0)
+    .sort((a, b) => b.power - a.power)
+  const currentRankByAddress = new Map<string, number>()
+  currentSorted.forEach((item, i) => {
+    currentRankByAddress.set(item.address, i + 1)
+  })
+  const currentTotalPower = currentSorted.reduce((s, x) => s + x.power, 0)
+  const previousTop20 = prev.sortedByPower.slice(0, 20)
+  const prevTotal = prev.totalPower || 1
+  return previousTop20.map((item, i) => {
+    const previousRank = i + 1
+    const currentRank = currentRankByAddress.get(item.address) ?? null
+    const placeChange = currentRank != null ? currentRank - previousRank : null
+    const addressDisplay = dataStore.powerVoting.find((p) => (p.address || '').toLowerCase() === item.address)?.address ?? item.address
+    const prevPct = (item.power / prevTotal) * 100
+    const currentPower = currentSorted.find((x) => x.address === item.address)?.power ?? 0
+    const currentPct = currentTotalPower > 0 ? (currentPower / currentTotalPower) * 100 : 0
+    const pctDiff = currentPct - prevPct
+    return {
+      previousRank,
+      address: item.address,
+      addressDisplay,
+      currentRank,
+      placeChange,
+      pctDiff,
+    }
+  })
+})
+
+const CHART_GREEN = 'rgba(34, 197, 94, 0.85)'
+const CHART_RED = 'rgba(239, 68, 68, 0.85)'
+
+function shortAddress(addr: string): string {
+  if (!addr || addr.length < 14) return addr
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`
+}
+
+const top20RankEvolutionChartData = computed(() => {
+  const list = top20HoldersComparison.value
+  if (!list || list.length === 0) return null
+  const labels = list.map((r) => `${r.rank}. ${shortAddress(r.address)}`)
+  const data = list.map((r) => (r.placeChange != null ? r.placeChange : 0))
+  const backgroundColor = list.map((r) => {
+    if (r.placeChange == null || r.placeChange === 0) return 'rgba(148, 163, 184, 0.6)'
+    return r.placeChange > 0 ? CHART_GREEN : CHART_RED
+  })
+  return {
+    labels,
+    datasets: [
+      {
+        label: t('analysis.placeChange'),
+        data,
+        backgroundColor,
+        borderColor: list.map((r) => {
+          if (r.placeChange == null || r.placeChange === 0) return 'rgba(148, 163, 184, 0.8)'
+          return r.placeChange > 0 ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)'
+        }),
+        borderWidth: 1,
+      },
+    ],
+  }
+})
+
+const top20PctEvolutionChartData = computed(() => {
+  const list = top20HoldersComparison.value
+  if (!list || list.length === 0) return null
+  const labels = list.map((r) => `${r.rank}. ${shortAddress(r.address)}`)
+  const data = list.map((r) => (r.pctDiff != null ? r.pctDiff : 0))
+  const backgroundColor = list.map((r) => {
+    if (r.pctDiff == null || r.pctDiff === 0) return 'rgba(148, 163, 184, 0.6)'
+    return r.pctDiff > 0 ? CHART_GREEN : CHART_RED
+  })
+  return {
+    labels,
+    datasets: [
+      {
+        label: t('analysis.pctChange'),
+        data,
+        backgroundColor,
+        borderColor: list.map((r) => {
+          if (r.pctDiff == null || r.pctDiff === 0) return 'rgba(148, 163, 184, 0.8)'
+          return r.pctDiff > 0 ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)'
+        }),
+        borderWidth: 1,
+      },
+    ],
+  }
+})
+
+function topHoldersRankChartOptions() {
+  return {
+    indexAxis: 'y' as const,
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(30, 41, 59, 0.95)',
+        titleColor: '#f8fafc',
+        bodyColor: '#cbd5e1',
+        borderColor: '#334155',
+        borderWidth: 1,
+        padding: 12,
+        cornerRadius: 8,
+      },
+    },
+    scales: {
+      x: {
+        ticks: { color: '#cbd5e1' },
+        grid: { color: 'rgba(51, 65, 85, 0.3)' },
+        title: {
+          display: true,
+          text: t('analysis.placeChange'),
+          color: '#cbd5e1',
+          font: { size: 12 },
+        },
+      },
+      y: {
+        ticks: { color: '#cbd5e1', font: { size: 11 }, maxRotation: 0 },
+        grid: { color: 'rgba(51, 65, 85, 0.3)' },
+      },
+    },
+  }
+}
+
+function topHoldersPctChartOptions() {
+  return {
+    indexAxis: 'y' as const,
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(30, 41, 59, 0.95)',
+        titleColor: '#f8fafc',
+        bodyColor: '#cbd5e1',
+        borderColor: '#334155',
+        borderWidth: 1,
+        padding: 12,
+        cornerRadius: 8,
+      },
+    },
+    scales: {
+      x: {
+        ticks: { color: '#cbd5e1', callback: (value: number) => value + '%' },
+        grid: { color: 'rgba(51, 65, 85, 0.3)' },
+        title: {
+          display: true,
+          text: t('analysis.pctChange'),
+          color: '#cbd5e1',
+          font: { size: 12 },
+        },
+      },
+      y: {
+        ticks: { color: '#cbd5e1', font: { size: 11 }, maxRotation: 0 },
+        grid: { color: 'rgba(51, 65, 85, 0.3)' },
+      },
+    },
+  }
 }
 
 const isWalletExpanded = (address: string) => {
@@ -877,6 +1173,7 @@ const loadSnapshotData = async (snapshot: SnapshotInfo) => {
 
     dataStore.setBalancesData(balances)
     dataStore.setPowerVotingData(powerVoting)
+    dataStore.setCurrentSnapshotDate(snapshot.date)
 
     // Reload page to refresh analysis
     window.location.reload()
@@ -1167,11 +1464,93 @@ const searchAddressDetails = async () => {
       powerVoting,
       positions,
     }
+    await loadAddressEvolutionBySnapshot(addressToSearch)
   } catch (err) {
     console.error('Erreur lors de la recherche des détails:', err)
     addressDetails.value = null
+    addressEvolutionBySnapshot.value = []
   } finally {
     isSearchingAddressDetails.value = false
+  }
+}
+
+// Évolution de l'adresse recherchée sur tous les snapshots (rang + %)
+const addressEvolutionBySnapshot = ref<Array<{
+  date: string
+  dateFormatted: string
+  isCurrent: boolean
+  rank: number | null
+  rankChange: number | null
+  pct: number
+  pctChange: number | null
+}>>([])
+const isLoadingAddressEvolution = ref(false)
+
+const loadAddressEvolutionBySnapshot = async (addressLower: string) => {
+  addressEvolutionBySnapshot.value = []
+  isLoadingAddressEvolution.value = true
+  try {
+    const rows: Array<{ date: string; dateFormatted: string; isCurrent: boolean; rank: number | null; rankChange: number | null; pct: number; pctChange: number | null }> = []
+    let prevRank: number | null = null
+    let prevPct: number | null = null
+
+    // Ligne snapshot actuel
+    const sorted = [...dataStore.powerVoting]
+      .map((p) => ({ address: (p.address || '').toLowerCase(), power: parseFloat(String(p.powerVoting || 0)) || 0 }))
+      .filter((x) => x.power > 0)
+      .sort((a, b) => b.power - a.power)
+    const totalPower = sorted.reduce((s, x) => s + x.power, 0)
+    const currentIdx = sorted.findIndex((x) => x.address === addressLower)
+    const currentRank = currentIdx >= 0 ? currentIdx + 1 : null
+    const currentPower = currentIdx >= 0 ? sorted[currentIdx].power : 0
+    const currentPct = totalPower > 0 ? (currentPower / totalPower) * 100 : 0
+    rows.push({
+      date: 'Actuel',
+      dateFormatted: 'Snapshot actuel',
+      isCurrent: true,
+      rank: currentRank,
+      rankChange: null,
+      pct: currentPct,
+      pctChange: null,
+    })
+    prevRank = currentRank
+    prevPct = currentPct
+
+    // Lignes pour chaque snapshot historique (ordre: du plus récent au plus ancien)
+    for (const snapshot of availableSnapshots.value) {
+      const { powerVoting } = await loadSnapshot(snapshot)
+      const raw = powerVoting?.result?.powerVoting || powerVoting
+      const arr = Array.isArray(raw) ? raw : []
+      const withPower = arr
+        .map((p: any) => ({ address: (p.address || '').toLowerCase(), power: parseFloat(String(p.powerVoting || 0)) || 0 }))
+        .filter((x: { address: string; power: number }) => x.power > 0)
+      const snapTotal = withPower.reduce((s: number, x: { power: number }) => s + x.power, 0)
+      const sortedSnap = [...withPower].sort((a, b) => b.power - a.power)
+      const idx = sortedSnap.findIndex((x: { address: string }) => x.address === addressLower)
+      const rank = idx >= 0 ? idx + 1 : null
+      const power = idx >= 0 ? sortedSnap[idx].power : 0
+      const pct = snapTotal > 0 ? (power / snapTotal) * 100 : 0
+      // Évolution vs snapshot "suivant" (plus récent) : rank - prevRank > 0 = on était moins bien classé = places gagnées
+      const rankChange = prevRank != null && rank != null ? rank - prevRank : null
+      const pctChange = prevPct != null ? pct - prevPct : null
+      rows.push({
+        date: snapshot.date,
+        dateFormatted: formatSnapshotDate(snapshot.date),
+        isCurrent: false,
+        rank,
+        rankChange,
+        pct,
+        pctChange,
+      })
+      prevRank = rank
+      prevPct = pct
+    }
+    addressEvolutionBySnapshot.value = rows
+  } catch (e) {
+    console.warn('Erreur chargement évolution par snapshot:', e)
+    addressEvolutionBySnapshot.value = []
+  } finally {
+    isLoadingAddressEvolution.value = false
   }
 }
 
@@ -2539,8 +2918,14 @@ const powerBreakdownChartOptions = {
 
 <template>
   <div class="analysis-view" :class="{ 'analysis-view-embedded': props.embedded }" v-if="dataStore.balances.length > 0">
-    <div class="analysis-header" v-if="!props.embedded">
-      <h2>📊 {{ t('analysis.dataAnalysis') }}</h2>
+    <div class="analysis-header" id="analyse-donnees" v-if="!props.embedded">
+      <div class="header-title-row">
+        <h2>📊 {{ t('analysis.dataAnalysis') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click.prevent="copySectionLink($event, 'analyse-donnees')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'analyse-donnees'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
       <p>Exploration et visualisation des balances REG et du pouvoir de vote</p>
     </div>
 
@@ -2639,8 +3024,14 @@ const powerBreakdownChartOptions = {
     </p>
 
     <!-- Power Concentration Section -->
-    <div class="section-header" v-if="powerConcentrationData">
-      <h2>⚖️ {{ t('analysis.powerConcentration') }}</h2>
+    <div class="section-header" id="concentration-pouvoir" v-if="powerConcentrationData">
+      <div class="header-title-row">
+        <h2>⚖️ {{ t('analysis.powerConcentration') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click.prevent="copySectionLink($event, 'concentration-pouvoir')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'concentration-pouvoir'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
       <p>{{ t('analysis.powerConcentrationDesc') }}</p>
     </div>
 
@@ -2711,8 +3102,14 @@ const powerBreakdownChartOptions = {
     </div>
 
     <!-- Pools Analysis Section -->
-    <div class="section-header">
-      <h2>🌊 {{ t('analysis.poolsAnalysis') }}</h2>
+    <div class="section-header" id="analyse-pools">
+      <div class="header-title-row">
+        <h2>🌊 {{ t('analysis.poolsAnalysis') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click="copySectionLink('analyse-pools')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'analyse-pools'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
       <p>{{ t('analysis.liquidityBreakdown') }}</p>
     </div>
 
@@ -2767,8 +3164,14 @@ const powerBreakdownChartOptions = {
     </div>
 
 
-    <div class="section-header" style="margin-top: 3rem;">
-      <h2>⚡ {{ t('analysis.dexBoostImpact') }}</h2>
+    <div class="section-header" id="impact-dex" style="margin-top: 3rem;">
+      <div class="header-title-row">
+        <h2>⚡ {{ t('analysis.dexBoostImpact') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click.prevent="copySectionLink($event, 'impact-dex')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'impact-dex'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
       <p>{{ t('analysis.dexBoostSectionDesc') }}</p>
     </div>
 
@@ -2818,8 +3221,14 @@ const powerBreakdownChartOptions = {
       </p>
     </div>
 
-    <div class="section-header" style="margin-top: 3rem;">
-      <h2>📊 {{ t('analysis.decomposition') }}</h2>
+    <div class="section-header" id="decomposition" style="margin-top: 3rem;">
+      <div class="header-title-row">
+        <h2>📊 {{ t('analysis.decomposition') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click="copySectionLink('decomposition')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'decomposition'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
       <p>{{ t('analysis.decompositionSectionDesc') }}</p>
     </div>
 
@@ -2974,13 +3383,207 @@ const powerBreakdownChartOptions = {
         <div v-else style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; color: var(--text-secondary); text-align: center;">
           {{ t('analysis.noPositionInPools') }}
         </div>
+
+        <!-- Évolution de l'adresse par snapshot (rang + % vs précédent) -->
+        <div class="address-evolution-section" style="margin-top: 2rem;">
+          <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">📈 {{ t('analysis.addressEvolutionBySnapshot') }}</h4>
+          <p v-if="isLoadingAddressEvolution" style="color: var(--text-secondary); margin: 0;">{{ t('analysis.loadingPreviousSnapshot') }}</p>
+          <div v-else-if="addressEvolutionBySnapshot.length > 0" class="address-evolution-table-wrapper" style="overflow-x: auto;">
+            <table class="address-evolution-table">
+              <thead>
+                <tr>
+                  <th class="addr-evol-col-date">{{ t('analysis.snapshotDate') }}</th>
+                  <th class="addr-evol-col-rank">{{ t('analysis.rank') }}</th>
+                  <th class="addr-evol-col-evol">{{ t('analysis.placeChange') }}</th>
+                  <th class="addr-evol-col-pct">{{ t('analysis.pctTotalPower') }}</th>
+                  <th class="addr-evol-col-pctdiff">{{ t('analysis.pctChange') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(row, idx) in addressEvolutionBySnapshot"
+                  :key="row.date + (row.dateFormatted || '')"
+                  class="address-evolution-row"
+                  :class="{ 'address-evolution-current': row.isCurrent }"
+                >
+                  <td class="addr-evol-col-date">{{ row.dateFormatted }}</td>
+                  <td class="addr-evol-col-rank">
+                    <span v-if="row.rank === null">—</span>
+                    <span v-else>#{{ row.rank }}</span>
+                  </td>
+                  <td class="addr-evol-col-evol">
+                    <span v-if="row.rankChange === null">—</span>
+                    <span v-else-if="row.rankChange === 0">—</span>
+                    <span v-else-if="row.rankChange > 0" class="top-holders-positive">
+                      {{ row.rankChange }} {{ row.rankChange === 1 ? t('analysis.placeGained') : t('analysis.placesGained') }}
+                    </span>
+                    <span v-else class="top-holders-negative">
+                      {{ Math.abs(row.rankChange) }} {{ Math.abs(row.rankChange) === 1 ? t('analysis.placeLost') : t('analysis.placesLost') }}
+                    </span>
+                  </td>
+                  <td class="addr-evol-col-pct">{{ formatNumber(row.pct) }}%</td>
+                  <td class="addr-evol-col-pctdiff">
+                    <span v-if="row.pctChange === null">—</span>
+                    <span v-else-if="row.pctChange === 0">—</span>
+                    <span v-else :class="row.pctChange > 0 ? 'top-holders-positive' : 'top-holders-negative'">
+                      {{ row.pctChange > 0 ? '+' : '' }}{{ formatNumber(row.pctChange) }}%
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comparaison top holders Power Voting vs snapshot précédent -->
+    <div class="section-header" id="comparaison-top-holders" v-if="top20HoldersComparison && top20HoldersComparison.length > 0">
+      <div class="header-title-row">
+        <h2>📊 {{ t('analysis.topHoldersComparisonTitle') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click.prevent="copySectionLink($event, 'comparaison-top-holders')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'comparaison-top-holders'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
+      <p>{{ t('analysis.topHoldersComparisonDesc') }}</p>
+    </div>
+    <div v-if="top20HoldersComparison && top20HoldersComparison.length > 0" class="top-holders-comparison-section">
+      <div class="top-holders-table-card">
+        <p v-if="isLoadingPreviousForTopHolders" class="top-holders-loading">{{ t('analysis.loadingPreviousSnapshot') }}</p>
+        <p v-else-if="!previousSnapshotPowerData" class="top-holders-no-prev">{{ t('analysis.noPreviousSnapshot') }}</p>
+        <div v-else class="top-holders-table-wrapper">
+          <table class="top-holders-table">
+            <thead>
+              <tr>
+                <th class="top-holders-col-rank">{{ t('analysis.rank') }}</th>
+                <th class="top-holders-col-address">{{ t('analysis.address') }}</th>
+                <th class="top-holders-col-power">{{ t('analysis.powerVoting') }}</th>
+                <th class="top-holders-col-pct">{{ t('analysis.pctTotalPower') }}</th>
+                <th class="top-holders-col-place">{{ t('analysis.placeChange') }}</th>
+                <th class="top-holders-col-pctdiff">{{ t('analysis.pctChange') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in top20HoldersComparison"
+                :key="row.address"
+                class="top-holders-row"
+              >
+                <td class="top-holders-col-rank">{{ row.rank }}</td>
+                <td class="top-holders-col-address" :title="row.address">
+                  <span class="top-holders-address-text">{{ row.address }}</span>
+                </td>
+                <td class="top-holders-col-power">{{ formatNumber(row.power) }}</td>
+                <td class="top-holders-col-pct">{{ formatNumber(row.pctTotal) }}%</td>
+                <td class="top-holders-col-place">
+                  <span v-if="row.placeChange === null">—</span>
+                  <span v-else-if="row.placeChange === 0">—</span>
+                  <span
+                    v-else-if="row.placeChange > 0"
+                    class="top-holders-positive"
+                  >
+                    {{ row.placeChange }} {{ row.placeChange === 1 ? t('analysis.placeGained') : t('analysis.placesGained') }}
+                  </span>
+                  <span v-else class="top-holders-negative">
+                    {{ Math.abs(row.placeChange) }} {{ Math.abs(row.placeChange) === 1 ? t('analysis.placeLost') : t('analysis.placesLost') }}
+                  </span>
+                </td>
+                <td class="top-holders-col-pctdiff">
+                  <span v-if="row.pctDiff === null">—</span>
+                  <span
+                    v-else
+                    :class="row.pctDiff > 0 ? 'top-holders-positive' : row.pctDiff < 0 ? 'top-holders-negative' : ''"
+                  >
+                    {{ row.pctDiff > 0 ? '+' : '' }}{{ formatNumber(row.pctDiff) }}%
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Graphiques évolution rang et % (vert = gain, rouge = perte) -->
+      <div class="top-holders-charts-grid" v-if="top20RankEvolutionChartData && top20PctEvolutionChartData">
+        <div class="top-holders-chart-card">
+          <h3 class="top-holders-chart-title">📈 {{ t('analysis.rankEvolutionChartTitle') }}</h3>
+          <div class="top-holders-chart-container">
+            <Bar :data="top20RankEvolutionChartData" :options="topHoldersRankChartOptions()" />
+          </div>
+        </div>
+        <div class="top-holders-chart-card">
+          <h3 class="top-holders-chart-title">📊 {{ t('analysis.pctEvolutionChartTitle') }}</h3>
+          <div class="top-holders-chart-container">
+            <Bar :data="top20PctEvolutionChartData" :options="topHoldersPctChartOptions()" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Ancien top 20 : où sont-ils dans le classement actuel ? -->
+      <div class="previous-top20-card" v-if="previousTop20CurrentRanks && previousTop20CurrentRanks.length > 0">
+        <h3 class="previous-top20-title">📋 {{ t('analysis.previousTop20Title') }}</h3>
+        <p class="previous-top20-desc">{{ t('analysis.previousTop20Desc') }}</p>
+        <div class="previous-top20-table-wrapper">
+          <table class="previous-top20-table">
+            <thead>
+              <tr>
+                <th class="previous-top20-col-rank">{{ t('analysis.rank') }} ({{ t('analysis.previousSnapshotShort') }})</th>
+                <th class="previous-top20-col-address">{{ t('analysis.address') }}</th>
+                <th class="previous-top20-col-current">{{ t('analysis.currentRank') }}</th>
+                <th class="previous-top20-col-evol">{{ t('analysis.placeChange') }}</th>
+                <th class="previous-top20-col-pctdiff">{{ t('analysis.pctChange') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in previousTop20CurrentRanks" :key="row.address" class="previous-top20-row">
+                <td class="previous-top20-col-rank">{{ row.previousRank }}</td>
+                <td class="previous-top20-col-address" :title="row.addressDisplay">
+                  <span class="previous-top20-address-text">{{ row.addressDisplay }}</span>
+                </td>
+                <td class="previous-top20-col-current">
+                  <span v-if="row.currentRank === null">—</span>
+                  <span v-else>#{{ row.currentRank }}</span>
+                </td>
+                <td class="previous-top20-col-evol">
+                  <span v-if="row.placeChange === null">—</span>
+                  <span v-else-if="row.placeChange === 0">—</span>
+                  <span
+                    v-else-if="row.placeChange > 0"
+                    class="top-holders-negative"
+                  >
+                    {{ row.placeChange }} {{ row.placeChange === 1 ? t('analysis.placeLost') : t('analysis.placesLost') }}
+                  </span>
+                  <span v-else class="top-holders-positive">
+                    {{ Math.abs(row.placeChange) }} {{ Math.abs(row.placeChange) === 1 ? t('analysis.placeGained') : t('analysis.placesGained') }}
+                  </span>
+                </td>
+                <td class="previous-top20-col-pctdiff">
+                  <span v-if="row.pctDiff === 0">—</span>
+                  <span
+                    v-else
+                    :class="row.pctDiff > 0 ? 'top-holders-positive' : 'top-holders-negative'"
+                  >
+                    {{ row.pctDiff > 0 ? '+' : '' }}{{ formatNumber(row.pctDiff) }}%
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
     <!-- Snapshots historiques (masqué en mode intégré, la liste est sur la home) -->
-    <div class="historical-snapshots-section" v-if="!props.embedded && allSnapshotsWithCurrent.length > 0">
+    <div class="historical-snapshots-section" id="snapshots-historiques" v-if="!props.embedded && allSnapshotsWithCurrent.length > 0">
       <div class="historical-snapshots-header">
-        <h3>📸 {{ t('analysis.historicalSnapshots', { count: allSnapshotsWithCurrent.length }) }}</h3>
+        <div class="header-title-row header-title-row-h3">
+          <h3>📸 {{ t('analysis.historicalSnapshots', { count: allSnapshotsWithCurrent.length }) }}</h3>
+          <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click.prevent="copySectionLink($event, 'snapshots-historiques')" aria-label="Copier le lien">
+            <span v-if="copiedAnchorId === 'snapshots-historiques'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+            <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+          </button>
+        </div>
         <p>{{ t('analysis.historicalSnapshotsDesc') }}</p>
       </div>
       <div class="historical-snapshots-list">
@@ -3602,6 +4205,61 @@ const powerBreakdownChartOptions = {
   .pool-wallet-summary {
     flex-direction: column;
   }
+}
+
+/* Ancres : marge de scroll pour que le titre reste visible quand on ouvre un lien avec # */
+.analysis-view .analysis-header[id],
+.analysis-view .section-header[id],
+.analysis-view .historical-snapshots-section[id] {
+  scroll-margin-top: 1.5rem;
+}
+
+.header-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.header-title-row h2,
+.header-title-row-h3 h3 {
+  margin: 0;
+}
+
+.copy-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  padding: 0 0.5rem;
+  background: var(--glass-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.copy-link-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--primary-color);
+}
+
+.copy-link-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.copy-link-feedback {
+  color: var(--success-color, #22c55e);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .section-header {
@@ -4589,5 +5247,281 @@ const powerBreakdownChartOptions = {
     color: var(--text-secondary);
     margin-right: 1rem;
   }
+}
+
+/* Comparaison top holders Power Voting */
+.top-holders-comparison-section {
+  margin: 3rem 0;
+}
+
+.top-holders-table-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 2rem;
+  margin: 2rem 0;
+  box-shadow: var(--shadow-lg);
+}
+
+.top-holders-loading,
+.top-holders-no-prev {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.top-holders-table-wrapper {
+  overflow-x: auto;
+}
+
+.top-holders-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.top-holders-table th,
+.top-holders-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.top-holders-table thead th {
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--glass-bg);
+}
+
+.top-holders-col-rank {
+  width: 4rem;
+  text-align: center;
+}
+
+.top-holders-col-address {
+  min-width: 320px;
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+.top-holders-address-text {
+  display: inline;
+}
+
+.top-holders-col-power {
+  white-space: nowrap;
+}
+
+.top-holders-col-pct,
+.top-holders-col-place,
+.top-holders-col-pctdiff {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.top-holders-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.top-holders-positive {
+  color: var(--success-color, #22c55e);
+  font-weight: 600;
+}
+
+.top-holders-negative {
+  color: var(--danger-color, #ef4444);
+  font-weight: 600;
+}
+
+.top-holders-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2rem;
+  margin-top: 2rem;
+}
+
+.top-holders-chart-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.top-holders-chart-title {
+  font-size: 1.1rem;
+  margin: 0 0 1rem 0;
+  color: var(--text-primary);
+}
+
+.top-holders-chart-container {
+  position: relative;
+  height: 520px;
+}
+
+@media (max-width: 968px) {
+  .top-holders-charts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .top-holders-table-card {
+    padding: 1rem;
+  }
+
+  .top-holders-col-address {
+    min-width: 180px;
+    max-width: 240px;
+    font-size: 0.75rem;
+  }
+
+  .top-holders-chart-container {
+    height: 420px;
+  }
+}
+
+/* Ancien top 20 : rang actuel */
+.previous-top20-card {
+  margin-top: 2.5rem;
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 1.5rem 2rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.previous-top20-title {
+  font-size: 1.15rem;
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+}
+
+.previous-top20-desc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0 0 1rem 0;
+}
+
+.previous-top20-table-wrapper {
+  overflow-x: auto;
+}
+
+.previous-top20-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.previous-top20-table th,
+.previous-top20-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.previous-top20-table thead th {
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--glass-bg);
+}
+
+.previous-top20-col-rank {
+  width: 5rem;
+  text-align: center;
+}
+
+.previous-top20-col-address {
+  min-width: 260px;
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+}
+
+.previous-top20-address-text {
+  display: inline;
+}
+
+.previous-top20-col-current {
+  width: 6rem;
+  text-align: center;
+}
+
+.previous-top20-col-evol {
+  width: 10rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.previous-top20-col-pctdiff {
+  width: 8rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.previous-top20-row:hover {
+  background: var(--bg-tertiary);
+}
+
+/* Évolution adresse par snapshot (recherche d'adresse) */
+.address-evolution-table-wrapper {
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.address-evolution-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.address-evolution-table th,
+.address-evolution-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.address-evolution-table thead th {
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--glass-bg);
+}
+
+.addr-evol-col-date {
+  min-width: 120px;
+}
+
+.addr-evol-col-rank {
+  width: 5rem;
+  text-align: center;
+}
+
+.addr-evol-col-evol,
+.addr-evol-col-pct,
+.addr-evol-col-pctdiff {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.addr-evol-col-pct {
+  min-width: 6rem;
+}
+
+.addr-evol-col-pctdiff {
+  min-width: 6rem;
+}
+
+.address-evolution-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.address-evolution-row.address-evolution-current {
+  background: rgba(255, 140, 66, 0.08);
+  font-weight: 500;
 }
 </style>

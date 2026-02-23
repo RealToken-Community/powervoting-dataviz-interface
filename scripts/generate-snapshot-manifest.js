@@ -26,8 +26,8 @@ function generateManifest() {
     const files = fs.readdirSync(datePath)
 
     const balancesFile = files.find((f) => f.startsWith('balancesREG_') && f.endsWith('.json'))
-    const powerFile = files.find(
-      (f) => f.startsWith('powerVotingREG_') && f.endsWith('.json'),
+    const powerFile = files.find((f) =>
+      (f.startsWith('powerVotingREG_') || f.startsWith('powerVotingREG-')) && f.endsWith('.json'),
     )
 
     if (balancesFile && powerFile) {

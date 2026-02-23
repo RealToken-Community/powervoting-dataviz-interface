@@ -468,18 +468,25 @@ const previousTop20CurrentRanks = computed(() => {
   currentSorted.forEach((item, i) => {
     currentRankByAddress.set(item.address, i + 1)
   })
+  const currentTotalPower = currentSorted.reduce((s, x) => s + x.power, 0)
   const previousTop20 = prev.sortedByPower.slice(0, 20)
+  const prevTotal = prev.totalPower || 1
   return previousTop20.map((item, i) => {
     const previousRank = i + 1
     const currentRank = currentRankByAddress.get(item.address) ?? null
     const placeChange = currentRank != null ? currentRank - previousRank : null
     const addressDisplay = dataStore.powerVoting.find((p) => (p.address || '').toLowerCase() === item.address)?.address ?? item.address
+    const prevPct = (item.power / prevTotal) * 100
+    const currentPower = currentSorted.find((x) => x.address === item.address)?.power ?? 0
+    const currentPct = currentTotalPower > 0 ? (currentPower / currentTotalPower) * 100 : 0
+    const pctDiff = currentPct - prevPct
     return {
       previousRank,
       address: item.address,
       addressDisplay,
       currentRank,
       placeChange,
+      pctDiff,
     }
   })
 })
@@ -3392,6 +3399,7 @@ const powerBreakdownChartOptions = {
                 <th class="previous-top20-col-address">{{ t('analysis.address') }}</th>
                 <th class="previous-top20-col-current">{{ t('analysis.currentRank') }}</th>
                 <th class="previous-top20-col-evol">{{ t('analysis.placeChange') }}</th>
+                <th class="previous-top20-col-pctdiff">{{ t('analysis.pctChange') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -3415,6 +3423,15 @@ const powerBreakdownChartOptions = {
                   </span>
                   <span v-else class="top-holders-positive">
                     {{ Math.abs(row.placeChange) }} {{ Math.abs(row.placeChange) === 1 ? t('analysis.placeGained') : t('analysis.placesGained') }}
+                  </span>
+                </td>
+                <td class="previous-top20-col-pctdiff">
+                  <span v-if="row.pctDiff === 0">—</span>
+                  <span
+                    v-else
+                    :class="row.pctDiff > 0 ? 'top-holders-positive' : 'top-holders-negative'"
+                  >
+                    {{ row.pctDiff > 0 ? '+' : '' }}{{ formatNumber(row.pctDiff) }}%
                   </span>
                 </td>
               </tr>
@@ -5302,6 +5319,12 @@ const powerBreakdownChartOptions = {
 
 .previous-top20-col-evol {
   width: 10rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.previous-top20-col-pctdiff {
+  width: 8rem;
   text-align: right;
   white-space: nowrap;
 }

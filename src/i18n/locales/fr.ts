@@ -230,6 +230,8 @@ export default {
     previousTop20Desc: 'Les 20 plus gros holders du snapshot précédent et leur rang actuel dans le classement Power Voting.',
     previousSnapshotShort: 'avant',
     currentRank: 'Rang actuel',
+    copySectionLink: 'Copier le lien vers cette section',
+    copied: 'Copié !',
   },
   common: {
     error: 'Erreur',

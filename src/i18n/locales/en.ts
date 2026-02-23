@@ -231,6 +231,8 @@ export default {
     previousTop20Desc: 'The top 20 holders from the previous snapshot and their current rank in the Power Voting ranking.',
     previousSnapshotShort: 'before',
     currentRank: 'Current rank',
+    copySectionLink: 'Copy link to this section',
+    copied: 'Copied!',
   },
   common: {
     error: 'Error',

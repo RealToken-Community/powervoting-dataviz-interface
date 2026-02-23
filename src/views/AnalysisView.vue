@@ -292,6 +292,40 @@ onMounted(async () => {
   }
 })
 
+const copiedAnchorId = ref<string | null>(null)
+const copySectionLink = async (ev: MouseEvent, anchorId: string) => {
+  ev.preventDefault()
+  ev.stopPropagation()
+  const urlSansHash = window.location.href.replace(/#.*$/, '')
+  const urlAvecAncre = urlSansHash + '#' + anchorId
+  const copieOk = () => {
+    copiedAnchorId.value = anchorId
+    setTimeout(() => { copiedAnchorId.value = null }, 2000)
+  }
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(urlAvecAncre)
+      copieOk()
+      return
+    }
+  } catch {
+    /* fallback ci-dessous */
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = urlAvecAncre
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    document.execCommand('copy')
+    copieOk()
+  } catch {
+    copiedAnchorId.value = null
+  }
+  document.body.removeChild(textarea)
+}
+
 const formatNumber = (num: number) => {
   return new Intl.NumberFormat('fr-FR', {
     minimumFractionDigits: 2,
@@ -2795,8 +2829,14 @@ const powerBreakdownChartOptions = {
 
 <template>
   <div class="analysis-view" :class="{ 'analysis-view-embedded': props.embedded }" v-if="dataStore.balances.length > 0">
-    <div class="analysis-header" v-if="!props.embedded">
-      <h2>📊 {{ t('analysis.dataAnalysis') }}</h2>
+    <div class="analysis-header" id="analyse-donnees" v-if="!props.embedded">
+      <div class="header-title-row">
+        <h2>📊 {{ t('analysis.dataAnalysis') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click.prevent="copySectionLink($event, 'analyse-donnees')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'analyse-donnees'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
       <p>Exploration et visualisation des balances REG et du pouvoir de vote</p>
     </div>
 
@@ -2895,8 +2935,14 @@ const powerBreakdownChartOptions = {
     </p>
 
     <!-- Power Concentration Section -->
-    <div class="section-header" v-if="powerConcentrationData">
-      <h2>⚖️ {{ t('analysis.powerConcentration') }}</h2>
+    <div class="section-header" id="concentration-pouvoir" v-if="powerConcentrationData">
+      <div class="header-title-row">
+        <h2>⚖️ {{ t('analysis.powerConcentration') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click.prevent="copySectionLink($event, 'concentration-pouvoir')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'concentration-pouvoir'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
       <p>{{ t('analysis.powerConcentrationDesc') }}</p>
     </div>
 
@@ -2967,8 +3013,14 @@ const powerBreakdownChartOptions = {
     </div>
 
     <!-- Pools Analysis Section -->
-    <div class="section-header">
-      <h2>🌊 {{ t('analysis.poolsAnalysis') }}</h2>
+    <div class="section-header" id="analyse-pools">
+      <div class="header-title-row">
+        <h2>🌊 {{ t('analysis.poolsAnalysis') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click="copySectionLink('analyse-pools')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'analyse-pools'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
       <p>{{ t('analysis.liquidityBreakdown') }}</p>
     </div>
 
@@ -3023,8 +3075,14 @@ const powerBreakdownChartOptions = {
     </div>
 
 
-    <div class="section-header" style="margin-top: 3rem;">
-      <h2>⚡ {{ t('analysis.dexBoostImpact') }}</h2>
+    <div class="section-header" id="impact-dex" style="margin-top: 3rem;">
+      <div class="header-title-row">
+        <h2>⚡ {{ t('analysis.dexBoostImpact') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click.prevent="copySectionLink($event, 'impact-dex')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'impact-dex'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
       <p>{{ t('analysis.dexBoostSectionDesc') }}</p>
     </div>
 
@@ -3074,8 +3132,14 @@ const powerBreakdownChartOptions = {
       </p>
     </div>
 
-    <div class="section-header" style="margin-top: 3rem;">
-      <h2>📊 {{ t('analysis.decomposition') }}</h2>
+    <div class="section-header" id="decomposition" style="margin-top: 3rem;">
+      <div class="header-title-row">
+        <h2>📊 {{ t('analysis.decomposition') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click="copySectionLink('decomposition')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'decomposition'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
       <p>{{ t('analysis.decompositionSectionDesc') }}</p>
     </div>
 
@@ -3234,8 +3298,14 @@ const powerBreakdownChartOptions = {
     </div>
 
     <!-- Comparaison top holders Power Voting vs snapshot précédent -->
-    <div class="section-header" v-if="top20HoldersComparison && top20HoldersComparison.length > 0">
-      <h2>📊 {{ t('analysis.topHoldersComparisonTitle') }}</h2>
+    <div class="section-header" id="comparaison-top-holders" v-if="top20HoldersComparison && top20HoldersComparison.length > 0">
+      <div class="header-title-row">
+        <h2>📊 {{ t('analysis.topHoldersComparisonTitle') }}</h2>
+        <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click.prevent="copySectionLink($event, 'comparaison-top-holders')" aria-label="Copier le lien">
+          <span v-if="copiedAnchorId === 'comparaison-top-holders'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+          <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+        </button>
+      </div>
       <p>{{ t('analysis.topHoldersComparisonDesc') }}</p>
     </div>
     <div v-if="top20HoldersComparison && top20HoldersComparison.length > 0" class="top-holders-comparison-section">
@@ -3355,9 +3425,15 @@ const powerBreakdownChartOptions = {
     </div>
 
     <!-- Snapshots historiques (masqué en mode intégré, la liste est sur la home) -->
-    <div class="historical-snapshots-section" v-if="!props.embedded && allSnapshotsWithCurrent.length > 0">
+    <div class="historical-snapshots-section" id="snapshots-historiques" v-if="!props.embedded && allSnapshotsWithCurrent.length > 0">
       <div class="historical-snapshots-header">
-        <h3>📸 {{ t('analysis.historicalSnapshots', { count: allSnapshotsWithCurrent.length }) }}</h3>
+        <div class="header-title-row header-title-row-h3">
+          <h3>📸 {{ t('analysis.historicalSnapshots', { count: allSnapshotsWithCurrent.length }) }}</h3>
+          <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click.prevent="copySectionLink($event, 'snapshots-historiques')" aria-label="Copier le lien">
+            <span v-if="copiedAnchorId === 'snapshots-historiques'" class="copy-link-feedback">{{ t('analysis.copied') }}</span>
+            <span v-else class="copy-link-icon" aria-hidden="true">🔗</span>
+          </button>
+        </div>
         <p>{{ t('analysis.historicalSnapshotsDesc') }}</p>
       </div>
       <div class="historical-snapshots-list">
@@ -3979,6 +4055,61 @@ const powerBreakdownChartOptions = {
   .pool-wallet-summary {
     flex-direction: column;
   }
+}
+
+/* Ancres : marge de scroll pour que le titre reste visible quand on ouvre un lien avec # */
+.analysis-view .analysis-header[id],
+.analysis-view .section-header[id],
+.analysis-view .historical-snapshots-section[id] {
+  scroll-margin-top: 1.5rem;
+}
+
+.header-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.header-title-row h2,
+.header-title-row-h3 h3 {
+  margin: 0;
+}
+
+.copy-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  padding: 0 0.5rem;
+  background: var(--glass-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.copy-link-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--primary-color);
+}
+
+.copy-link-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.copy-link-feedback {
+  color: var(--success-color, #22c55e);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .section-header {

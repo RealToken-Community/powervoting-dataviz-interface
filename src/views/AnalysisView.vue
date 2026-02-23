@@ -422,6 +422,34 @@ watch(
   { immediate: true },
 )
 
+// Ancien top 20 (snapshot précédent) : où sont-ils dans le classement actuel ?
+const previousTop20CurrentRanks = computed(() => {
+  const prev = previousSnapshotPowerData.value
+  if (!prev || prev.sortedByPower.length === 0 || dataStore.powerVoting.length === 0) return null
+  const currentSorted = [...dataStore.powerVoting]
+    .map((p) => ({ address: (p.address || '').toLowerCase(), power: parseFloat(String(p.powerVoting || 0)) || 0 }))
+    .filter((x) => x.power > 0)
+    .sort((a, b) => b.power - a.power)
+  const currentRankByAddress = new Map<string, number>()
+  currentSorted.forEach((item, i) => {
+    currentRankByAddress.set(item.address, i + 1)
+  })
+  const previousTop20 = prev.sortedByPower.slice(0, 20)
+  return previousTop20.map((item, i) => {
+    const previousRank = i + 1
+    const currentRank = currentRankByAddress.get(item.address) ?? null
+    const placeChange = currentRank != null ? currentRank - previousRank : null
+    const addressDisplay = dataStore.powerVoting.find((p) => (p.address || '').toLowerCase() === item.address)?.address ?? item.address
+    return {
+      previousRank,
+      address: item.address,
+      addressDisplay,
+      currentRank,
+      placeChange,
+    }
+  })
+})
+
 const CHART_GREEN = 'rgba(34, 197, 94, 0.85)'
 const CHART_RED = 'rgba(239, 68, 68, 0.85)'
 
@@ -3281,6 +3309,49 @@ const powerBreakdownChartOptions = {
           </div>
         </div>
       </div>
+
+      <!-- Ancien top 20 : où sont-ils dans le classement actuel ? -->
+      <div class="previous-top20-card" v-if="previousTop20CurrentRanks && previousTop20CurrentRanks.length > 0">
+        <h3 class="previous-top20-title">📋 {{ t('analysis.previousTop20Title') }}</h3>
+        <p class="previous-top20-desc">{{ t('analysis.previousTop20Desc') }}</p>
+        <div class="previous-top20-table-wrapper">
+          <table class="previous-top20-table">
+            <thead>
+              <tr>
+                <th class="previous-top20-col-rank">{{ t('analysis.rank') }} ({{ t('analysis.previousSnapshotShort') }})</th>
+                <th class="previous-top20-col-address">{{ t('analysis.address') }}</th>
+                <th class="previous-top20-col-current">{{ t('analysis.currentRank') }}</th>
+                <th class="previous-top20-col-evol">{{ t('analysis.placeChange') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in previousTop20CurrentRanks" :key="row.address" class="previous-top20-row">
+                <td class="previous-top20-col-rank">{{ row.previousRank }}</td>
+                <td class="previous-top20-col-address" :title="row.addressDisplay">
+                  <span class="previous-top20-address-text">{{ row.addressDisplay }}</span>
+                </td>
+                <td class="previous-top20-col-current">
+                  <span v-if="row.currentRank === null">—</span>
+                  <span v-else>#{{ row.currentRank }}</span>
+                </td>
+                <td class="previous-top20-col-evol">
+                  <span v-if="row.placeChange === null">—</span>
+                  <span v-else-if="row.placeChange === 0">—</span>
+                  <span
+                    v-else-if="row.placeChange > 0"
+                    class="top-holders-negative"
+                  >
+                    {{ row.placeChange }} {{ row.placeChange === 1 ? t('analysis.placeLost') : t('analysis.placesLost') }}
+                  </span>
+                  <span v-else class="top-holders-positive">
+                    {{ Math.abs(row.placeChange) }} {{ Math.abs(row.placeChange) === 1 ? t('analysis.placeGained') : t('analysis.placesGained') }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- Snapshots historiques (masqué en mode intégré, la liste est sur la home) -->
@@ -5029,5 +5100,82 @@ const powerBreakdownChartOptions = {
   .top-holders-chart-container {
     height: 420px;
   }
+}
+
+/* Ancien top 20 : rang actuel */
+.previous-top20-card {
+  margin-top: 2.5rem;
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 1.5rem 2rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.previous-top20-title {
+  font-size: 1.15rem;
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+}
+
+.previous-top20-desc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0 0 1rem 0;
+}
+
+.previous-top20-table-wrapper {
+  overflow-x: auto;
+}
+
+.previous-top20-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.previous-top20-table th,
+.previous-top20-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.previous-top20-table thead th {
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--glass-bg);
+}
+
+.previous-top20-col-rank {
+  width: 5rem;
+  text-align: center;
+}
+
+.previous-top20-col-address {
+  min-width: 260px;
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+}
+
+.previous-top20-address-text {
+  display: inline;
+}
+
+.previous-top20-col-current {
+  width: 6rem;
+  text-align: center;
+}
+
+.previous-top20-col-evol {
+  width: 10rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.previous-top20-row:hover {
+  background: var(--bg-tertiary);
 }
 </style>

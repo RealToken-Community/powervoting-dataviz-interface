@@ -226,6 +226,10 @@ export default {
     placesLost: 'places perdues',
     rankEvolutionChartTitle: 'Évolution du rang (vs snapshot précédent)',
     pctEvolutionChartTitle: 'Évolution du % du total (vs snapshot précédent)',
+    previousTop20Title: 'Ancien top 20 : où sont-ils maintenant ?',
+    previousTop20Desc: 'Les 20 plus gros holders du snapshot précédent et leur rang actuel dans le classement Power Voting.',
+    previousSnapshotShort: 'avant',
+    currentRank: 'Rang actuel',
   },
   common: {
     error: 'Erreur',

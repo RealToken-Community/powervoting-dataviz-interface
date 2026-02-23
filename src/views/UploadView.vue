@@ -235,6 +235,7 @@ const handleUpload = async () => {
 
     dataStore.setBalancesData(balancesData)
     dataStore.setPowerVotingData(powerVotingData)
+    dataStore.setCurrentSnapshotDate('Actuel')
 
     // Vérifier que les données sont bien stockées
     const balancesCount = dataStore.balances.length
@@ -274,6 +275,7 @@ const loadMockData = async () => {
 
     dataStore.setBalancesData(balancesData)
     dataStore.setPowerVotingData(powerVotingData)
+    dataStore.setCurrentSnapshotDate('Actuel')
 
     router.push('/analysis')
   } catch (err) {
@@ -392,6 +394,7 @@ const loadSnapshotData = async (snapshot: SnapshotInfo) => {
 
     dataStore.setBalancesData(balances)
     dataStore.setPowerVotingData(powerVoting)
+    dataStore.setCurrentSnapshotDate('Actuel')
 
     router.push('/analysis')
   } catch (err) {

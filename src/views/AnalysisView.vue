@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
@@ -326,6 +326,101 @@ const formatDiff = (diff: number, isInteger = false) => {
   const formatted = isInteger ? formatInteger(Math.abs(diff)) : formatNumber(Math.abs(diff))
   return diff > 0 ? `+${formatted}` : `-${formatted}`
 }
+
+// --- Comparaison top holders Power Voting vs snapshot précédent ---
+const previousSnapshotPowerData = ref<{
+  sortedByPower: Array<{ address: string; power: number }>
+  totalPower: number
+  date: string
+} | null>(null)
+const isLoadingPreviousForTopHolders = ref(false)
+
+function getPreviousSnapshotForComparison(): SnapshotInfo | null {
+  const currentDate = dataStore.currentSnapshotDate
+  if (!currentDate || availableSnapshots.value.length === 0) return null
+  if (currentDate === 'Actuel') return availableSnapshots.value[0]
+  const idx = availableSnapshots.value.findIndex((s) => s.date === currentDate)
+  if (idx === -1 || idx >= availableSnapshots.value.length - 1) return null
+  return availableSnapshots.value[idx + 1]
+}
+
+async function loadPreviousSnapshotForTopHolders() {
+  const prev = getPreviousSnapshotForComparison()
+  previousSnapshotPowerData.value = null
+  if (!prev) return
+  isLoadingPreviousForTopHolders.value = true
+  try {
+    const { powerVoting } = await loadSnapshot(prev)
+    const raw = powerVoting?.result?.powerVoting || powerVoting
+    const arr = Array.isArray(raw) ? raw : []
+    const withPower = arr
+      .map((p: any) => ({
+        address: (p.address || '').toLowerCase(),
+        power: parseFloat(String(p.powerVoting || 0)) || 0,
+      }))
+      .filter((x) => x.power > 0)
+    const totalPower = withPower.reduce((s, x) => s + x.power, 0)
+    const sortedByPower = [...withPower].sort((a, b) => b.power - a.power)
+    previousSnapshotPowerData.value = { sortedByPower, totalPower, date: prev.date }
+  } catch (e) {
+    console.warn('Could not load previous snapshot for top holders comparison', e)
+  } finally {
+    isLoadingPreviousForTopHolders.value = false
+  }
+}
+
+const top20HoldersComparison = computed(() => {
+  if (dataStore.powerVoting.length === 0) return null
+  const list = [...dataStore.powerVoting]
+    .map((p) => ({
+      address: (p.address || '').toLowerCase(),
+      power: parseFloat(String(p.powerVoting || 0)) || 0,
+      addressDisplay: p.address || '',
+    }))
+    .filter((x) => x.power > 0)
+    .sort((a, b) => b.power - a.power)
+    .slice(0, 20)
+  const totalPower = dataStore.powerVoting.reduce(
+    (s, p) => s + parseFloat(String(p.powerVoting || 0)) || 0,
+    0,
+  )
+  if (totalPower <= 0) return null
+  const prev = previousSnapshotPowerData.value
+  const prevRankByAddress = new Map<string, number>()
+  if (prev) {
+    prev.sortedByPower.forEach((item, i) => {
+      prevRankByAddress.set(item.address, i + 1)
+    })
+  }
+  const prevTotal = prev?.totalPower ?? 0
+  return list.map((item, i) => {
+    const currentRank = i + 1
+    const currentPct = (item.power / totalPower) * 100
+    const prevRank = prev ? prevRankByAddress.get(item.address) ?? null : null
+    const prevPct =
+      prev && prevTotal > 0
+        ? ((prev.sortedByPower.find((x) => x.address === item.address)?.power ?? 0) / prevTotal) * 100
+        : null
+    const placeChange = prevRank != null ? prevRank - currentRank : null
+    const pctDiff = prevPct != null ? currentPct - prevPct : null
+    return {
+      rank: currentRank,
+      address: item.addressDisplay,
+      power: item.power,
+      pctTotal: currentPct,
+      placeChange,
+      pctDiff,
+    }
+  })
+})
+
+watch(
+  () => [dataStore.currentSnapshotDate, availableSnapshots.value.length] as const,
+  () => {
+    loadPreviousSnapshotForTopHolders()
+  },
+  { immediate: true },
+)
 
 const isWalletExpanded = (address: string) => {
   return !!expandedWallets.value[address]
@@ -877,6 +972,7 @@ const loadSnapshotData = async (snapshot: SnapshotInfo) => {
 
     dataStore.setBalancesData(balances)
     dataStore.setPowerVotingData(powerVoting)
+    dataStore.setCurrentSnapshotDate(snapshot.date)
 
     // Reload page to refresh analysis
     window.location.reload()
@@ -2977,6 +3073,68 @@ const powerBreakdownChartOptions = {
       </div>
     </div>
 
+    <!-- Comparaison top holders Power Voting vs snapshot précédent -->
+    <div class="section-header" v-if="top20HoldersComparison && top20HoldersComparison.length > 0">
+      <h2>📊 {{ t('analysis.topHoldersComparisonTitle') }}</h2>
+      <p>{{ t('analysis.topHoldersComparisonDesc') }}</p>
+    </div>
+    <div v-if="top20HoldersComparison && top20HoldersComparison.length > 0" class="top-holders-comparison-section">
+      <div class="top-holders-table-card">
+        <p v-if="isLoadingPreviousForTopHolders" class="top-holders-loading">{{ t('analysis.loadingPreviousSnapshot') }}</p>
+        <p v-else-if="!previousSnapshotPowerData" class="top-holders-no-prev">{{ t('analysis.noPreviousSnapshot') }}</p>
+        <div v-else class="top-holders-table-wrapper">
+          <table class="top-holders-table">
+            <thead>
+              <tr>
+                <th class="top-holders-col-rank">{{ t('analysis.rank') }}</th>
+                <th class="top-holders-col-address">{{ t('analysis.address') }}</th>
+                <th class="top-holders-col-power">{{ t('analysis.powerVoting') }}</th>
+                <th class="top-holders-col-pct">{{ t('analysis.pctTotalPower') }}</th>
+                <th class="top-holders-col-place">{{ t('analysis.placeChange') }}</th>
+                <th class="top-holders-col-pctdiff">{{ t('analysis.pctChange') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in top20HoldersComparison"
+                :key="row.address"
+                class="top-holders-row"
+              >
+                <td class="top-holders-col-rank">{{ row.rank }}</td>
+                <td class="top-holders-col-address" :title="row.address">
+                  <span class="top-holders-address-text">{{ row.address }}</span>
+                </td>
+                <td class="top-holders-col-power">{{ formatNumber(row.power) }}</td>
+                <td class="top-holders-col-pct">{{ formatNumber(row.pctTotal) }}%</td>
+                <td class="top-holders-col-place">
+                  <span v-if="row.placeChange === null">—</span>
+                  <span v-else-if="row.placeChange === 0">—</span>
+                  <span
+                    v-else-if="row.placeChange > 0"
+                    class="top-holders-positive"
+                  >
+                    {{ row.placeChange }} {{ row.placeChange === 1 ? t('analysis.placeGained') : t('analysis.placesGained') }}
+                  </span>
+                  <span v-else class="top-holders-negative">
+                    {{ Math.abs(row.placeChange) }} {{ Math.abs(row.placeChange) === 1 ? t('analysis.placeLost') : t('analysis.placesLost') }}
+                  </span>
+                </td>
+                <td class="top-holders-col-pctdiff">
+                  <span v-if="row.pctDiff === null">—</span>
+                  <span
+                    v-else
+                    :class="row.pctDiff > 0 ? 'top-holders-positive' : row.pctDiff < 0 ? 'top-holders-negative' : ''"
+                  >
+                    {{ row.pctDiff > 0 ? '+' : '' }}{{ formatNumber(row.pctDiff) }}%
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- Snapshots historiques (masqué en mode intégré, la liste est sur la home) -->
     <div class="historical-snapshots-section" v-if="!props.embedded && allSnapshotsWithCurrent.length > 0">
       <div class="historical-snapshots-header">
@@ -4588,6 +4746,103 @@ const powerBreakdownChartOptions = {
     font-weight: 600;
     color: var(--text-secondary);
     margin-right: 1rem;
+  }
+}
+
+/* Comparaison top holders Power Voting */
+.top-holders-comparison-section {
+  margin: 3rem 0;
+}
+
+.top-holders-table-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 2rem;
+  margin: 2rem 0;
+  box-shadow: var(--shadow-lg);
+}
+
+.top-holders-loading,
+.top-holders-no-prev {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.top-holders-table-wrapper {
+  overflow-x: auto;
+}
+
+.top-holders-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.top-holders-table th,
+.top-holders-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.top-holders-table thead th {
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--glass-bg);
+}
+
+.top-holders-col-rank {
+  width: 4rem;
+  text-align: center;
+}
+
+.top-holders-col-address {
+  min-width: 320px;
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+.top-holders-address-text {
+  display: inline;
+}
+
+.top-holders-col-power {
+  white-space: nowrap;
+}
+
+.top-holders-col-pct,
+.top-holders-col-place,
+.top-holders-col-pctdiff {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.top-holders-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.top-holders-positive {
+  color: var(--success-color, #22c55e);
+  font-weight: 600;
+}
+
+.top-holders-negative {
+  color: var(--danger-color, #ef4444);
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .top-holders-table-card {
+    padding: 1rem;
+  }
+
+  .top-holders-col-address {
+    min-width: 180px;
+    max-width: 240px;
+    font-size: 0.75rem;
   }
 }
 </style>

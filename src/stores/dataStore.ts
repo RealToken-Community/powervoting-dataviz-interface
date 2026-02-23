@@ -471,6 +471,13 @@ export const useDataStore = defineStore('data', () => {
     rawPowerVotingData.value = data
   }
 
+  function setCurrentSnapshotDate(date: string | null) {
+    currentSnapshotDate.value = date
+  }
+
+  /** Date du snapshot actuellement chargé (ex: "17-02-2026" ou "Actuel" pour upload). */
+  const currentSnapshotDate = ref<string | null>(null)
+
   const comparisonSnapshot = ref<{
     balances: any
     powerVoting: any
@@ -533,6 +540,7 @@ export const useDataStore = defineStore('data', () => {
     rawBalancesData.value = null
     rawPowerVotingData.value = null
     comparisonSnapshot.value = null
+    currentSnapshotDate.value = null
   }
 
   return {
@@ -551,6 +559,8 @@ export const useDataStore = defineStore('data', () => {
     snapshotComparison,
     setBalancesData,
     setPowerVotingData,
+    setCurrentSnapshotDate,
+    currentSnapshotDate,
     setComparisonSnapshot,
     clearComparisonSnapshot,
     clearData,

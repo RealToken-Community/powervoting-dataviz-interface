@@ -66,6 +66,7 @@ const selectSnapshot = async (snapshot: SnapshotInfo, updateUrl = false) => {
     const { balances, powerVoting } = await loadSnapshot(snapshot)
     dataStore.setBalancesData(balances)
     dataStore.setPowerVotingData(powerVoting)
+    dataStore.setCurrentSnapshotDate(snapshot.date)
     selectedSnapshot.value = snapshot
     if (updateUrl) {
       router.replace(`/${snapshot.date}`)

@@ -422,6 +422,138 @@ watch(
   { immediate: true },
 )
 
+const CHART_GREEN = 'rgba(34, 197, 94, 0.85)'
+const CHART_RED = 'rgba(239, 68, 68, 0.85)'
+
+function shortAddress(addr: string): string {
+  if (!addr || addr.length < 14) return addr
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`
+}
+
+const top20RankEvolutionChartData = computed(() => {
+  const list = top20HoldersComparison.value
+  if (!list || list.length === 0) return null
+  const labels = list.map((r) => `${r.rank}. ${shortAddress(r.address)}`)
+  const data = list.map((r) => (r.placeChange != null ? r.placeChange : 0))
+  const backgroundColor = list.map((r) => {
+    if (r.placeChange == null || r.placeChange === 0) return 'rgba(148, 163, 184, 0.6)'
+    return r.placeChange > 0 ? CHART_GREEN : CHART_RED
+  })
+  return {
+    labels,
+    datasets: [
+      {
+        label: t('analysis.placeChange'),
+        data,
+        backgroundColor,
+        borderColor: list.map((r) => {
+          if (r.placeChange == null || r.placeChange === 0) return 'rgba(148, 163, 184, 0.8)'
+          return r.placeChange > 0 ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)'
+        }),
+        borderWidth: 1,
+      },
+    ],
+  }
+})
+
+const top20PctEvolutionChartData = computed(() => {
+  const list = top20HoldersComparison.value
+  if (!list || list.length === 0) return null
+  const labels = list.map((r) => `${r.rank}. ${shortAddress(r.address)}`)
+  const data = list.map((r) => (r.pctDiff != null ? r.pctDiff : 0))
+  const backgroundColor = list.map((r) => {
+    if (r.pctDiff == null || r.pctDiff === 0) return 'rgba(148, 163, 184, 0.6)'
+    return r.pctDiff > 0 ? CHART_GREEN : CHART_RED
+  })
+  return {
+    labels,
+    datasets: [
+      {
+        label: t('analysis.pctChange'),
+        data,
+        backgroundColor,
+        borderColor: list.map((r) => {
+          if (r.pctDiff == null || r.pctDiff === 0) return 'rgba(148, 163, 184, 0.8)'
+          return r.pctDiff > 0 ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)'
+        }),
+        borderWidth: 1,
+      },
+    ],
+  }
+})
+
+function topHoldersRankChartOptions() {
+  return {
+    indexAxis: 'y' as const,
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(30, 41, 59, 0.95)',
+        titleColor: '#f8fafc',
+        bodyColor: '#cbd5e1',
+        borderColor: '#334155',
+        borderWidth: 1,
+        padding: 12,
+        cornerRadius: 8,
+      },
+    },
+    scales: {
+      x: {
+        ticks: { color: '#cbd5e1' },
+        grid: { color: 'rgba(51, 65, 85, 0.3)' },
+        title: {
+          display: true,
+          text: t('analysis.placeChange'),
+          color: '#cbd5e1',
+          font: { size: 12 },
+        },
+      },
+      y: {
+        ticks: { color: '#cbd5e1', font: { size: 11 }, maxRotation: 0 },
+        grid: { color: 'rgba(51, 65, 85, 0.3)' },
+      },
+    },
+  }
+}
+
+function topHoldersPctChartOptions() {
+  return {
+    indexAxis: 'y' as const,
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(30, 41, 59, 0.95)',
+        titleColor: '#f8fafc',
+        bodyColor: '#cbd5e1',
+        borderColor: '#334155',
+        borderWidth: 1,
+        padding: 12,
+        cornerRadius: 8,
+      },
+    },
+    scales: {
+      x: {
+        ticks: { color: '#cbd5e1', callback: (value: number) => value + '%' },
+        grid: { color: 'rgba(51, 65, 85, 0.3)' },
+        title: {
+          display: true,
+          text: t('analysis.pctChange'),
+          color: '#cbd5e1',
+          font: { size: 12 },
+        },
+      },
+      y: {
+        ticks: { color: '#cbd5e1', font: { size: 11 }, maxRotation: 0 },
+        grid: { color: 'rgba(51, 65, 85, 0.3)' },
+      },
+    },
+  }
+}
+
 const isWalletExpanded = (address: string) => {
   return !!expandedWallets.value[address]
 }
@@ -3133,6 +3265,22 @@ const powerBreakdownChartOptions = {
           </table>
         </div>
       </div>
+
+      <!-- Graphiques évolution rang et % (vert = gain, rouge = perte) -->
+      <div class="top-holders-charts-grid" v-if="top20RankEvolutionChartData && top20PctEvolutionChartData">
+        <div class="top-holders-chart-card">
+          <h3 class="top-holders-chart-title">📈 {{ t('analysis.rankEvolutionChartTitle') }}</h3>
+          <div class="top-holders-chart-container">
+            <Bar :data="top20RankEvolutionChartData" :options="topHoldersRankChartOptions()" />
+          </div>
+        </div>
+        <div class="top-holders-chart-card">
+          <h3 class="top-holders-chart-title">📊 {{ t('analysis.pctEvolutionChartTitle') }}</h3>
+          <div class="top-holders-chart-container">
+            <Bar :data="top20PctEvolutionChartData" :options="topHoldersPctChartOptions()" />
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Snapshots historiques (masqué en mode intégré, la liste est sur la home) -->
@@ -4834,6 +4982,39 @@ const powerBreakdownChartOptions = {
   font-weight: 600;
 }
 
+.top-holders-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2rem;
+  margin-top: 2rem;
+}
+
+.top-holders-chart-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.top-holders-chart-title {
+  font-size: 1.1rem;
+  margin: 0 0 1rem 0;
+  color: var(--text-primary);
+}
+
+.top-holders-chart-container {
+  position: relative;
+  height: 520px;
+}
+
+@media (max-width: 968px) {
+  .top-holders-charts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 768px) {
   .top-holders-table-card {
     padding: 1rem;
@@ -4843,6 +5024,10 @@ const powerBreakdownChartOptions = {
     min-width: 180px;
     max-width: 240px;
     font-size: 0.75rem;
+  }
+
+  .top-holders-chart-container {
+    height: 420px;
   }
 }
 </style>

@@ -225,6 +225,8 @@ export default {
     placesGained: 'places gained',
     placeLost: 'place lost',
     placesLost: 'places lost',
+    rankEvolutionChartTitle: 'Rank evolution (vs previous snapshot)',
+    pctEvolutionChartTitle: '% of total evolution (vs previous snapshot)',
   },
   common: {
     error: 'Error',

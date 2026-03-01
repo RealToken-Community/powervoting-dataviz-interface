@@ -1446,6 +1446,7 @@ const searchAddressDetails = async () => {
               isActive,
               counterpartAmount,
               counterpartToken,
+              positionId: pos.positionId,
             })
           })
         })
@@ -1470,6 +1471,32 @@ const searchAddressDetails = async () => {
     }
     const poolREG = totalREG - walletREG
 
+    // Reconstituer le Power Voting du snapshot à partir des données balances : REG wallet + contribution des pools (équivalent REG)
+    const powerBreakdown: Array<{ label: string; regAmount: number; powerContribution: number }> = []
+    powerBreakdown.push({
+      label: t('analysis.powerCalcWalletLine'),
+      regAmount: walletREG,
+      powerContribution: walletREG,
+    })
+    const positionGroups = new Map<string, { dex: string; poolType: string; isActive: boolean; regAmount: number }>()
+    let singleIdx = 0
+    positions.forEach((pos) => {
+      const key = pos.positionId != null ? `${pos.dex}-${pos.positionId}` : `single-${singleIdx++}`
+      const existing = positionGroups.get(key)
+      const regAmount = existing ? Math.max(existing.regAmount, pos.regAmount) : pos.regAmount
+      positionGroups.set(key, { dex: pos.dex, poolType: pos.poolType, isActive: pos.isActive, regAmount })
+    })
+    const totalPoolREG = [...positionGroups.values()].reduce((s, p) => s + p.regAmount, 0)
+    const powerFromPools = Math.max(0, powerVoting - walletREG)
+    positionGroups.forEach(({ dex, poolType, isActive, regAmount }) => {
+      const ratio = totalPoolREG > 0 ? regAmount / totalPoolREG : 0
+      powerBreakdown.push({
+        label: `${dex} ${(poolType || 'v2').toUpperCase()}${poolType === 'v3' ? (isActive ? ' 🟢' : ' 🔴') : ''}`,
+        regAmount,
+        powerContribution: ratio * powerFromPools,
+      })
+    })
+
     addressDetails.value = {
       address: addressSearchInput.value.trim(),
       totalREG,
@@ -1477,6 +1504,7 @@ const searchAddressDetails = async () => {
       poolREG: Math.max(0, poolREG),
       powerVoting,
       positions,
+      powerBreakdown,
     }
     await loadAddressEvolutionBySnapshot(addressToSearch)
   } catch (err) {
@@ -3057,6 +3085,42 @@ const powerBreakdownChartOptions = {
               <div style="font-size: 1.25rem; font-weight: 600; color: var(--accent-color);">{{ formatNumber(addressDetails.powerVoting) }}</div>
             </div>
           </div>
+        </div>
+
+        <!-- Calcul du Power Voting : reconstitution à partir de REG wallet + REG en pools (équivalent) -->
+        <div v-if="addressDetails.powerBreakdown && addressDetails.powerBreakdown.length > 0" class="power-calc-section" style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; border: 1px solid var(--border-color);">
+          <h4 style="margin: 0 0 0.75rem 0; color: var(--text-primary);">📐 {{ t('analysis.powerCalcTitle') }}</h4>
+          <p style="margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--text-secondary);">
+            {{ t('analysis.powerCalcFormulaCode') }}
+          </p>
+          <div class="power-calc-table" style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                  <th style="text-align: left; padding: 0.5rem 0.75rem; color: var(--text-secondary); font-weight: 600;">{{ t('analysis.powerCalcSource') }}</th>
+                  <th style="text-align: right; padding: 0.5rem 0.75rem; color: var(--text-secondary); font-weight: 600;">REG (équivalent)</th>
+                  <th style="text-align: right; padding: 0.5rem 0.75rem; color: var(--text-secondary); font-weight: 600;">→ Power</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(line, idx) in addressDetails.powerBreakdown" :key="idx" style="border-bottom: 1px solid var(--border-color);">
+                  <td style="padding: 0.5rem 0.75rem; color: var(--text-primary);">{{ line.label }}</td>
+                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(line.regAmount) }}</td>
+                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace; font-weight: 600; color: var(--accent-color);">{{ formatNumber(line.powerContribution) }}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr style="border-top: 2px solid var(--border-color); font-weight: 600;">
+                  <td style="padding: 0.5rem 0.75rem; color: var(--text-primary);">{{ t('analysis.powerCalcTotal') }}</td>
+                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(addressDetails.walletREG + addressDetails.poolREG) }}</td>
+                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace; color: var(--accent-color);">{{ formatNumber(addressDetails.powerVoting) }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p style="margin: 1rem 0 0 0; font-size: 0.8rem; color: var(--text-secondary);">
+            {{ t('analysis.powerCalcDecompositionNote') }}
+          </p>
         </div>
 
         <!-- Détails des positions -->

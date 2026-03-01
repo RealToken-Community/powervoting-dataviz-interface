@@ -175,6 +175,8 @@ export default {
     walletsV3: 'Wallets V3',
     walletsV2AndV3: 'Wallets V2 & V3',
     addressSearch: "Recherche d'adresse",
+    collapseSearch: 'Replier la section',
+    expandSearch: 'Déplier la section',
     addressPlaceholder: 'Entrez une adresse (0x...)',
     search: 'Rechercher',
     searching: 'Recherche...',

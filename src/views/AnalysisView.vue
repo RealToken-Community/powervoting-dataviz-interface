@@ -83,6 +83,7 @@ const addressDetails = ref<{
   }>
 } | null>(null)
 const isSearchingAddressDetails = ref(false)
+const addressSearchSectionExpanded = ref(true)
 
 // Helper function to analyze pools for an entire snapshot
 const analyzeSnapshotPools = (balancesArray: any[], powerVotingArray: any[]) => {
@@ -3056,7 +3057,18 @@ const powerBreakdownChartOptions = {
 
     <!-- Formulaire de recherche d'adresse (2e section : juste au-dessus des graphiques de distribution) -->
     <div class="address-search-section" style="margin: 2rem 0; padding: 1.5rem; background: var(--card-bg); border-radius: 1rem; border: 1px solid var(--border-color);">
-      <h3 style="margin: 0 0 1rem 0; color: var(--text-primary);">🔍 {{ t('analysis.addressSearch') }}</h3>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0;">
+        <h3 style="margin: 0; color: var(--text-primary);">🔍 {{ t('analysis.addressSearch') }}</h3>
+        <button
+          type="button"
+          :title="addressSearchSectionExpanded ? t('analysis.collapseSearch') : t('analysis.expandSearch')"
+          @click="addressSearchSectionExpanded = !addressSearchSectionExpanded"
+          style="padding: 0.35rem 0.6rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 0.5rem; color: var(--text-primary); cursor: pointer; font-size: 1.1rem; line-height: 1;"
+        >
+          {{ addressSearchSectionExpanded ? '▼' : '▲' }}
+        </button>
+      </div>
+      <div v-show="addressSearchSectionExpanded" style="margin-top: 1rem;">
       <form @submit.prevent="searchAddressDetails" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
         <input
           v-model="addressSearchInput"
@@ -3241,6 +3253,7 @@ const powerBreakdownChartOptions = {
             </table>
           </div>
         </div>
+      </div>
       </div>
     </div>
 

@@ -238,6 +238,7 @@ export default {
     noPreviousSnapshot: 'Aucun snapshot précédent pour la comparaison.',
     rank: 'Rang',
     address: 'Adresse',
+    powerVotingValue: 'Power Voting',
     pctTotalPower: '% du total',
     placeChange: 'Évolution rang',
     pctChange: 'Évolution %',

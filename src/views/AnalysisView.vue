@@ -1522,7 +1522,7 @@ const searchAddressDetails = async () => {
   }
 }
 
-// Évolution de l'adresse recherchée sur tous les snapshots (rang + %)
+// Évolution de l'adresse recherchée sur tous les snapshots (rang + % + power)
 const addressEvolutionBySnapshot = ref<Array<{
   date: string
   dateFormatted: string
@@ -1531,6 +1531,7 @@ const addressEvolutionBySnapshot = ref<Array<{
   rankChange: number | null
   pct: number
   pctChange: number | null
+  power: number
 }>>([])
 const isLoadingAddressEvolution = ref(false)
 
@@ -1538,7 +1539,7 @@ const loadAddressEvolutionBySnapshot = async (addressLower: string) => {
   addressEvolutionBySnapshot.value = []
   isLoadingAddressEvolution.value = true
   try {
-    const rows: Array<{ date: string; dateFormatted: string; isCurrent: boolean; rank: number | null; rankChange: number | null; pct: number; pctChange: number | null }> = []
+    const rows: Array<{ date: string; dateFormatted: string; isCurrent: boolean; rank: number | null; rankChange: number | null; pct: number; pctChange: number | null; power: number }> = []
     let prevRank: number | null = null
     let prevPct: number | null = null
 
@@ -1550,7 +1551,8 @@ const loadAddressEvolutionBySnapshot = async (addressLower: string) => {
     const totalPower = sorted.reduce((s, x) => s + x.power, 0)
     const currentIdx = sorted.findIndex((x) => x.address === addressLower)
     const currentRank = currentIdx >= 0 ? currentIdx + 1 : null
-    const currentPower = currentIdx >= 0 ? sorted[currentIdx].power : 0
+    const rawCurrentPower = currentIdx >= 0 ? sorted[currentIdx].power : 0
+    const currentPower = Number(rawCurrentPower) || 0
     const currentPct = totalPower > 0 ? (currentPower / totalPower) * 100 : 0
     rows.push({
       date: 'Actuel',
@@ -1560,6 +1562,7 @@ const loadAddressEvolutionBySnapshot = async (addressLower: string) => {
       rankChange: null,
       pct: currentPct,
       pctChange: null,
+      power: currentPower,
     })
     prevRank = currentRank
     prevPct = currentPct
@@ -1589,6 +1592,7 @@ const loadAddressEvolutionBySnapshot = async (addressLower: string) => {
         rankChange,
         pct,
         pctChange,
+        power,
       })
       prevRank = rank
       prevPct = pct
@@ -3195,6 +3199,7 @@ const powerBreakdownChartOptions = {
                 <tr>
                   <th class="addr-evol-col-date">{{ t('analysis.snapshotDate') }}</th>
                   <th class="addr-evol-col-rank">{{ t('analysis.rank') }}</th>
+                  <th class="addr-evol-col-power">{{ t('analysis.powerVotingValue') }}</th>
                   <th class="addr-evol-col-evol">{{ t('analysis.placeChange') }}</th>
                   <th class="addr-evol-col-pct">{{ t('analysis.pctTotalPower') }}</th>
                   <th class="addr-evol-col-pctdiff">{{ t('analysis.pctChange') }}</th>
@@ -3212,6 +3217,7 @@ const powerBreakdownChartOptions = {
                     <span v-if="row.rank === null">—</span>
                     <span v-else>#{{ row.rank }}</span>
                   </td>
+                  <td class="addr-evol-col-power" style="font-family: monospace;">{{ formatNumber(row.power) }}</td>
                   <td class="addr-evol-col-evol">
                     <span v-if="row.rankChange === null">—</span>
                     <span v-else-if="row.rankChange === 0">—</span>
@@ -5599,6 +5605,11 @@ const powerBreakdownChartOptions = {
 .addr-evol-col-rank {
   width: 5rem;
   text-align: center;
+}
+
+.addr-evol-col-power {
+  min-width: 7rem;
+  text-align: right;
 }
 
 .addr-evol-col-evol,

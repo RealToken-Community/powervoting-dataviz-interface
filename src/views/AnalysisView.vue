@@ -1378,7 +1378,7 @@ const searchAddressDetails = async () => {
     const totalREG = balance ? parseFloat(String(balance.totalBalanceREG || balance.totalBalance || 0)) : 0
     const powerVoting = power ? parseFloat(String(power.powerVoting || 0)) : 0
 
-    // Extraire les positions détaillées
+    // Extraire les positions détaillées, groupées par pool (V2 par poolAddress, V3 par positionId)
     const positions: Array<{
       dex: string
       poolType: string
@@ -1386,10 +1386,21 @@ const searchAddressDetails = async () => {
       isActive: boolean
       counterpartAmount: number
       counterpartToken: string
+      poolAddress?: string
+      positionId?: number | string | null
+      tokens?: Array<{ tokenSymbol: string; tokenBalance: string }>
     }> = []
 
     if (balance && balance.sourceBalance) {
       const networks = balance.sourceBalance
+      const byPool = new Map<string, Array<{
+        pos: any
+        dexName: string
+        networkName: string
+        regAmount: number
+        isV3: boolean
+        isActive: boolean
+      }>>()
 
       Object.entries(networks).forEach(([networkName, networkValue]: [string, any]) => {
         const dexs = networkValue?.dexs
@@ -1402,7 +1413,6 @@ const searchAddressDetails = async () => {
             const regAmount = parseFloat(String(pos.equivalentREG || '0'))
             if (regAmount <= 0) return
 
-            // Détecter V2 vs V3
             const tickLower = typeof pos.tickLower === 'number' ? pos.tickLower : parseFloat(String(pos.tickLower || 0))
             const tickUpper = typeof pos.tickUpper === 'number' ? pos.tickUpper : parseFloat(String(pos.tickUpper || 0))
             const isV2Transformed = tickLower === -887200 && tickUpper === 887200
@@ -1410,45 +1420,47 @@ const searchAddressDetails = async () => {
             const poolType = isV3 ? 'v3' : 'v2'
             const isActive = pos.isActive !== undefined ? pos.isActive : (isV3 ? false : true)
 
-            // Extraire la contrepartie (token0 ou token1 qui n'est pas REG)
-            let counterpartAmount = 0
-            let counterpartToken = ''
+            const poolAddress = pos.poolAddress || 'unknown'
+            const positionIdVal = pos.positionId !== undefined && pos.positionId !== null
+              ? (typeof pos.positionId === 'string' ? parseInt(pos.positionId, 10) : Number(pos.positionId))
+              : null
+            const hasPositionId = positionIdVal !== null && !isNaN(positionIdVal) && positionIdVal !== 0
+            const key = isV3 && hasPositionId ? `${poolAddress}-${positionIdVal}` : poolAddress
 
-            // Chercher dans les tokens de la position
-            if (pos.tokens && Array.isArray(pos.tokens)) {
-              pos.tokens.forEach((token: any) => {
-                const tokenSymbol = token.symbol || ''
-                const tokenAmount = parseFloat(String(token.balance || token.amount || 0))
-                
-                // Si ce n'est pas REG, c'est la contrepartie
-                if (tokenSymbol.toUpperCase() !== 'REG' && tokenAmount > 0) {
-                  counterpartAmount = tokenAmount
-                  counterpartToken = tokenSymbol
-                }
-              })
-            }
-
-            // Si pas trouvé dans tokens, chercher token0/token1
-            if (counterpartAmount === 0) {
-              if (pos.token0 && pos.token0.symbol && pos.token0.symbol.toUpperCase() !== 'REG') {
-                counterpartAmount = parseFloat(String(pos.token0.balance || pos.token0.amount || 0))
-                counterpartToken = pos.token0.symbol
-              } else if (pos.token1 && pos.token1.symbol && pos.token1.symbol.toUpperCase() !== 'REG') {
-                counterpartAmount = parseFloat(String(pos.token1.balance || pos.token1.amount || 0))
-                counterpartToken = pos.token1.symbol
-              }
-            }
-
-            positions.push({
-              dex: dexName,
-              poolType,
-              regAmount,
-              isActive,
-              counterpartAmount,
-              counterpartToken,
-              positionId: pos.positionId,
-            })
+            if (!byPool.has(key)) byPool.set(key, [])
+            byPool.get(key)!.push({ pos, dexName, networkName, regAmount, isV3, isActive })
           })
+        })
+      })
+
+      byPool.forEach((group) => {
+        const first = group[0]
+        const regAmounts = group.map((g) => g.regAmount).filter((r) => r > 0)
+        const regAmount = regAmounts.length > 0 ? Math.max(...regAmounts) : 0
+        if (regAmount <= 0) return
+
+        const tokenList = group.map((g) => ({
+          tokenSymbol: g.pos.tokenSymbol || 'UNKNOWN',
+          tokenBalance: String(g.pos.tokenBalance ?? '0'),
+        }))
+        let counterpartAmount = 0
+        let counterpartToken = ''
+        const other = tokenList.find((t) => t.tokenSymbol.toUpperCase() !== 'REG')
+        if (other) {
+          counterpartAmount = parseFloat(other.tokenBalance) || 0
+          counterpartToken = other.tokenSymbol
+        }
+
+        positions.push({
+          dex: first.dexName,
+          poolType: first.isV3 ? 'v3' : 'v2',
+          regAmount,
+          isActive: first.isActive,
+          counterpartAmount,
+          counterpartToken,
+          poolAddress: first.pos.poolAddress,
+          positionId: first.pos.positionId,
+          tokens: tokenList.length > 0 ? tokenList : undefined,
         })
       })
     }
@@ -1471,28 +1483,22 @@ const searchAddressDetails = async () => {
     }
     const poolREG = totalREG - walletREG
 
-    // Reconstituer le Power Voting du snapshot à partir des données balances : REG wallet + contribution des pools (équivalent REG)
-    const powerBreakdown: Array<{ label: string; regAmount: number; powerContribution: number }> = []
+    // Reconstituer le Power Voting : séparation explicite REG direct (wallet) vs Équivalent REG (pools)
+    const powerBreakdown: Array<{ label: string; regDirect: number; equivReg: number; powerContribution: number }> = []
     powerBreakdown.push({
       label: t('analysis.powerCalcWalletLine'),
-      regAmount: walletREG,
+      regDirect: walletREG,
+      equivReg: 0,
       powerContribution: walletREG,
     })
-    const positionGroups = new Map<string, { dex: string; poolType: string; isActive: boolean; regAmount: number }>()
-    let singleIdx = 0
-    positions.forEach((pos) => {
-      const key = pos.positionId != null ? `${pos.dex}-${pos.positionId}` : `single-${singleIdx++}`
-      const existing = positionGroups.get(key)
-      const regAmount = existing ? Math.max(existing.regAmount, pos.regAmount) : pos.regAmount
-      positionGroups.set(key, { dex: pos.dex, poolType: pos.poolType, isActive: pos.isActive, regAmount })
-    })
-    const totalPoolREG = [...positionGroups.values()].reduce((s, p) => s + p.regAmount, 0)
+    const totalPoolREG = positions.reduce((s, p) => s + p.regAmount, 0)
     const powerFromPools = Math.max(0, powerVoting - walletREG)
-    positionGroups.forEach(({ dex, poolType, isActive, regAmount }) => {
-      const ratio = totalPoolREG > 0 ? regAmount / totalPoolREG : 0
+    positions.forEach((pos) => {
+      const ratio = totalPoolREG > 0 ? pos.regAmount / totalPoolREG : 0
       powerBreakdown.push({
-        label: `${dex} ${(poolType || 'v2').toUpperCase()}${poolType === 'v3' ? (isActive ? ' 🟢' : ' 🔴') : ''}`,
-        regAmount,
+        label: `${pos.dex} ${(pos.poolType || 'v2').toUpperCase()}${pos.poolType === 'v3' ? (pos.isActive ? ' 🟢' : ' 🔴') : ''}`,
+        regDirect: 0,
+        equivReg: pos.regAmount,
         powerContribution: ratio * powerFromPools,
       })
     })
@@ -3065,54 +3071,64 @@ const powerBreakdownChartOptions = {
 
       <!-- Résultats de la recherche -->
       <div v-if="addressDetails" class="address-details" style="margin-top: 1.5rem;">
-        <div style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; margin-bottom: 1rem;">
-          <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary); font-family: monospace;">{{ addressDetails.address }}</h4>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
-            <div>
-              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regTotal') }}</span>
-              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.totalREG) }}</div>
+        <p class="search-result-intro" style="margin: 0 0 1rem 0; font-size: 0.9rem; color: var(--text-secondary); line-height: 1.4;">
+          {{ t('analysis.searchResultIntro') }}
+        </p>
+        <div class="address-summary-cards" style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; margin-bottom: 1rem;">
+          <h4 style="margin: 0 0 1rem 0; color: var(--text-primary); font-family: monospace;">{{ addressDetails.address }}</h4>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1.25rem;">
+            <div class="summary-card" style="padding: 0.75rem; background: var(--card-bg); border-radius: 0.5rem; border: 1px solid var(--border-color); aspect-ratio: 1; display: flex; flex-direction: column; justify-content: flex-start;">
+              <span style="color: var(--text-secondary); font-size: 0.8rem; display: block;">{{ t('analysis.regDirectLabel') }}</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-top: 0.25rem;">{{ formatNumber(addressDetails.walletREG) }}</div>
+              <span style="font-size: 0.75rem; color: var(--text-secondary);">{{ t('analysis.regDirectDesc') }}</span>
             </div>
-            <div>
-              <span style="color: var(--text-secondary); font-size: 0.875rem;">REG en wallet</span>
-              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.walletREG) }}</div>
+            <div class="summary-card" style="padding: 0.75rem; background: var(--card-bg); border-radius: 0.5rem; border: 1px solid var(--border-color);">
+              <span style="color: var(--text-secondary); font-size: 0.8rem; display: block;">{{ t('analysis.equivRegLabel') }}</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-top: 0.25rem;">{{ formatNumber(addressDetails.poolREG) }}</div>
+              <span style="font-size: 0.75rem; color: var(--text-secondary);">{{ t('analysis.equivRegDesc') }}</span>
             </div>
-            <div>
-              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regInPools') }}</span>
-              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.poolREG) }}</div>
+            <div class="summary-card" style="padding: 0.75rem; background: var(--card-bg); border-radius: 0.5rem; border: 1px solid var(--border-color);">
+              <span style="color: var(--text-secondary); font-size: 0.8rem; display: block;">{{ t('analysis.regPlusEquivTotal') }}</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-top: 0.25rem;">{{ formatNumber(addressDetails.walletREG + addressDetails.poolREG) }}</div>
+              <span style="font-size: 0.75rem; color: var(--text-secondary);">{{ t('analysis.regPlusEquivDesc') }}</span>
             </div>
-            <div>
-              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.powerVoting') }}</span>
-              <div style="font-size: 1.25rem; font-weight: 600; color: var(--accent-color);">{{ formatNumber(addressDetails.powerVoting) }}</div>
+            <div class="summary-card" style="padding: 0.75rem; background: var(--card-bg); border-radius: 0.5rem; border: 1px solid var(--border-color);">
+              <span style="color: var(--text-secondary); font-size: 0.8rem; display: block;">{{ t('analysis.powerVoting') }}</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--accent-color); margin-top: 0.25rem;">{{ formatNumber(addressDetails.powerVoting) }}</div>
+              <span style="font-size: 0.75rem; color: var(--text-secondary);">{{ t('analysis.powerVotingSnapshotDesc') }}</span>
             </div>
           </div>
         </div>
 
-        <!-- Calcul du Power Voting : reconstitution à partir de REG wallet + REG en pools (équivalent) -->
+        <!-- Calcul du Power Voting : tableau REG direct / Équiv. REG → Power -->
         <div v-if="addressDetails.powerBreakdown && addressDetails.powerBreakdown.length > 0" class="power-calc-section" style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; border: 1px solid var(--border-color);">
-          <h4 style="margin: 0 0 0.75rem 0; color: var(--text-primary);">📐 {{ t('analysis.powerCalcTitle') }}</h4>
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary);">📐 {{ t('analysis.powerCalcTitle') }}</h4>
           <p style="margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--text-secondary);">
-            {{ t('analysis.powerCalcFormulaCode') }}
+            {{ t('analysis.powerCalcTableIntro') }}
           </p>
           <div class="power-calc-table" style="overflow-x: auto;">
             <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
               <thead>
-                <tr style="border-bottom: 1px solid var(--border-color);">
+                <tr style="border-bottom: 2px solid var(--border-color);">
                   <th style="text-align: left; padding: 0.5rem 0.75rem; color: var(--text-secondary); font-weight: 600;">{{ t('analysis.powerCalcSource') }}</th>
-                  <th style="text-align: right; padding: 0.5rem 0.75rem; color: var(--text-secondary); font-weight: 600;">REG (équivalent)</th>
+                  <th style="text-align: right; padding: 0.5rem 0.75rem; color: var(--text-secondary); font-weight: 600;">{{ t('analysis.powerCalcColRegDirect') }}</th>
+                  <th style="text-align: right; padding: 0.5rem 0.75rem; color: var(--text-secondary); font-weight: 600;">{{ t('analysis.powerCalcColEquivReg') }}</th>
                   <th style="text-align: right; padding: 0.5rem 0.75rem; color: var(--text-secondary); font-weight: 600;">→ Power</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="(line, idx) in addressDetails.powerBreakdown" :key="idx" style="border-bottom: 1px solid var(--border-color);">
                   <td style="padding: 0.5rem 0.75rem; color: var(--text-primary);">{{ line.label }}</td>
-                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(line.regAmount) }}</td>
+                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(line.regDirect) }}</td>
+                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(line.equivReg) }}</td>
                   <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace; font-weight: 600; color: var(--accent-color);">{{ formatNumber(line.powerContribution) }}</td>
                 </tr>
               </tbody>
               <tfoot>
                 <tr style="border-top: 2px solid var(--border-color); font-weight: 600;">
                   <td style="padding: 0.5rem 0.75rem; color: var(--text-primary);">{{ t('analysis.powerCalcTotal') }}</td>
-                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(addressDetails.walletREG + addressDetails.poolREG) }}</td>
+                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(addressDetails.walletREG) }}</td>
+                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(addressDetails.poolREG) }}</td>
                   <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace; color: var(--accent-color);">{{ formatNumber(addressDetails.powerVoting) }}</td>
                 </tr>
               </tfoot>
@@ -3151,7 +3167,13 @@ const powerBreakdownChartOptions = {
                     {{ position.isActive ? '🟢 ' + t('analysis.activeInRange') : '🔴 ' + t('analysis.inactiveOutOfRange') }}
                   </div>
                 </div>
-                <div v-if="position.counterpartAmount > 0">
+                <template v-if="position.tokens && position.tokens.length > 0">
+                  <div v-for="(token, ti) in position.tokens" :key="ti">
+                    <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ token.tokenSymbol }}</span>
+                    <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(parseFloat(token.tokenBalance)) }} {{ token.tokenSymbol }}</div>
+                  </div>
+                </template>
+                <div v-else-if="position.counterpartAmount > 0">
                   <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.counterpart') }}</span>
                   <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.counterpartAmount) }} {{ position.counterpartToken || '' }}</div>
                 </div>

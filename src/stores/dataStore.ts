@@ -252,7 +252,8 @@ export const useDataStore = defineStore('data', () => {
 
           // Grouper les positions par positionId pour les pools V3 (qui ont 2 tokens par position)
           const positionsByPositionId = new Map<string, any[]>()
-          const v2Positions: any[] = []
+          // Pour V2 : grouper par poolAddress (une pool = plusieurs tokens, ex. REG + sDAI sur Balancer)
+          const v2ByPool = new Map<string, any[]>()
           
           rawPositions.forEach((pos: PoolPosition) => {
             const regAmount = parseFloat(String(pos.equivalentREG || '0'))
@@ -286,10 +287,13 @@ export const useDataStore = defineStore('data', () => {
                 regAmount,
               })
             } else {
-              // Pour V2 ou positions sans positionId, traiter comme une position unique
-              // Filtrer seulement celles avec regAmount > 0
+              // Pour V2 : grouper par poolAddress (ex. Balancer = 1 pool avec REG + sDAI)
               if (regAmount > 0) {
-                v2Positions.push({
+                const poolAddress = pos.poolAddress || `v2-${dexName}-${networkName}`
+                if (!v2ByPool.has(poolAddress)) {
+                  v2ByPool.set(poolAddress, [])
+                }
+                v2ByPool.get(poolAddress)!.push({
                   ...pos,
                   dex: dexName,
                   network: networkName,
@@ -346,8 +350,32 @@ export const useDataStore = defineStore('data', () => {
             })
           })
 
-          // Ajouter les positions V2
-          positions.push(...v2Positions)
+          // Positions V2 groupées par pool : une entrée par pool avec détails des tokens (ex. REG + sDAI)
+          v2ByPool.forEach((tokens) => {
+            if (tokens.length === 0) return
+            const regAmounts = tokens.map((t) => t.regAmount).filter((r) => r > 0)
+            const totalRegAmount = regAmounts.length > 0 ? Math.max(...regAmounts) : 0
+            if (totalRegAmount <= 0) return
+            const basePos = tokens[0]
+            const mainToken = tokens.reduce((max, token) =>
+              token.regAmount > max.regAmount ? token : max
+            )
+            const tokenDetails = tokens
+              .filter((token) => parseFloat(String(token.tokenBalance || '0')) > 0)
+              .map((token) => ({
+                tokenSymbol: token.tokenSymbol || 'UNKNOWN',
+                tokenBalance: String(token.tokenBalance || '0'),
+                equivalentREG: String(token.equivalentREG || '0'),
+              }))
+            positions.push({
+              ...basePos,
+              regAmount: totalRegAmount,
+              tokenBalance: mainToken.tokenBalance,
+              tokenSymbol: mainToken.tokenSymbol,
+              equivalentREG: totalRegAmount.toString(),
+              tokens: tokenDetails.length > 0 ? tokenDetails : undefined,
+            })
+          })
         })
         })
 

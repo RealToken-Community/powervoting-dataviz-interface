@@ -3002,6 +3002,142 @@ const powerBreakdownChartOptions = {
       </div>
     </div>
 
+    <!-- Formulaire de recherche d'adresse (2e section : juste au-dessus des graphiques de distribution) -->
+    <div class="address-search-section" style="margin: 2rem 0; padding: 1.5rem; background: var(--card-bg); border-radius: 1rem; border: 1px solid var(--border-color);">
+      <h3 style="margin: 0 0 1rem 0; color: var(--text-primary);">🔍 {{ t('analysis.addressSearch') }}</h3>
+      <form @submit.prevent="searchAddressDetails" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+        <input
+          v-model="addressSearchInput"
+          type="text"
+          :placeholder="t('analysis.addressPlaceholder')"
+          style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--bg-secondary); color: var(--text-primary); font-family: monospace;"
+        />
+        <button
+          type="submit"
+          :disabled="isSearchingAddressDetails"
+          style="padding: 0.75rem 1.5rem; background: var(--primary-color); color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 600;"
+        >
+          {{ isSearchingAddressDetails ? t('analysis.searching') : t('analysis.search') }}
+        </button>
+      </form>
+
+      <!-- Résultats de la recherche -->
+      <div v-if="addressDetails" class="address-details" style="margin-top: 1.5rem;">
+        <div style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; margin-bottom: 1rem;">
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary); font-family: monospace;">{{ addressDetails.address }}</h4>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regTotal') }}</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.totalREG) }}</div>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">REG en wallet</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.walletREG) }}</div>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regInPools') }}</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.poolREG) }}</div>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.powerVoting') }}</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--accent-color);">{{ formatNumber(addressDetails.powerVoting) }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Détails des positions -->
+        <div v-if="addressDetails.positions && addressDetails.positions.length > 0">
+          <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">{{ t('analysis.positionsInPools') }}</h4>
+          <div style="display: grid; gap: 1rem;">
+            <div
+              v-for="(position, index) in addressDetails.positions"
+              :key="index"
+              style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; border-left: 3px solid var(--primary-color);"
+            >
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.dexPool') }}</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ position.dex }} {{ position.poolType?.toUpperCase() || 'V2' }}</div>
+                </div>
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.version') }}</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ position.poolType === 'v3' ? 'V3' : 'V2' }}</div>
+                </div>
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regEquivalent') }}</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.regAmount) }}</div>
+                </div>
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.status') }}</span>
+                  <div style="font-weight: 600;" :style="{ color: position.isActive ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)' }">
+                    {{ position.isActive ? '🟢 ' + t('analysis.activeInRange') : '🔴 ' + t('analysis.inactiveOutOfRange') }}
+                  </div>
+                </div>
+                <div v-if="position.counterpartAmount > 0">
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.counterpart') }}</span>
+                  <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.counterpartAmount) }} {{ position.counterpartToken || '' }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-else style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; color: var(--text-secondary); text-align: center;">
+          {{ t('analysis.noPositionInPools') }}
+        </div>
+
+        <!-- Évolution de l'adresse par snapshot (rang + % vs précédent) -->
+        <div class="address-evolution-section" style="margin-top: 2rem;">
+          <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">📈 {{ t('analysis.addressEvolutionBySnapshot') }}</h4>
+          <p v-if="isLoadingAddressEvolution" style="color: var(--text-secondary); margin: 0;">{{ t('analysis.loadingPreviousSnapshot') }}</p>
+          <div v-else-if="addressEvolutionBySnapshot.length > 0" class="address-evolution-table-wrapper" style="overflow-x: auto;">
+            <table class="address-evolution-table">
+              <thead>
+                <tr>
+                  <th class="addr-evol-col-date">{{ t('analysis.snapshotDate') }}</th>
+                  <th class="addr-evol-col-rank">{{ t('analysis.rank') }}</th>
+                  <th class="addr-evol-col-evol">{{ t('analysis.placeChange') }}</th>
+                  <th class="addr-evol-col-pct">{{ t('analysis.pctTotalPower') }}</th>
+                  <th class="addr-evol-col-pctdiff">{{ t('analysis.pctChange') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(row, idx) in addressEvolutionBySnapshot"
+                  :key="row.date + (row.dateFormatted || '')"
+                  class="address-evolution-row"
+                  :class="{ 'address-evolution-current': row.isCurrent }"
+                >
+                  <td class="addr-evol-col-date">{{ row.dateFormatted }}</td>
+                  <td class="addr-evol-col-rank">
+                    <span v-if="row.rank === null">—</span>
+                    <span v-else>#{{ row.rank }}</span>
+                  </td>
+                  <td class="addr-evol-col-evol">
+                    <span v-if="row.rankChange === null">—</span>
+                    <span v-else-if="row.rankChange === 0">—</span>
+                    <span v-else-if="row.rankChange > 0" class="top-holders-positive">
+                      {{ row.rankChange }} {{ row.rankChange === 1 ? t('analysis.placeGained') : t('analysis.placesGained') }}
+                    </span>
+                    <span v-else class="top-holders-negative">
+                      {{ Math.abs(row.rankChange) }} {{ Math.abs(row.rankChange) === 1 ? t('analysis.placeLost') : t('analysis.placesLost') }}
+                    </span>
+                  </td>
+                  <td class="addr-evol-col-pct">{{ formatNumber(row.pct) }}%</td>
+                  <td class="addr-evol-col-pctdiff">
+                    <span v-if="row.pctChange === null">—</span>
+                    <span v-else-if="row.pctChange === 0">—</span>
+                    <span v-else :class="row.pctChange > 0 ? 'top-holders-positive' : 'top-holders-negative'">
+                      {{ row.pctChange > 0 ? '+' : '' }}{{ formatNumber(row.pctChange) }}%
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Charts -->
     <div class="charts-grid">
       <div class="chart-card">
@@ -3298,142 +3434,6 @@ const powerBreakdownChartOptions = {
       <div class="summary-item">
         <span class="summary-label">{{ t('analysis.walletsV2AndV3') }}</span>
         <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.both) }}</span>
-      </div>
-    </div>
-
-    <!-- Formulaire de recherche d'adresse -->
-    <div class="address-search-section" style="margin: 2rem 0; padding: 1.5rem; background: var(--card-bg); border-radius: 1rem; border: 1px solid var(--border-color);">
-      <h3 style="margin: 0 0 1rem 0; color: var(--text-primary);">🔍 {{ t('analysis.addressSearch') }}</h3>
-      <form @submit.prevent="searchAddressDetails" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
-        <input
-          v-model="addressSearchInput"
-          type="text"
-          :placeholder="t('analysis.addressPlaceholder')"
-          style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--bg-secondary); color: var(--text-primary); font-family: monospace;"
-        />
-        <button
-          type="submit"
-          :disabled="isSearchingAddressDetails"
-          style="padding: 0.75rem 1.5rem; background: var(--primary-color); color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 600;"
-        >
-          {{ isSearchingAddressDetails ? t('analysis.searching') : t('analysis.search') }}
-        </button>
-      </form>
-
-      <!-- Résultats de la recherche -->
-      <div v-if="addressDetails" class="address-details" style="margin-top: 1.5rem;">
-        <div style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; margin-bottom: 1rem;">
-          <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary); font-family: monospace;">{{ addressDetails.address }}</h4>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
-            <div>
-              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regTotal') }}</span>
-              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.totalREG) }}</div>
-            </div>
-            <div>
-              <span style="color: var(--text-secondary); font-size: 0.875rem;">REG en wallet</span>
-              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.walletREG) }}</div>
-            </div>
-            <div>
-              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regInPools') }}</span>
-              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">{{ formatNumber(addressDetails.poolREG) }}</div>
-            </div>
-            <div>
-              <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.powerVoting') }}</span>
-              <div style="font-size: 1.25rem; font-weight: 600; color: var(--accent-color);">{{ formatNumber(addressDetails.powerVoting) }}</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Détails des positions -->
-        <div v-if="addressDetails.positions && addressDetails.positions.length > 0">
-          <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">{{ t('analysis.positionsInPools') }}</h4>
-          <div style="display: grid; gap: 1rem;">
-            <div
-              v-for="(position, index) in addressDetails.positions"
-              :key="index"
-              style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; border-left: 3px solid var(--primary-color);"
-            >
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-                <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.dexPool') }}</span>
-                  <div style="font-weight: 600; color: var(--text-primary);">{{ position.dex }} {{ position.poolType?.toUpperCase() || 'V2' }}</div>
-                </div>
-                <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.version') }}</span>
-                  <div style="font-weight: 600; color: var(--text-primary);">{{ position.poolType === 'v3' ? 'V3' : 'V2' }}</div>
-                </div>
-                <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regEquivalent') }}</span>
-                  <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.regAmount) }}</div>
-                </div>
-                <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.status') }}</span>
-                  <div style="font-weight: 600;" :style="{ color: position.isActive ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)' }">
-                    {{ position.isActive ? '🟢 ' + t('analysis.activeInRange') : '🔴 ' + t('analysis.inactiveOutOfRange') }}
-                  </div>
-                </div>
-                <div v-if="position.counterpartAmount > 0">
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.counterpart') }}</span>
-                  <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.counterpartAmount) }} {{ position.counterpartToken || '' }}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div v-else style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; color: var(--text-secondary); text-align: center;">
-          {{ t('analysis.noPositionInPools') }}
-        </div>
-
-        <!-- Évolution de l'adresse par snapshot (rang + % vs précédent) -->
-        <div class="address-evolution-section" style="margin-top: 2rem;">
-          <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">📈 {{ t('analysis.addressEvolutionBySnapshot') }}</h4>
-          <p v-if="isLoadingAddressEvolution" style="color: var(--text-secondary); margin: 0;">{{ t('analysis.loadingPreviousSnapshot') }}</p>
-          <div v-else-if="addressEvolutionBySnapshot.length > 0" class="address-evolution-table-wrapper" style="overflow-x: auto;">
-            <table class="address-evolution-table">
-              <thead>
-                <tr>
-                  <th class="addr-evol-col-date">{{ t('analysis.snapshotDate') }}</th>
-                  <th class="addr-evol-col-rank">{{ t('analysis.rank') }}</th>
-                  <th class="addr-evol-col-evol">{{ t('analysis.placeChange') }}</th>
-                  <th class="addr-evol-col-pct">{{ t('analysis.pctTotalPower') }}</th>
-                  <th class="addr-evol-col-pctdiff">{{ t('analysis.pctChange') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="(row, idx) in addressEvolutionBySnapshot"
-                  :key="row.date + (row.dateFormatted || '')"
-                  class="address-evolution-row"
-                  :class="{ 'address-evolution-current': row.isCurrent }"
-                >
-                  <td class="addr-evol-col-date">{{ row.dateFormatted }}</td>
-                  <td class="addr-evol-col-rank">
-                    <span v-if="row.rank === null">—</span>
-                    <span v-else>#{{ row.rank }}</span>
-                  </td>
-                  <td class="addr-evol-col-evol">
-                    <span v-if="row.rankChange === null">—</span>
-                    <span v-else-if="row.rankChange === 0">—</span>
-                    <span v-else-if="row.rankChange > 0" class="top-holders-positive">
-                      {{ row.rankChange }} {{ row.rankChange === 1 ? t('analysis.placeGained') : t('analysis.placesGained') }}
-                    </span>
-                    <span v-else class="top-holders-negative">
-                      {{ Math.abs(row.rankChange) }} {{ Math.abs(row.rankChange) === 1 ? t('analysis.placeLost') : t('analysis.placesLost') }}
-                    </span>
-                  </td>
-                  <td class="addr-evol-col-pct">{{ formatNumber(row.pct) }}%</td>
-                  <td class="addr-evol-col-pctdiff">
-                    <span v-if="row.pctChange === null">—</span>
-                    <span v-else-if="row.pctChange === 0">—</span>
-                    <span v-else :class="row.pctChange > 0 ? 'top-holders-positive' : 'top-holders-negative'">
-                      {{ row.pctChange > 0 ? '+' : '' }}{{ formatNumber(row.pctChange) }}%
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
       </div>
     </div>
 

@@ -301,12 +301,13 @@ export const useDataStore = defineStore('data', () => {
           })
 
           // Pour les positions V3 groupées, créer une seule position agrégée
+          // Ne pas sommer les 2 tokens (REG + contrepartie equivalentREG) → double comptage. Prendre le max (valeur position en REG).
           positionsByPositionId.forEach((tokens) => {
             if (tokens.length === 0) return
 
-            // Agréger le regAmount de tous les tokens de cette position (même ceux avec 0)
-            const totalRegAmount = tokens.reduce((sum, token) => sum + token.regAmount, 0)
-            
+            const regAmounts = tokens.map((t) => t.regAmount).filter((r) => r > 0)
+            const totalRegAmount = regAmounts.length > 0 ? Math.max(...regAmounts) : 0
+
             // Filtrer les positions avec total REG <= 0
             if (totalRegAmount <= 0) return
 
@@ -355,7 +356,19 @@ export const useDataStore = defineStore('data', () => {
         const totalLiquidity = positions.reduce((sum, pos) => sum + pos.regAmount, 0)
         const dexCount = new Set(positions.map((pos) => `${pos.network}-${pos.dex}`)).size
 
-        const totalWalletREG = parseFloat(String(wallet.totalBalanceREG || wallet.totalBalance || 0)) || 0
+        // REG en wallet : utiliser sourceBalance.*.walletBalance pour cohérence (évite double comptage V3)
+        let totalWalletREG = 0
+        if (wallet.sourceBalance && typeof wallet.sourceBalance === 'object') {
+          Object.values(wallet.sourceBalance).forEach((net: any) => {
+            const wb = net?.walletBalance
+            if (wb !== undefined && wb !== null && wb !== '') {
+              totalWalletREG += parseFloat(String(wb)) || 0
+            }
+          })
+        }
+        if (totalWalletREG === 0) {
+          totalWalletREG = parseFloat(String(wallet.totalBalanceREG || wallet.totalBalance || 0)) || 0
+        }
 
         return {
           address: wallet.walletAddress,

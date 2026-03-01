@@ -1452,15 +1452,29 @@ const searchAddressDetails = async () => {
       })
     }
 
-    // Calculer REG en wallet et REG en pools
-    const poolREG = positions.reduce((sum, pos) => sum + pos.regAmount, 0)
-    const walletREG = totalREG - poolREG
+    // REG en wallet : utiliser sourceBalance.*.walletBalance pour éviter le double comptage
+    // (positions V3 ont 2 lignes par position → totalREG - sum(positions) peut être négatif)
+    let walletREG = 0
+    if (balance?.sourceBalance && typeof balance.sourceBalance === 'object') {
+      Object.values(balance.sourceBalance).forEach((net: any) => {
+        const wb = net?.walletBalance
+        if (wb !== undefined && wb !== null && wb !== '') {
+          walletREG += parseFloat(String(wb)) || 0
+        }
+      })
+    }
+    if (walletREG === 0 && balance) {
+      // Fallback : totalREG - poolREG (comportement historique)
+      const poolREGFromPositions = positions.reduce((sum, pos) => sum + pos.regAmount, 0)
+      walletREG = Math.max(0, totalREG - poolREGFromPositions)
+    }
+    const poolREG = totalREG - walletREG
 
     addressDetails.value = {
       address: addressSearchInput.value.trim(),
       totalREG,
       walletREG: Math.max(0, walletREG),
-      poolREG,
+      poolREG: Math.max(0, poolREG),
       powerVoting,
       positions,
     }

@@ -384,19 +384,8 @@ export const useDataStore = defineStore('data', () => {
         const totalLiquidity = positions.reduce((sum, pos) => sum + pos.regAmount, 0)
         const dexCount = new Set(positions.map((pos) => `${pos.network}-${pos.dex}`)).size
 
-        // REG en wallet : utiliser sourceBalance.*.walletBalance pour cohérence (évite double comptage V3)
-        let totalWalletREG = 0
-        if (wallet.sourceBalance && typeof wallet.sourceBalance === 'object') {
-          Object.values(wallet.sourceBalance).forEach((net: any) => {
-            const wb = net?.walletBalance
-            if (wb !== undefined && wb !== null && wb !== '') {
-              totalWalletREG += parseFloat(String(wb)) || 0
-            }
-          })
-        }
-        if (totalWalletREG === 0) {
-          totalWalletREG = parseFloat(String(wallet.totalBalanceREG || wallet.totalBalance || 0)) || 0
-        }
+        // Total REG du snapshot (pour les graphiques uniquement). La search bar recalcule "REG en wallet" depuis les données brutes.
+        const totalWalletREG = parseFloat(String(wallet.totalBalanceREG || wallet.totalBalance || 0)) || 0
 
         return {
           address: wallet.walletAddress,
@@ -642,6 +631,7 @@ interface AddressPoolPosition extends PoolPosition {
 
 interface AddressPoolProfile {
   address: string
+  /** Total REG du snapshot (pour les graphiques) — ne pas utiliser pour l’affichage "REG en wallet" de la search bar */
   walletREG: number
   poolLiquidityREG: number
   positions: AddressPoolPosition[]

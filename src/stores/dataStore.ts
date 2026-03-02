@@ -391,7 +391,7 @@ export const useDataStore = defineStore('data', () => {
             // Estimation du multiplicateur basé sur le type de pool
             let estimatedMultiplier = 1.5 // V2 par défaut
             if (pos.poolType === 'v3') {
-              estimatedMultiplier = pos.isActive === true ? 2.5 : 0.1
+              estimatedMultiplier = pos.isActive === true ? 10 : 1 // V3 : boost 1–10 (modèle voté)
             } else if (pos.poolType === 'v2') {
               const dexName = (pos.dex || '').toLowerCase()
               if (dexName.includes('sushiswap')) {

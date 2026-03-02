@@ -634,47 +634,28 @@ const toggleWalletPositions = (address: string) => {
   expandedWallets.value[address] = !isWalletExpanded(address)
 }
 
+// Modèle voté (proximité au prix) : V3 boost entre 1 et 10 ; on approxime in range ≈ 10, out of range ≈ 1
+const V3_BOOST_MIN = 1
+const V3_BOOST_MAX = 10
+
 // Calculer le multiplicateur estimé pour une position basé sur son type, son état et son DEX
 const estimatePositionMultiplier = (position: any) => {
-  // Pour V2, le multiplicateur peut varier selon le DEX
-  // Pour V3 actif, le multiplicateur peut être plus élevé (2.0x à 4.0x+)
-  // Pour V3 inactif, le multiplicateur est généralement 0 ou très faible
-  
   if (position.poolType === 'v2') {
-    // V2 pools : multiplicateur peut varier selon le DEX
     const dexName = (position.dex || '').toLowerCase()
-    
-    // Différents DEX peuvent avoir des multiplicateurs différents
-    // Ces valeurs sont des estimations et peuvent être ajustées selon la configuration réelle
-    if (dexName.includes('sushiswap')) {
-      return 1.5 // Estimation pour Sushiswap V2
-    } else if (dexName.includes('honeyswap')) {
-      return 1.3 // Estimation pour Honeyswap V2
-    } else if (dexName.includes('balancer')) {
-      return 1.4 // Estimation pour Balancer V2
-    } else {
-      // DEX inconnu ou autre : multiplicateur par défaut
-      return 1.5 // Estimation moyenne pour V2
-    }
-  } else if (position.poolType === 'v3') {
-    // V3 pools : multiplicateur dépend de si la position est active
-    if (position.isActive === true) {
-      // Position V3 active : multiplicateur plus élevé
-      // Le multiplicateur réel peut varier selon la position dans la range de prix
-      return 2.5 // Estimation pour V3 actif
-    } else {
-      // Position V3 inactive : pas de boost ou très faible
-      return 0.1 // Très faible multiplicateur pour V3 inactif
-    }
+    if (dexName.includes('sushiswap')) return 1.5
+    if (dexName.includes('honeyswap')) return 1.3
+    if (dexName.includes('balancer')) return 1.4
+    return 1.5
   }
-  
-  return 1.0 // Par défaut
+  if (position.poolType === 'v3') {
+    return position.isActive === true ? V3_BOOST_MAX : V3_BOOST_MIN
+  }
+  return 1.0
 }
 
-// Arrondir le ratio réel à la valeur théorique "ronde" la plus proche
-// Valeurs théoriques : 0.1, 1.0, 1.3, 1.4, 1.5, 2.5
+// Arrondir le ratio réel à la valeur théorique "ronde" la plus proche (V2 + V3 min/max)
 const roundToTheoreticalMultiplier = (realMultiplier: number): number => {
-  const theoreticalValues = [0.1, 1.0, 1.3, 1.4, 1.5, 2.5]
+  const theoreticalValues = [V3_BOOST_MIN, 1.0, 1.3, 1.4, 1.5, V3_BOOST_MAX]
   const maxTolerance = 0.5 // Tolérance maximale pour forcer l'utilisation d'une valeur théorique
   
   // Trouver la valeur théorique la plus proche
@@ -1468,41 +1449,64 @@ const searchAddressDetails = async () => {
       })
     }
 
-    // REG en wallet : utiliser sourceBalance.*.walletBalance pour éviter le double comptage
-    // (positions V3 ont 2 lignes par position → totalREG - sum(positions) peut être négatif)
+    // REG en wallet (wallet seul) et vault incentive (séparés pour affichage)
     let walletREG = 0
+    let vaultREG = 0
     if (balance?.sourceBalance && typeof balance.sourceBalance === 'object') {
       Object.values(balance.sourceBalance).forEach((net: any) => {
         const wb = net?.walletBalance
+        const vault = net?.vaultIncentiveV1
         if (wb !== undefined && wb !== null && wb !== '') {
           walletREG += parseFloat(String(wb)) || 0
         }
+        if (vault !== undefined && vault !== null && vault !== '') {
+          vaultREG += parseFloat(String(vault)) || 0
+        }
       })
     }
-    if (walletREG === 0 && balance) {
-      // Fallback : totalREG - poolREG (comportement historique)
+    const totalDirectREG = walletREG + vaultREG
+    if (totalDirectREG === 0 && balance) {
       const poolREGFromPositions = positions.reduce((sum, pos) => sum + pos.regAmount, 0)
       walletREG = Math.max(0, totalREG - poolREGFromPositions)
     }
-    const poolREG = totalREG - walletREG
+    const poolREG = totalREG - (walletREG + vaultREG)
 
-    // Reconstituer le Power Voting : séparation explicite REG direct (wallet) vs Équivalent REG (pools)
+    // Reconstituer le Power Voting : wallet + vault (×1) + pools
     const powerBreakdown: Array<{ label: string; regDirect: number; equivReg: number; powerContribution: number }> = []
     powerBreakdown.push({
-      label: t('analysis.powerCalcWalletLine'),
+      label: `${t('analysis.powerCalcWalletLine')} (×1)`,
       regDirect: walletREG,
       equivReg: 0,
       powerContribution: walletREG,
     })
-    const totalPoolREG = positions.reduce((s, p) => s + p.regAmount, 0)
-    const powerFromPools = Math.max(0, powerVoting - walletREG)
-    positions.forEach((pos) => {
-      const ratio = totalPoolREG > 0 ? pos.regAmount / totalPoolREG : 0
+    powerBreakdown.push({
+      label: `${t('analysis.vaultIncentiveLabel')} (×1)`,
+      regDirect: vaultREG,
+      equivReg: 0,
+      powerContribution: vaultREG,
+    })
+    const powerFromPools = Math.max(0, powerVoting - (walletREG + vaultREG))
+    // Coefficient par pool (aligné balance-calculator / RIP-37) : V2 selon DEX, V3 selon in range
+    const getCoefficient = (pos: { dex: string; poolType: string; isActive: boolean }) => {
+      if (pos.poolType === 'v3') return pos.isActive ? V3_BOOST_MAX : V3_BOOST_MIN
+      const dex = (pos.dex || '').toLowerCase()
+      if (dex.includes('sushiswap')) return 1.5
+      if (dex.includes('honeyswap')) return 1.3
+      if (dex.includes('balancer')) return 1.4
+      return 1.5
+    }
+    const powerByPosition = positions.map((pos) => pos.regAmount * getCoefficient(pos))
+    const totalCalculated = powerByPosition.reduce((s, p) => s + p, 0)
+    const scale = totalCalculated > 0 ? powerFromPools / totalCalculated : 0
+    positions.forEach((pos, i) => {
+      const coef = getCoefficient(pos)
+      const coefDisplay = coef % 1 === 0 ? coef.toFixed(0) : coef.toFixed(2)
+      const poolLabel = `${pos.dex} ${(pos.poolType || 'v2').toUpperCase()}${pos.poolType === 'v3' ? (pos.isActive ? ' 🟢' : ' 🔴') : ''}`
       powerBreakdown.push({
-        label: `${pos.dex} ${(pos.poolType || 'v2').toUpperCase()}${pos.poolType === 'v3' ? (pos.isActive ? ' 🟢' : ' 🔴') : ''}`,
+        label: `${poolLabel} (×${coefDisplay})`,
         regDirect: 0,
         equivReg: pos.regAmount,
-        powerContribution: ratio * powerFromPools,
+        powerContribution: powerByPosition[i] * scale,
       })
     })
 
@@ -1510,6 +1514,7 @@ const searchAddressDetails = async () => {
       address: addressSearchInput.value.trim(),
       totalREG,
       walletREG: Math.max(0, walletREG),
+      vaultREG: Math.max(0, vaultREG),
       poolREG: Math.max(0, poolREG),
       powerVoting,
       positions,
@@ -2392,19 +2397,16 @@ const dexBoostChartData = computed(() => {
     return Math.max(1, ratio)
   })
 
-  // Courbe V3 : ratio = boost réel (Power V3 / REG V3), entre 1 et 2.5 — même échelle que V2
-  // Power V3 = somme par position V3 de regAmount × (2.5 in range, 0.1 out of range)
+  // Courbe V3 : ratio = Power V3 / REG V3 issu du snapshot (répartition proportionnelle), pas une hypothèse in range = 10
   const v3Ratios = v3Wallets.map((entry) => {
     if (!entry?.positions?.length) return 1
-    let v3Power = 0
+    const powerByType = getPowerByPoolType(entry)
+    const v3Power = powerByType?.v3 || 0
     let v3REG = 0
     entry.positions.forEach((pos: any) => {
       if (pos.poolType !== 'v3') return
       const reg = parseFloat(pos.regAmount || pos.equivalentREG || '0') || 0
-      if (reg <= 0) return
-      v3REG += reg
-      const coef = pos.isActive === true ? 2.5 : 0.1
-      v3Power += reg * coef
+      if (reg > 0) v3REG += reg
     })
     if (v3REG <= 0) return 1
     const ratio = v3Power / v3REG
@@ -2951,6 +2953,11 @@ const powerBreakdownChartOptions = {
               <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-top: 0.25rem;">{{ formatNumber(addressDetails.walletREG) }}</div>
               <span style="font-size: 0.75rem; color: var(--text-secondary);">{{ t('analysis.regDirectDesc') }}</span>
             </div>
+            <div class="summary-card" style="padding: 0.75rem; background: var(--card-bg); border-radius: 0.5rem; border: 1px solid var(--border-color); aspect-ratio: 1; display: flex; flex-direction: column; justify-content: flex-start;">
+              <span style="color: var(--text-secondary); font-size: 0.8rem; display: block;">{{ t('analysis.vaultIncentiveLabel') }}</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-top: 0.25rem;">{{ formatNumber(addressDetails.vaultREG || 0) }}</div>
+              <span style="font-size: 0.75rem; color: var(--text-secondary);">{{ t('analysis.vaultIncentiveDesc') }}</span>
+            </div>
             <div class="summary-card" style="padding: 0.75rem; background: var(--card-bg); border-radius: 0.5rem; border: 1px solid var(--border-color);">
               <span style="color: var(--text-secondary); font-size: 0.8rem; display: block;">{{ t('analysis.equivRegLabel') }}</span>
               <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-top: 0.25rem;">{{ formatNumber(addressDetails.poolREG) }}</div>
@@ -2958,7 +2965,7 @@ const powerBreakdownChartOptions = {
             </div>
             <div class="summary-card" style="padding: 0.75rem; background: var(--card-bg); border-radius: 0.5rem; border: 1px solid var(--border-color);">
               <span style="color: var(--text-secondary); font-size: 0.8rem; display: block;">{{ t('analysis.regPlusEquivTotal') }}</span>
-              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-top: 0.25rem;">{{ formatNumber(addressDetails.walletREG + addressDetails.poolREG) }}</div>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-top: 0.25rem;">{{ formatNumber((addressDetails.walletREG || 0) + (addressDetails.vaultREG || 0) + addressDetails.poolREG) }}</div>
               <span style="font-size: 0.75rem; color: var(--text-secondary);">{{ t('analysis.regPlusEquivDesc') }}</span>
             </div>
             <div class="summary-card" style="padding: 0.75rem; background: var(--card-bg); border-radius: 0.5rem; border: 1px solid var(--border-color);">
@@ -2996,7 +3003,7 @@ const powerBreakdownChartOptions = {
               <tfoot>
                 <tr style="border-top: 2px solid var(--border-color); font-weight: 600;">
                   <td style="padding: 0.5rem 0.75rem; color: var(--text-primary);">{{ t('analysis.powerCalcTotal') }}</td>
-                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(addressDetails.walletREG) }}</td>
+                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber((addressDetails.walletREG || 0) + (addressDetails.vaultREG || 0)) }}</td>
                   <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(addressDetails.poolREG) }}</td>
                   <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace; color: var(--accent-color);">{{ formatNumber(addressDetails.powerVoting) }}</td>
                 </tr>

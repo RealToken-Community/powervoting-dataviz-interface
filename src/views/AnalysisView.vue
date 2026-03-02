@@ -84,6 +84,8 @@ const addressDetails = ref<{
 } | null>(null)
 const isSearchingAddressDetails = ref(false)
 const addressSearchSectionExpanded = ref(true)
+const dexBoostExplainerOpen = ref(false)
+const decompositionExplainerOpen = ref(false)
 
 // Helper function to analyze pools for an entire snapshot
 const analyzeSnapshotPools = (balancesArray: any[], powerVotingArray: any[]) => {
@@ -3402,6 +3404,21 @@ const powerBreakdownChartOptions = {
       </div>
     </div>
 
+    <div class="pool-wallet-summary" v-if="dataStore.poolWalletBreakdown" style="margin: 1.5rem 0;">
+      <div class="summary-item">
+        <span class="summary-label">{{ t('analysis.walletsV2') }}</span>
+        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v2Wallets) }}</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">{{ t('analysis.walletsV3') }}</span>
+        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v3Wallets) }}</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">{{ t('analysis.walletsV2AndV3') }}</span>
+        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.both) }}</span>
+      </div>
+    </div>
+
     <div class="charts-grid">
       <div class="chart-card">
         <h3>🥧 {{ t('analysis.breakdownV2V3') }}</h3>
@@ -3442,38 +3459,50 @@ const powerBreakdownChartOptions = {
       </div>
     </div>
 
-    <div class="chart-explainer" style="margin-top: 1rem;">
-      <p v-html="t('analysis.ratioChartIntro')"></p>
-      <ul style="margin: 1rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
-        <li style="margin-bottom: 0.75rem;">
-          <strong>{{ t('analysis.formulaLabel') }}</strong> : <code>Power Voting ÷ totalBalanceREG</code>
-          <br />
-          <span style="font-size: 0.9em; opacity: 0.8;">{{ t('analysis.formulaDetail') }}</span>
-        </li>
-        <li style="margin-bottom: 0.75rem;">{{ t('analysis.addressesShown') }}</li>
-        <li style="margin-bottom: 0.75rem;">
-          <strong>{{ t('analysis.legendColors') }}</strong> :
-          <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu</strong> : {{ t('analysis.blueV2') }}
-          <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert</strong> : {{ t('analysis.greenV3') }}
-          <br />• <strong style="color: rgba(148, 163, 184, 0.8);">Gris (pointillé)</strong> : {{ t('analysis.greyRef') }}
-          <br />
-          <br /><strong>{{ t('analysis.rangeIndicatorsTitle') }}</strong> :
-          <br />• <strong style="color: rgba(34, 197, 94, 1);">🟢</strong> {{ t('analysis.greenPoint') }}
-          <br />• <strong style="color: rgba(239, 68, 68, 1);">🔴</strong> {{ t('analysis.redPoint') }}
-          <br />• <strong style="color: rgba(234, 179, 8, 1);">🟡</strong> {{ t('analysis.yellowPoint') }}
-        </li>
-      </ul>
-      <p style="margin-top: 1rem;">
-        <strong>{{ t('analysis.interpretationTitle') }}</strong> :
-        <ul style="margin: 0.5rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
-          <li>{{ t('analysis.above11') }}</li>
-          <li>{{ t('analysis.at11') }}</li>
-          <li>{{ t('analysis.below11') }}</li>
+    <div class="chart-explainer" style="margin-top: 1rem; border: 1px solid var(--border-color); border-radius: 0.5rem; overflow: hidden;">
+      <button
+        type="button"
+        class="chart-explainer-toggle"
+        :aria-expanded="dexBoostExplainerOpen"
+        :title="dexBoostExplainerOpen ? t('analysis.collapseSearch') : t('analysis.expandSearch')"
+        @click="dexBoostExplainerOpen = !dexBoostExplainerOpen"
+      >
+        <span>{{ t('analysis.ratioChartExplainerTitle') }}</span>
+        <span aria-hidden="true">{{ dexBoostExplainerOpen ? ' ▲' : ' ▼' }}</span>
+      </button>
+      <div v-show="dexBoostExplainerOpen" class="chart-explainer-content" style="padding: 1rem 1.25rem; color: var(--text-secondary);">
+        <p v-html="t('analysis.ratioChartIntro')"></p>
+        <ul style="margin: 1rem 0; padding-left: 1.5rem;">
+          <li style="margin-bottom: 0.75rem;">
+            <strong>{{ t('analysis.formulaLabel') }}</strong> : <code>Power Voting ÷ totalBalanceREG</code>
+            <br />
+            <span style="font-size: 0.9em; opacity: 0.8;">{{ t('analysis.formulaDetail') }}</span>
+          </li>
+          <li style="margin-bottom: 0.75rem;">{{ t('analysis.addressesShown') }}</li>
+          <li style="margin-bottom: 0.75rem;">
+            <strong>{{ t('analysis.legendColors') }}</strong> :
+            <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu</strong> : {{ t('analysis.blueV2') }}
+            <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert</strong> : {{ t('analysis.greenV3') }}
+            <br />• <strong style="color: rgba(148, 163, 184, 0.8);">Gris (pointillé)</strong> : {{ t('analysis.greyRef') }}
+            <br />
+            <br /><strong>{{ t('analysis.rangeIndicatorsTitle') }}</strong> :
+            <br />• <strong style="color: rgba(34, 197, 94, 1);">🟢</strong> {{ t('analysis.greenPoint') }}
+            <br />• <strong style="color: rgba(239, 68, 68, 1);">🔴</strong> {{ t('analysis.redPoint') }}
+            <br />• <strong style="color: rgba(234, 179, 8, 1);">🟡</strong> {{ t('analysis.yellowPoint') }}
+          </li>
         </ul>
-      </p>
-      <p class="axis-note" style="margin-top: 1rem;">
-        <strong>{{ t('common.note') }}</strong> : {{ t('analysis.noteRatioChart') }}
-      </p>
+        <p style="margin-top: 1rem;">
+          <strong>{{ t('analysis.interpretationTitle') }}</strong> :
+          <ul style="margin: 0.5rem 0; padding-left: 1.5rem;">
+            <li>{{ t('analysis.above11') }}</li>
+            <li>{{ t('analysis.at11') }}</li>
+            <li>{{ t('analysis.below11') }}</li>
+          </ul>
+        </p>
+        <p class="axis-note" style="margin-top: 1rem;">
+          <strong>{{ t('common.note') }}</strong> : {{ t('analysis.noteRatioChart') }}
+        </p>
+      </div>
     </div>
 
     <div class="section-header" id="decomposition" style="margin-top: 3rem;">
@@ -3499,60 +3528,57 @@ const powerBreakdownChartOptions = {
       </div>
     </div>
 
-    <div class="chart-explainer" style="margin-top: 1rem;">
-      <p v-html="t('analysis.decompositionIntro')"></p>
-      <ul style="margin: 1rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
-        <li style="margin-bottom: 0.75rem;">
-          <strong>{{ t('analysis.powerTotalLabel') }}</strong> : {{ t('analysis.powerTotalDesc') }}
-        </li>
-        <li style="margin-bottom: 0.75rem;">
-          <strong>{{ t('analysis.powerFromRegInPoolsLabel') }}</strong> : {{ t('analysis.powerFromRegInPoolsDesc') }}
-        </li>
-        <li style="margin-bottom: 0.75rem;">
-          <strong>{{ t('analysis.powerFromEquivalentRegLabel') }}</strong> : {{ t('analysis.powerFromEquivalentRegDesc') }}
-        </li>
-        <li style="margin-bottom: 0.75rem;">
-          <strong>{{ t('analysis.powerFromDirectRegLabel') }}</strong> : {{ t('analysis.powerFromDirectRegDesc') }}
-        </li>
-        <li style="margin-bottom: 0.75rem;">{{ t('analysis.decompositionAddressesShown') }}</li>
-        <li style="margin-bottom: 0.75rem;">
-          <strong>{{ t('analysis.legendColors') }}</strong> :
-          <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu (plein)</strong> : {{ t('analysis.blueSolidV2') }}
-          <br />• <strong style="color: rgba(59, 130, 246, 1);">Bleu (pointillé moyen)</strong> : {{ t('analysis.blueDashedV2') }}
-          <br />• <strong style="color: rgba(244, 114, 182, 1);">Rose clair (pointillé large)</strong> : {{ t('analysis.pinkV2') }}
-          <br />• <strong style="color: rgba(96, 165, 250, 1);">Bleu clair (pointillé fin)</strong> : {{ t('analysis.lightBlueV2') }}
-          <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert (plein)</strong> : {{ t('analysis.greenSolidV3') }}
-          <br />• <strong style="color: rgba(74, 222, 128, 1);">Vert (pointillé moyen)</strong> : {{ t('analysis.greenDashedV3') }}
-          <br />• <strong style="color: rgba(244, 114, 182, 1);">Rose clair (pointillé large)</strong> : {{ t('analysis.pinkV3') }}
-          <br />• <strong style="color: rgba(134, 239, 172, 1);">Vert clair (pointillé fin)</strong> : {{ t('analysis.lightGreenV3') }}
-        </li>
-      </ul>
-      <p style="margin-top: 1rem;">
-        <strong>{{ t('analysis.interpretationTitle') }}</strong> :
-        <ul style="margin: 0.5rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
-          <li>{{ t('analysis.interpPowerTotal') }}</li>
-          <li>{{ t('analysis.interpRegVsEquivalent') }}</li>
-          <li>{{ t('analysis.interpPoolsVsDirect') }}</li>
-          <li>{{ t('analysis.interpV2V3Diff') }}</li>
+    <div class="chart-explainer" style="margin-top: 1rem; border: 1px solid var(--border-color); border-radius: 0.5rem; overflow: hidden;">
+      <button
+        type="button"
+        class="chart-explainer-toggle"
+        :aria-expanded="decompositionExplainerOpen"
+        :title="decompositionExplainerOpen ? t('analysis.collapseSearch') : t('analysis.expandSearch')"
+        @click="decompositionExplainerOpen = !decompositionExplainerOpen"
+      >
+        <span>{{ t('analysis.ratioChartExplainerTitle') }}</span>
+        <span aria-hidden="true">{{ decompositionExplainerOpen ? ' ▲' : ' ▼' }}</span>
+      </button>
+      <div v-show="decompositionExplainerOpen" class="chart-explainer-content" style="padding: 1rem 1.25rem; color: var(--text-secondary);">
+        <p v-html="t('analysis.decompositionIntro')"></p>
+        <ul style="margin: 1rem 0; padding-left: 1.5rem;">
+          <li style="margin-bottom: 0.75rem;">
+            <strong>{{ t('analysis.powerTotalLabel') }}</strong> : {{ t('analysis.powerTotalDesc') }}
+          </li>
+          <li style="margin-bottom: 0.75rem;">
+            <strong>{{ t('analysis.powerFromRegInPoolsLabel') }}</strong> : {{ t('analysis.powerFromRegInPoolsDesc') }}
+          </li>
+          <li style="margin-bottom: 0.75rem;">
+            <strong>{{ t('analysis.powerFromEquivalentRegLabel') }}</strong> : {{ t('analysis.powerFromEquivalentRegDesc') }}
+          </li>
+          <li style="margin-bottom: 0.75rem;">
+            <strong>{{ t('analysis.powerFromDirectRegLabel') }}</strong> : {{ t('analysis.powerFromDirectRegDesc') }}
+          </li>
+          <li style="margin-bottom: 0.75rem;">{{ t('analysis.decompositionAddressesShown') }}</li>
+          <li style="margin-bottom: 0.75rem;">
+            <strong>{{ t('analysis.legendColors') }}</strong> :
+            <br />• <strong style="color: rgba(74, 144, 226, 1);">Bleu (plein)</strong> : {{ t('analysis.blueSolidV2') }}
+            <br />• <strong style="color: rgba(59, 130, 246, 1);">Bleu (pointillé moyen)</strong> : {{ t('analysis.blueDashedV2') }}
+            <br />• <strong style="color: rgba(244, 114, 182, 1);">Rose clair (pointillé large)</strong> : {{ t('analysis.pinkV2') }}
+            <br />• <strong style="color: rgba(96, 165, 250, 1);">Bleu clair (pointillé fin)</strong> : {{ t('analysis.lightBlueV2') }}
+            <br />• <strong style="color: rgba(34, 197, 94, 1);">Vert (plein)</strong> : {{ t('analysis.greenSolidV3') }}
+            <br />• <strong style="color: rgba(74, 222, 128, 1);">Vert (pointillé moyen)</strong> : {{ t('analysis.greenDashedV3') }}
+            <br />• <strong style="color: rgba(244, 114, 182, 1);">Rose clair (pointillé large)</strong> : {{ t('analysis.pinkV3') }}
+            <br />• <strong style="color: rgba(134, 239, 172, 1);">Vert clair (pointillé fin)</strong> : {{ t('analysis.lightGreenV3') }}
+          </li>
         </ul>
-      </p>
-      <p class="axis-note" style="margin-top: 1rem;">
-        <strong>{{ t('common.note') }}</strong> : {{ t('analysis.noteDecomposition') }}
-      </p>
-    </div>
-
-    <div class="pool-wallet-summary" v-if="dataStore.poolWalletBreakdown" style="margin: 1.5rem 0;">
-      <div class="summary-item">
-        <span class="summary-label">{{ t('analysis.walletsV2') }}</span>
-        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v2Wallets) }}</span>
-      </div>
-      <div class="summary-item">
-        <span class="summary-label">{{ t('analysis.walletsV3') }}</span>
-        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.v3Wallets) }}</span>
-      </div>
-      <div class="summary-item">
-        <span class="summary-label">{{ t('analysis.walletsV2AndV3') }}</span>
-        <span class="summary-value">{{ formatInteger(dataStore.poolWalletBreakdown.both) }}</span>
+        <p style="margin-top: 1rem;">
+          <strong>{{ t('analysis.interpretationTitle') }}</strong> :
+          <ul style="margin: 0.5rem 0; padding-left: 1.5rem;">
+            <li>{{ t('analysis.interpPowerTotal') }}</li>
+            <li>{{ t('analysis.interpRegVsEquivalent') }}</li>
+            <li>{{ t('analysis.interpPoolsVsDirect') }}</li>
+            <li>{{ t('analysis.interpV2V3Diff') }}</li>
+          </ul>
+        </p>
+        <p class="axis-note" style="margin-top: 1rem;">
+          <strong>{{ t('common.note') }}</strong> : {{ t('analysis.noteDecomposition') }}
+        </p>
       </div>
     </div>
 
@@ -3955,14 +3981,34 @@ const powerBreakdownChartOptions = {
 }
 
 .chart-explainer {
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 0.75rem;
-  padding: 1.25rem 1.5rem;
   margin-bottom: 2rem;
   color: var(--text-secondary);
   line-height: 1.6;
-  box-shadow: var(--shadow-md);
+}
+
+.chart-explainer-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.chart-explainer-toggle:hover {
+  background: var(--card-bg);
+}
+
+.chart-explainer-content {
+  background: var(--card-bg);
+  border-top: 1px solid var(--border-color);
 }
 
 .chart-explainer strong {

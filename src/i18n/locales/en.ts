@@ -177,6 +177,7 @@ export default {
     addressSearch: 'Address search',
     collapseSearch: 'Collapse section',
     expandSearch: 'Expand section',
+    ratioChartExplainerTitle: 'Chart explanation',
     addressPlaceholder: 'Enter an address (0x...)',
     search: 'Search',
     searching: 'Searching...',

@@ -2392,190 +2392,41 @@ const dexBoostChartData = computed(() => {
     return Math.max(1, ratio)
   })
 
-  // Calculer le ratio Power Voting ÷ totalBalanceREG pour V3
-  // Pour V3, on calcule le ratio en utilisant seulement les pools V3 + une partie proportionnelle du power direct
+  // Courbe V3 : ratio = boost réel (Power V3 / REG V3), entre 1 et 2.5 — même échelle que V2
+  // Power V3 = somme par position V3 de regAmount × (2.5 in range, 0.1 out of range)
   const v3Ratios = v3Wallets.map((entry) => {
-    if (!entry) return 1 // Sécurité si entry est null/undefined
-    
-    // Calculer le Power V3 (pools V3 uniquement)
-    const powerByType = getPowerByPoolType(entry)
-    const v3Power = powerByType?.v3 || 0
-    
-    // Calculer le REG V2 (pools V2 uniquement)
-    let v2REG = 0
-    if (entry.positions && entry.positions.length > 0) {
-      entry.positions.forEach((pos: any) => {
-        if (pos.poolType === 'v2') {
-          v2REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
-        }
-      })
-    }
-    
-    // Calculer le REG V3 (pools V3 uniquement)
+    if (!entry?.positions?.length) return 1
+    let v3Power = 0
     let v3REG = 0
-    if (entry.positions && entry.positions.length > 0) {
-      entry.positions.forEach((pos: any) => {
-        if (pos.poolType === 'v3') {
-          v3REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
-        }
-      })
-    }
-    
-    // Calculer le Power direct (hors pools)
-    const directPower = (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
-    
-    // Pour V3, utiliser le total power direct (pas seulement proportionnel)
-    // pour montrer l'impact global des pools V3 sur le wallet
-    // Total Power pour V3 = Power V3 + Power direct total
-    const totalV3Power = v3Power + directPower
-    
-    // Pour V3, utiliser le total REG du wallet (REG V3 + REG direct total)
-    // pour montrer l'impact global des pools V3 sur le wallet
-    const walletDirectREG = entry.walletDirectREG || 0
-    
-    // Total REG pour V3 = REG V3 + REG direct total (pas seulement proportionnel)
-    // Cela permet de voir l'impact des pools V3 par rapport au total du wallet
-    const totalV3REG = v3REG + walletDirectREG
-    
-    // Calculer le ratio V3
-    if (totalV3REG <= 0) return 1 // Par défaut 1 si pas de REG
-    const ratio = totalV3Power / totalV3REG
-    
-    // Debug: log pour le wallet problématique
-    if (entry.address && entry.address.toLowerCase().includes('d9df1d931cfab59965c1a87e1e55131632357f0d')) {
-      console.log('🟢 V3 Ratio Debug:', {
-        address: entry.address,
-        v3Power,
-        v3REG,
-        directPower,
-        totalV3Power,
-        walletDirectREG,
-        totalV3REG,
-        ratio,
-        finalRatio: Math.max(1, ratio),
-        powerVoting: entry.powerVoting,
-        poolVotingShare: entry.poolVotingShare
-      })
-    }
-    
-    // La courbe ne doit jamais descendre en dessous de 1
+    entry.positions.forEach((pos: any) => {
+      if (pos.poolType !== 'v3') return
+      const reg = parseFloat(pos.regAmount || pos.equivalentREG || '0') || 0
+      if (reg <= 0) return
+      v3REG += reg
+      const coef = pos.isActive === true ? 2.5 : 0.1
+      v3Power += reg * coef
+    })
+    if (v3REG <= 0) return 1
+    const ratio = v3Power / v3REG
     return Math.max(1, ratio)
   })
 
-  // Calculer le ratio actif/inactif pour chaque wallet V3 et déterminer la couleur des points
-  const v3PointColors = v3Wallets.map((entry, index) => {
-    if (!entry) return 'rgba(34, 197, 94, 1)' // Sécurité si entry est null/undefined
-    
-    // Calculer le ratio Power Voting ÷ totalBalanceREG pour V3 (même calcul que v3Ratios)
-    const powerByType = getPowerByPoolType(entry)
-    const v3Power = powerByType?.v3 || 0
-    
-    // Calculer le REG V2 (pools V2 uniquement)
-    let v2REG = 0
-    if (entry.positions && entry.positions.length > 0) {
-      entry.positions.forEach((pos: any) => {
-        if (pos.poolType === 'v2') {
-          v2REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
-        }
-      })
-    }
-    
-    // Calculer le REG V3 (pools V3 uniquement)
-    let v3REG = 0
-    if (entry.positions && entry.positions.length > 0) {
-      entry.positions.forEach((pos: any) => {
-        if (pos.poolType === 'v3') {
-          v3REG += parseFloat(pos.regAmount || pos.equivalentREG || '0')
-        }
-      })
-    }
-    
-    // Calculer le Power direct (hors pools)
-    const directPower = (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
-    
-    // Pour V3, utiliser le total power direct et le total REG direct
-    // pour montrer l'impact global des pools V3 sur le wallet
-    const totalV3Power = v3Power + directPower
-    const walletDirectREG = entry.walletDirectREG || 0
-    const totalV3REG = v3REG + walletDirectREG
-    const ratio = totalV3REG > 0 ? totalV3Power / totalV3REG : 1
-
-    if (!entry.positions || entry.positions.length === 0) {
-      // Pas de positions V3
-      // Si ratio = 1, c'est une position inactive et loin du cours -> Rouge
-      if (Math.abs(ratio - 1) < 0.001) {
-        return 'rgba(239, 68, 68, 1)' // Rouge
-      }
-      // Si ratio > 1 sans positions V3, c'est anormal -> Jaune
-      if (ratio > 1) {
-        return 'rgba(234, 179, 8, 1)' // Jaune
-      }
-      // Sinon, point vert par défaut
-      return 'rgba(34, 197, 94, 1)' // Vert
-    }
-
+  // Couleurs V3 : même critère que le ratio (positions V3, isActive === true = in range)
+  const v3PointColors = v3Wallets.map((entry) => {
+    if (!entry?.positions?.length) return 'rgba(34, 197, 94, 1)'
     let totalRegInRange = 0
-    let totalRegOutOfRange = 0
-
+    let totalRegV3 = 0
     entry.positions.forEach((pos: any) => {
-      // Seulement les positions V3 (ignorer V2 pour la couleur)
       if (pos.poolType !== 'v3') return
-
-      const regAmount = parseFloat(pos.regAmount || pos.equivalentREG || '0')
-      if (regAmount <= 0) return
-
-      // Vérifier si la position est active (in range)
-      const isActive = pos.isActive !== undefined ? pos.isActive : false
-
-      if (isActive) {
-        totalRegInRange += regAmount
-      } else {
-        totalRegOutOfRange += regAmount
-      }
+      const reg = parseFloat(pos.regAmount || pos.equivalentREG || '0') || 0
+      if (reg <= 0) return
+      totalRegV3 += reg
+      if (pos.isActive === true) totalRegInRange += reg
     })
-
-    const totalReg = totalRegInRange + totalRegOutOfRange
-    if (totalReg <= 0) {
-      // Pas de REG dans les pools V3 (mais peut-être du REG direct)
-      // Si ratio = 1, c'est une position inactive et loin du cours -> Rouge
-      if (Math.abs(ratio - 1) < 0.001) {
-        return 'rgba(239, 68, 68, 1)' // Rouge
-      }
-      // Si ratio > 1 sans REG dans les pools V3, c'est anormal -> Jaune
-      if (ratio > 1) {
-        return 'rgba(234, 179, 8, 1)' // Jaune
-      }
-      // Sinon, point vert par défaut
-      return 'rgba(34, 197, 94, 1)' // Vert
-    }
-
-    const ratioInRange = totalRegInRange / totalReg
-
-    // Logique de couleur selon les nouvelles exigences :
-    // 1. Tous les points avec ratio = 1 devraient être rouge - position inactive et loin du cours
-    if (Math.abs(ratio - 1) < 0.001) {
-      return 'rgba(239, 68, 68, 1)' // Rouge
-    }
-
-    // 2. Pour les points avec ratio > 1 :
-    //    - Rouge si toutes les pools V3 sont out of range (range proche du cours mais inactif)
-    //    - Sinon vert ou jaune selon l'état des pools
-    if (ratio > 1) {
-      if (ratioInRange <= 0) {
-        // Ratio > 1 avec toutes les pools V3 out of range -> Rouge
-        return 'rgba(239, 68, 68, 1)' // Rouge
-      } else if (ratioInRange >= 1) {
-        // Ratio > 1 avec toutes les pools V3 in range -> Vert
-        return 'rgba(34, 197, 94, 1)' // Vert
-      } else {
-        // Ratio > 1 avec mixte (certaines in range, certaines out of range) -> Jaune
-        return 'rgba(234, 179, 8, 1)' // Jaune
-      }
-    }
-
-    // 3. Pour les points avec ratio < 1 (ne devrait pas arriver car on force >= 1, mais au cas où)
-    // Si ratio < 1, c'est une anomalie, on met rouge
-    return 'rgba(239, 68, 68, 1)' // Rouge
+    const ratioInRange = totalRegV3 > 0 ? totalRegInRange / totalRegV3 : 0
+    if (ratioInRange >= 1) return 'rgba(34, 197, 94, 1)'
+    if (ratioInRange <= 0) return 'rgba(239, 68, 68, 1)'
+    return 'rgba(234, 179, 8, 1)'
   })
 
   // Vérifier que les arrays ont la bonne longueur
@@ -2730,23 +2581,6 @@ const powerBreakdownChartData = computed(() => {
   const wallets = chartWallets.value
   if (wallets.length === 0) return null
 
-  // REG en wallet depuis les balances (sourceBalance.*.walletBalance) — même logique que la recherche
-  const getWalletREGFromBalances = (address: string): number => {
-    if (!address || !dataStore.balances?.length) return 0
-    const balance = dataStore.balances.find(
-      (b: any) => (b.walletAddress || '').toLowerCase() === address.toLowerCase()
-    )
-    if (!balance?.sourceBalance || typeof balance.sourceBalance !== 'object') return 0
-    let walletREG = 0
-    Object.values(balance.sourceBalance).forEach((net: any) => {
-      const wb = net?.walletBalance
-      if (wb !== undefined && wb !== null && wb !== '') {
-        walletREG += parseFloat(String(wb)) || 0
-      }
-    })
-    return walletREG
-  }
-
   // Séparer les wallets V2 et V3 pour le graphique
   const v2Wallets = wallets.filter((entry) => {
     const hasV2 = entry.positions && entry.positions.some((pos: any) => pos.poolType === 'v2')
@@ -2818,52 +2652,34 @@ const powerBreakdownChartData = computed(() => {
     return { powerFromRegDeposit, powerFromEquivalent }
   }
 
-  // Données V2 : Power from direct = min(powerVoting, REG en wallet depuis balances)
+  // Calculer les données pour V2
   const v2PowerTotal = v2Wallets.map((entry) => entry.powerVoting || 0)
+  const v2PowerFromPoolsRegDeposit = v2Wallets.map((entry) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    return breakdown.powerFromRegDeposit
+  })
+  const v2PowerFromPoolsEquivalent = v2Wallets.map((entry) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    return breakdown.powerFromEquivalent
+  })
   const v2PowerFromDirect = v2Wallets.map((entry) => {
-    const powerVoting = entry.powerVoting || 0
-    const walletREG = getWalletREGFromBalances(entry.address)
-    return Math.min(powerVoting, walletREG)
-  })
-  const v2PowerFromPoolsRegDeposit = v2Wallets.map((entry, i) => {
-    const breakdown = calculatePoolPowerBreakdown(entry)
-    const powerFromDirect = v2PowerFromDirect[i]
-    const powerFromPools = (entry.powerVoting || 0) - powerFromDirect
-    const poolShare = entry.poolVotingShare || 0
-    const scale = poolShare > 0 ? powerFromPools / poolShare : 0
-    return breakdown.powerFromRegDeposit * scale
-  })
-  const v2PowerFromPoolsEquivalent = v2Wallets.map((entry, i) => {
-    const breakdown = calculatePoolPowerBreakdown(entry)
-    const powerFromDirect = v2PowerFromDirect[i]
-    const powerFromPools = (entry.powerVoting || 0) - powerFromDirect
-    const poolShare = entry.poolVotingShare || 0
-    const scale = poolShare > 0 ? powerFromPools / poolShare : 0
-    return breakdown.powerFromEquivalent * scale
+    // Power issu du REG direct en wallet = Power total - Power des pools
+    return (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
   })
 
-  // Données V3 : Power from direct = min(powerVoting, REG en wallet depuis balances)
+  // Calculer les données pour V3
   const v3PowerTotal = v3Wallets.map((entry) => entry.powerVoting || 0)
+  const v3PowerFromPoolsRegDeposit = v3Wallets.map((entry) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    return breakdown.powerFromRegDeposit
+  })
+  const v3PowerFromPoolsEquivalent = v3Wallets.map((entry) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    return breakdown.powerFromEquivalent
+  })
   const v3PowerFromDirect = v3Wallets.map((entry) => {
-    const powerVoting = entry.powerVoting || 0
-    const walletREG = getWalletREGFromBalances(entry.address)
-    return Math.min(powerVoting, walletREG)
-  })
-  const v3PowerFromPoolsRegDeposit = v3Wallets.map((entry, i) => {
-    const breakdown = calculatePoolPowerBreakdown(entry)
-    const powerFromDirect = v3PowerFromDirect[i]
-    const powerFromPools = (entry.powerVoting || 0) - powerFromDirect
-    const poolShare = entry.poolVotingShare || 0
-    const scale = poolShare > 0 ? powerFromPools / poolShare : 0
-    return breakdown.powerFromRegDeposit * scale
-  })
-  const v3PowerFromPoolsEquivalent = v3Wallets.map((entry, i) => {
-    const breakdown = calculatePoolPowerBreakdown(entry)
-    const powerFromDirect = v3PowerFromDirect[i]
-    const powerFromPools = (entry.powerVoting || 0) - powerFromDirect
-    const poolShare = entry.poolVotingShare || 0
-    const scale = poolShare > 0 ? powerFromPools / poolShare : 0
-    return breakdown.powerFromEquivalent * scale
+    // Power issu du REG direct en wallet = Power total - Power des pools
+    return (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
   })
 
   // Combiner les labels : V2 d'abord, puis V3

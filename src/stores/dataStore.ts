@@ -252,8 +252,7 @@ export const useDataStore = defineStore('data', () => {
 
           // Grouper les positions par positionId pour les pools V3 (qui ont 2 tokens par position)
           const positionsByPositionId = new Map<string, any[]>()
-          // Pour V2 : grouper par poolAddress (une pool = plusieurs tokens, ex. REG + sDAI sur Balancer)
-          const v2ByPool = new Map<string, any[]>()
+          const v2Positions: any[] = []
           
           rawPositions.forEach((pos: PoolPosition) => {
             const regAmount = parseFloat(String(pos.equivalentREG || '0'))
@@ -287,13 +286,8 @@ export const useDataStore = defineStore('data', () => {
                 regAmount,
               })
             } else {
-              // Pour V2 : grouper par poolAddress (ex. Balancer = 1 pool avec REG + sDAI)
               if (regAmount > 0) {
-                const poolAddress = pos.poolAddress || `v2-${dexName}-${networkName}`
-                if (!v2ByPool.has(poolAddress)) {
-                  v2ByPool.set(poolAddress, [])
-                }
-                v2ByPool.get(poolAddress)!.push({
+                v2Positions.push({
                   ...pos,
                   dex: dexName,
                   network: networkName,
@@ -304,15 +298,11 @@ export const useDataStore = defineStore('data', () => {
             }
           })
 
-          // Pour les positions V3 groupées, créer une seule position agrégée
-          // Ne pas sommer les 2 tokens (REG + contrepartie equivalentREG) → double comptage. Prendre le max (valeur position en REG).
+          // Pour les positions V3 groupées : comme develop, somme des regAmount (même calcul que develop pour la courbe)
           positionsByPositionId.forEach((tokens) => {
             if (tokens.length === 0) return
 
-            const regAmounts = tokens.map((t) => t.regAmount).filter((r) => r > 0)
-            const totalRegAmount = regAmounts.length > 0 ? Math.max(...regAmounts) : 0
-
-            // Filtrer les positions avec total REG <= 0
+            const totalRegAmount = tokens.reduce((sum, token) => sum + token.regAmount, 0)
             if (totalRegAmount <= 0) return
 
             // Prendre la première entrée comme base (elle contient toutes les infos de la position)
@@ -350,32 +340,7 @@ export const useDataStore = defineStore('data', () => {
             })
           })
 
-          // Positions V2 groupées par pool : une entrée par pool avec détails des tokens (ex. REG + sDAI)
-          v2ByPool.forEach((tokens) => {
-            if (tokens.length === 0) return
-            const regAmounts = tokens.map((t) => t.regAmount).filter((r) => r > 0)
-            const totalRegAmount = regAmounts.length > 0 ? Math.max(...regAmounts) : 0
-            if (totalRegAmount <= 0) return
-            const basePos = tokens[0]
-            const mainToken = tokens.reduce((max, token) =>
-              token.regAmount > max.regAmount ? token : max
-            )
-            const tokenDetails = tokens
-              .filter((token) => parseFloat(String(token.tokenBalance || '0')) > 0)
-              .map((token) => ({
-                tokenSymbol: token.tokenSymbol || 'UNKNOWN',
-                tokenBalance: String(token.tokenBalance || '0'),
-                equivalentREG: String(token.equivalentREG || '0'),
-              }))
-            positions.push({
-              ...basePos,
-              regAmount: totalRegAmount,
-              tokenBalance: mainToken.tokenBalance,
-              tokenSymbol: mainToken.tokenSymbol,
-              equivalentREG: totalRegAmount.toString(),
-              tokens: tokenDetails.length > 0 ? tokenDetails : undefined,
-            })
-          })
+          positions.push(...v2Positions)
         })
         })
 

@@ -2730,6 +2730,23 @@ const powerBreakdownChartData = computed(() => {
   const wallets = chartWallets.value
   if (wallets.length === 0) return null
 
+  // REG en wallet depuis les balances (sourceBalance.*.walletBalance) — même logique que la recherche
+  const getWalletREGFromBalances = (address: string): number => {
+    if (!address || !dataStore.balances?.length) return 0
+    const balance = dataStore.balances.find(
+      (b: any) => (b.walletAddress || '').toLowerCase() === address.toLowerCase()
+    )
+    if (!balance?.sourceBalance || typeof balance.sourceBalance !== 'object') return 0
+    let walletREG = 0
+    Object.values(balance.sourceBalance).forEach((net: any) => {
+      const wb = net?.walletBalance
+      if (wb !== undefined && wb !== null && wb !== '') {
+        walletREG += parseFloat(String(wb)) || 0
+      }
+    })
+    return walletREG
+  }
+
   // Séparer les wallets V2 et V3 pour le graphique
   const v2Wallets = wallets.filter((entry) => {
     const hasV2 = entry.positions && entry.positions.some((pos: any) => pos.poolType === 'v2')
@@ -2801,34 +2818,52 @@ const powerBreakdownChartData = computed(() => {
     return { powerFromRegDeposit, powerFromEquivalent }
   }
 
-  // Calculer les données pour V2
+  // Données V2 : Power from direct = min(powerVoting, REG en wallet depuis balances)
   const v2PowerTotal = v2Wallets.map((entry) => entry.powerVoting || 0)
-  const v2PowerFromPoolsRegDeposit = v2Wallets.map((entry) => {
-    const breakdown = calculatePoolPowerBreakdown(entry)
-    return breakdown.powerFromRegDeposit
-  })
-  const v2PowerFromPoolsEquivalent = v2Wallets.map((entry) => {
-    const breakdown = calculatePoolPowerBreakdown(entry)
-    return breakdown.powerFromEquivalent
-  })
   const v2PowerFromDirect = v2Wallets.map((entry) => {
-    // Power issu du REG direct en wallet = Power total - Power des pools
-    return (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
+    const powerVoting = entry.powerVoting || 0
+    const walletREG = getWalletREGFromBalances(entry.address)
+    return Math.min(powerVoting, walletREG)
+  })
+  const v2PowerFromPoolsRegDeposit = v2Wallets.map((entry, i) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    const powerFromDirect = v2PowerFromDirect[i]
+    const powerFromPools = (entry.powerVoting || 0) - powerFromDirect
+    const poolShare = entry.poolVotingShare || 0
+    const scale = poolShare > 0 ? powerFromPools / poolShare : 0
+    return breakdown.powerFromRegDeposit * scale
+  })
+  const v2PowerFromPoolsEquivalent = v2Wallets.map((entry, i) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    const powerFromDirect = v2PowerFromDirect[i]
+    const powerFromPools = (entry.powerVoting || 0) - powerFromDirect
+    const poolShare = entry.poolVotingShare || 0
+    const scale = poolShare > 0 ? powerFromPools / poolShare : 0
+    return breakdown.powerFromEquivalent * scale
   })
 
-  // Calculer les données pour V3
+  // Données V3 : Power from direct = min(powerVoting, REG en wallet depuis balances)
   const v3PowerTotal = v3Wallets.map((entry) => entry.powerVoting || 0)
-  const v3PowerFromPoolsRegDeposit = v3Wallets.map((entry) => {
-    const breakdown = calculatePoolPowerBreakdown(entry)
-    return breakdown.powerFromRegDeposit
-  })
-  const v3PowerFromPoolsEquivalent = v3Wallets.map((entry) => {
-    const breakdown = calculatePoolPowerBreakdown(entry)
-    return breakdown.powerFromEquivalent
-  })
   const v3PowerFromDirect = v3Wallets.map((entry) => {
-    // Power issu du REG direct en wallet = Power total - Power des pools
-    return (entry.powerVoting || 0) - (entry.poolVotingShare || 0)
+    const powerVoting = entry.powerVoting || 0
+    const walletREG = getWalletREGFromBalances(entry.address)
+    return Math.min(powerVoting, walletREG)
+  })
+  const v3PowerFromPoolsRegDeposit = v3Wallets.map((entry, i) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    const powerFromDirect = v3PowerFromDirect[i]
+    const powerFromPools = (entry.powerVoting || 0) - powerFromDirect
+    const poolShare = entry.poolVotingShare || 0
+    const scale = poolShare > 0 ? powerFromPools / poolShare : 0
+    return breakdown.powerFromRegDeposit * scale
+  })
+  const v3PowerFromPoolsEquivalent = v3Wallets.map((entry, i) => {
+    const breakdown = calculatePoolPowerBreakdown(entry)
+    const powerFromDirect = v3PowerFromDirect[i]
+    const powerFromPools = (entry.powerVoting || 0) - powerFromDirect
+    const poolShare = entry.poolVotingShare || 0
+    const scale = poolShare > 0 ? powerFromPools / poolShare : 0
+    return breakdown.powerFromEquivalent * scale
   })
 
   // Combiner les labels : V2 d'abord, puis V3

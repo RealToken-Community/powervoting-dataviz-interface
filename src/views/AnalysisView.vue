@@ -2616,6 +2616,11 @@ const powerBreakdownChartOptions = {
               <span style="font-size: 0.75rem; color: var(--text-secondary);">{{ t('analysis.vaultIncentiveDesc') }}</span>
             </div>
             <div class="summary-card" style="padding: 0.75rem; background: var(--card-bg); border-radius: 0.5rem; border: 1px solid var(--border-color);">
+              <span style="color: var(--text-secondary); font-size: 0.8rem; display: block;">{{ t('analysis.totalRegWalletVault') }}</span>
+              <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-top: 0.25rem;">{{ formatNumber((addressDetails.walletREG || 0) + (addressDetails.vaultREG || 0)) }}</div>
+              <span style="font-size: 0.75rem; color: var(--text-secondary);">{{ t('analysis.totalRegWalletVaultDesc') }}</span>
+            </div>
+            <div class="summary-card" style="padding: 0.75rem; background: var(--card-bg); border-radius: 0.5rem; border: 1px solid var(--border-color);">
               <span style="color: var(--text-secondary); font-size: 0.8rem; display: block;">{{ t('analysis.equivRegLabel') }}</span>
               <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-top: 0.25rem;">{{ formatNumber(addressDetails.poolREG) }}</div>
               <span style="font-size: 0.75rem; color: var(--text-secondary);">{{ t('analysis.equivRegDesc') }}</span>

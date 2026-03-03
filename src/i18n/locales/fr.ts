@@ -169,6 +169,8 @@ export default {
     equivRegDesc: 'Valorisation en REG des positions LP',
     vaultIncentiveLabel: 'Vault incentive',
     vaultIncentiveDesc: 'REG bloqués dans le vault d\'incentive (×1)',
+    totalRegWalletVault: 'Total REG (wallet + vault)',
+    totalRegWalletVaultDesc: 'Somme du REG en wallet et du vault, sans équivalent pools',
     regPlusEquivTotal: 'Total (REG direct + équiv. REG)',
     regPlusEquivDesc: 'Somme des deux montants ci‑dessus',
     powerVotingSnapshotDesc: 'Valeur du snapshot',

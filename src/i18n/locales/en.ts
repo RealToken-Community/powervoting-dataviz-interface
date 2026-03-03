@@ -1,6 +1,6 @@
 export default {
   nav: {
-    documentation: 'Documentation',
+    search: 'Search address',
     generate: 'Generate',
     upload: 'Upload',
     analysis: 'Analysis',
@@ -25,27 +25,9 @@ export default {
     chooseSnapshot: 'Choose a snapshot from the list to display the analysis.',
     wallets: 'wallets',
   },
-  documentation: {
-    title: 'Documentation',
-    subtitle: 'Quick guide to understand the interface features',
-    generate: 'Generate',
-    generateAccess: 'Go to page →',
-    generateIntro: 'The <strong>Generate</strong> page allows you to create test data for REG balances and power voting using the <code>balance-calculator</code> tool.',
-    generateFeature1: '<strong>Clone</strong> - Clone and configure the balance-calculator project from a Git repository',
-    generateFeature2: '<strong>Environment</strong> - Configure required environment variables (API keys)',
-    generateFeature3: '<strong>Configuration</strong> - Modify calculation options (optionsModifiers.ts)',
-    generateFeature4: '<strong>Run balance-calculator</strong> - Run the tool interactively to generate data files',
-    generateWarning: '<strong>⚠️ Important:</strong> This interface is for testing only. Never create snapshot data from this page.',
-    upload: 'Upload',
-    uploadIntro: 'The <strong>Upload</strong> page allows you to load existing data files (CSV or JSON) for analysis and visualization.',
-    uploadFeature1: '<strong>File import</strong> - Upload REG balance or power voting files',
-    uploadFeature2: '<strong>Validation</strong> - Automatic format and structure verification',
-    uploadFeature3: '<strong>Transformation</strong> - Automatic data conversion for analysis',
-    analysis: 'Analysis',
-    analysisIntro: 'The <strong>Analysis</strong> page provides visualization and analysis tools for loaded power voting and REG balance data.',
-    analysisFeature1: '<strong>Charts</strong> - Interactive chart visualization',
-    analysisFeature2: '<strong>Detailed analysis</strong> - Explore data with filters and search',
-    analysisFeature3: '<strong>Export</strong> - Export analysis results',
+  search: {
+    title: 'Search address',
+    subtitle: 'Search the latest snapshot for a wallet\'s information (REG, Power Voting, pool positions).',
   },
   upload: {
     title: 'Load data',

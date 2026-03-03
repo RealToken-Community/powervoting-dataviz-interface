@@ -34,7 +34,7 @@ ChartJS.register(
   LineElement,
 )
 
-const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
+const props = withDefaults(defineProps<{ embedded?: boolean; searchOnly?: boolean }>(), { embedded: false, searchOnly: false })
 
 const router = useRouter()
 const { t } = useI18n()
@@ -2511,8 +2511,8 @@ const powerBreakdownChartOptions = {
 </script>
 
 <template>
-  <div class="analysis-view" :class="{ 'analysis-view-embedded': props.embedded }" v-if="dataStore.balances.length > 0">
-    <div class="analysis-header" id="analyse-donnees" v-if="!props.embedded">
+  <div class="analysis-view" :class="{ 'analysis-view-embedded': props.embedded, 'analysis-view-search-only': props.searchOnly }" v-if="dataStore.balances.length > 0">
+    <div class="analysis-header" id="analyse-donnees" v-if="!props.embedded && !props.searchOnly">
       <div class="header-title-row">
         <h2>📊 {{ t('analysis.dataAnalysis') }}</h2>
         <button type="button" class="copy-link-btn" :title="t('analysis.copySectionLink')" @click.prevent="copySectionLink($event, 'analyse-donnees')" aria-label="Copier le lien">
@@ -2524,7 +2524,7 @@ const powerBreakdownChartOptions = {
     </div>
 
     <!-- Statistics Cards -->
-    <div class="stats-grid">
+    <div class="stats-grid" v-if="!props.searchOnly">
       <div class="stat-card balance-card">
         <div class="stat-header">
           <h3>💰 {{ t('analysis.balancesReg') }}</h3>
@@ -2601,6 +2601,7 @@ const powerBreakdownChartOptions = {
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0;">
         <h3 style="margin: 0; color: var(--text-primary);">🔍 {{ t('analysis.addressSearch') }}</h3>
         <button
+          v-if="!props.searchOnly"
           type="button"
           :title="addressSearchSectionExpanded ? t('analysis.collapseSearch') : t('analysis.expandSearch')"
           @click="addressSearchSectionExpanded = !addressSearchSectionExpanded"
@@ -2609,7 +2610,7 @@ const powerBreakdownChartOptions = {
           {{ addressSearchSectionExpanded ? '▼' : '▲' }}
         </button>
       </div>
-      <div v-show="addressSearchSectionExpanded" style="margin-top: 1rem;">
+      <div v-show="addressSearchSectionExpanded || props.searchOnly" style="margin-top: 1rem;">
       <form @submit.prevent="searchAddressDetails" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
         <input
           v-model="addressSearchInput"
@@ -2807,7 +2808,7 @@ const powerBreakdownChartOptions = {
     </div>
 
     <!-- Charts -->
-    <div class="charts-grid">
+    <div class="charts-grid" v-if="!props.searchOnly">
       <div class="chart-card">
         <h3>📈 {{ t('analysis.distributionBalancesByAddress') }}</h3>
         <div class="chart-container" v-if="balanceDistributionChartData">
@@ -2823,6 +2824,7 @@ const powerBreakdownChartOptions = {
       </div>
     </div>
 
+    <template v-if="!props.searchOnly">
     <p class="chart-note" v-if="balanceDistributionChartData">
       {{ t('analysis.chartNoteBalances') }}
     </p>
@@ -3366,6 +3368,7 @@ const powerBreakdownChartOptions = {
         </button>
       </div>
     </div>
+    </template>
   </div>
 </template>
 

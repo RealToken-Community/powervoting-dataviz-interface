@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import DocumentationView from '../views/DocumentationView.vue'
 import GenerateView from '../views/GenerateView.vue'
+import SearchView from '../views/SearchView.vue'
 import UploadView from '../views/UploadView.vue'
 import AnalysisView from '../views/AnalysisView.vue'
 import HomeView from '../views/HomeView.vue'
@@ -20,9 +20,9 @@ const router = createRouter({
       component: HomeView,
     },
     {
-      path: '/documentation',
-      name: 'documentation',
-      component: DocumentationView,
+      path: '/search',
+      name: 'search',
+      component: SearchView,
     },
     {
       path: '/generate',

@@ -1,6 +1,6 @@
 export default {
   nav: {
-    documentation: 'Documentation',
+    search: 'Rechercher une adresse',
     generate: 'Generate',
     upload: 'Upload',
     analysis: 'Analysis',
@@ -25,27 +25,9 @@ export default {
     chooseSnapshot: 'Choisissez un snapshot dans la liste pour afficher l\'analyse.',
     wallets: 'portefeuilles',
   },
-  documentation: {
-    title: 'Documentation',
-    subtitle: "Guide rapide pour comprendre les fonctionnalités de l'interface",
-    generate: 'Génération (Generate)',
-    generateAccess: 'Accéder à la page →',
-    generateIntro: "La page <strong>Génération</strong> permet de créer des données de test pour les balances REG et le power voting en utilisant l'outil <code>balance-calculator</code>.",
-    generateFeature1: '<strong>Clone</strong> - Cloner et configurer le projet balance-calculator depuis un dépôt Git',
-    generateFeature2: "<strong>Environnement</strong> - Configurer les variables d'environnement nécessaires (clés API)",
-    generateFeature3: '<strong>Configuration</strong> - Modifier les options de calcul (optionsModifiers.ts)',
-    generateFeature4: "<strong>Lancer balance-calculator</strong> - Exécuter l'outil en mode interactif pour générer les fichiers de données",
-    generateWarning: '<strong>⚠️ Important :</strong> Cette interface est uniquement destinée aux tests. Ne jamais créer de données pour snapshot depuis cette page.',
-    upload: 'Upload',
-    uploadIntro: 'La page <strong>Upload</strong> permet de charger des fichiers de données existants (CSV ou JSON) pour les analyser et les visualiser.',
-    uploadFeature1: '<strong>Import de fichiers</strong> - Télécharger des fichiers de balances REG ou de power voting',
-    uploadFeature2: '<strong>Validation</strong> - Vérification automatique du format et de la structure des données',
-    uploadFeature3: "<strong>Transformation</strong> - Conversion automatique des données pour l'analyse",
-    analysis: 'Analysis',
-    analysisIntro: "La page <strong>Analysis</strong> offre des outils de visualisation et d'analyse des données de power voting et de balances REG chargées.",
-    analysisFeature1: '<strong>Graphiques</strong> - Visualisation des données sous forme de graphiques interactifs',
-    analysisFeature2: '<strong>Analyse détaillée</strong> - Exploration des données avec filtres et recherches',
-    analysisFeature3: "<strong>Export</strong> - Possibilité d'exporter les résultats d'analyse",
+  search: {
+    title: 'Rechercher une adresse',
+    subtitle: 'Rechercher dans le dernier snapshot les informations d\'un wallet (REG, Power Voting, positions pools).',
   },
   upload: {
     title: 'Chargement des données',

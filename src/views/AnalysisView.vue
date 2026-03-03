@@ -2725,10 +2725,6 @@ const powerBreakdownChartOptions = {
                   <div style="font-weight: 600; color: var(--text-primary);">{{ position.poolType === 'v3' ? 'V3' : 'V2' }}</div>
                 </div>
                 <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.regEquivalent') }}</span>
-                  <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.regAmount) }}</div>
-                </div>
-                <div>
                   <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.status') }}</span>
                   <div style="font-weight: 600;" :style="{ color: position.isActive ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)' }">
                     {{ position.isActive ? '🟢 ' + t('analysis.activeInRange') : '🔴 ' + t('analysis.inactiveOutOfRange') }}

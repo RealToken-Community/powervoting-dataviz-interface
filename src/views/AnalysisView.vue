@@ -1022,6 +1022,8 @@ const searchAddressDetails = async () => {
       poolAddress?: string
       positionId?: number | string | null
       tokens?: Array<{ tokenSymbol: string; tokenBalance: string }>
+      regDirectPosition: number
+      equivRegPosition: number
     }> = []
 
     if (balance && balance.sourceBalance) {
@@ -1044,8 +1046,6 @@ const searchAddressDetails = async () => {
 
           rawPositions.forEach((pos: any) => {
             const regAmount = parseFloat(String(pos.equivalentREG || '0'))
-            if (regAmount <= 0) return
-
             const tickLower = typeof pos.tickLower === 'number' ? pos.tickLower : parseFloat(String(pos.tickLower || 0))
             const tickUpper = typeof pos.tickUpper === 'number' ? pos.tickUpper : parseFloat(String(pos.tickUpper || 0))
             const isV2Transformed = tickLower === -887200 && tickUpper === 887200
@@ -1060,22 +1060,35 @@ const searchAddressDetails = async () => {
             const hasPositionId = positionIdVal !== null && !isNaN(positionIdVal) && positionIdVal !== 0
             const key = isV3 && hasPositionId ? `${poolAddress}-${positionIdVal}` : poolAddress
 
-            if (!byPool.has(key)) byPool.set(key, [])
-            byPool.get(key)!.push({ pos, dexName, networkName, regAmount, isV3, isActive })
+            // V2 : ne garder que les positions avec equivalentREG > 0. V3 : inclure tous les tokens de la position (même equiv 0) pour avoir REG + équiv. dans le tableau.
+            if (isV3 && hasPositionId) {
+              if (!byPool.has(key)) byPool.set(key, [])
+              byPool.get(key)!.push({ pos, dexName, networkName, regAmount, isV3, isActive })
+            } else if (regAmount > 0) {
+              if (!byPool.has(key)) byPool.set(key, [])
+              byPool.get(key)!.push({ pos, dexName, networkName, regAmount, isV3, isActive })
+            }
           })
         })
       })
 
       byPool.forEach((group) => {
         const first = group[0]
+        const isV3 = first.isV3
+        // Pour V3 : somme des equivalentREG de tous les tokens ; pour V2 : max (un seul token)
+        const totalEquivReg = group.reduce((s, g) => s + parseFloat(String(g.pos.equivalentREG || '0')), 0)
         const regAmounts = group.map((g) => g.regAmount).filter((r) => r > 0)
-        const regAmount = regAmounts.length > 0 ? Math.max(...regAmounts) : 0
-        if (regAmount <= 0) return
+        const regAmount = isV3 && group.length > 1 ? totalEquivReg : (regAmounts.length > 0 ? Math.max(...regAmounts) : 0)
+        if (regAmount <= 0 && totalEquivReg <= 0) return
 
         const tokenList = group.map((g) => ({
           tokenSymbol: g.pos.tokenSymbol || 'UNKNOWN',
           tokenBalance: String(g.pos.tokenBalance ?? '0'),
+          equivalentREG: String(g.pos.equivalentREG ?? '0'),
         }))
+        const totalRegBalance = group
+          .filter((g) => (g.pos.tokenSymbol || '').toUpperCase() === 'REG')
+          .reduce((s, g) => s + parseFloat(String(g.pos.tokenBalance || '0')), 0)
         let counterpartAmount = 0
         let counterpartToken = ''
         const other = tokenList.find((t) => t.tokenSymbol.toUpperCase() !== 'REG')
@@ -1084,16 +1097,32 @@ const searchAddressDetails = async () => {
           counterpartToken = other.tokenSymbol
         }
 
+        // Colonnes REG / Équiv. REG du tableau Calcul : V2 = même valeur dans les deux ; V3 rouge = seulement REG ; V3 vert = REG = balance REG, Équiv. = valeur fichier
+        let regDirectPosition: number
+        let equivRegPosition: number
+        if (!isV3) {
+          regDirectPosition = regAmount
+          equivRegPosition = regAmount
+        } else if (!first.isActive) {
+          regDirectPosition = regAmount
+          equivRegPosition = 0
+        } else {
+          regDirectPosition = totalRegBalance
+          equivRegPosition = totalEquivReg
+        }
+
         positions.push({
           dex: first.dexName,
           poolType: first.isV3 ? 'v3' : 'v2',
-          regAmount,
+          regAmount: regAmount > 0 ? regAmount : totalEquivReg,
           isActive: first.isActive,
           counterpartAmount,
           counterpartToken,
           poolAddress: first.pos.poolAddress,
           positionId: first.pos.positionId,
-          tokens: tokenList.length > 0 ? tokenList : undefined,
+          tokens: tokenList.length > 0 ? tokenList.map(({ tokenSymbol, tokenBalance }) => ({ tokenSymbol, tokenBalance })) : undefined,
+          regDirectPosition,
+          equivRegPosition,
         })
       })
     }
@@ -1161,8 +1190,8 @@ const searchAddressDetails = async () => {
       const poolLabel = `${pos.dex} ${(pos.poolType || 'v2').toUpperCase()}${pos.poolType === 'v3' ? (pos.isActive ? ' 🟢' : ' 🔴') : ''}`
       powerBreakdown.push({
         label: `${poolLabel} (×${formatMultiplier(multDisplay)})`,
-        regDirect: 0,
-        equivReg,
+        regDirect: pos.regDirectPosition,
+        equivReg: pos.equivRegPosition,
         powerContribution: powerContrib,
       })
     })
@@ -2665,8 +2694,8 @@ const powerBreakdownChartOptions = {
               <tfoot>
                 <tr style="border-top: 2px solid var(--border-color); font-weight: 600;">
                   <td style="padding: 0.5rem 0.75rem; color: var(--text-primary);">{{ t('analysis.powerCalcTotal') }}</td>
-                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber((addressDetails.walletREG || 0) + (addressDetails.vaultREG || 0)) }}</td>
-                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(addressDetails.poolREG) }}</td>
+                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(addressDetails.powerBreakdown.reduce((s, l) => s + l.regDirect, 0)) }}</td>
+                  <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace;">{{ formatNumber(addressDetails.powerBreakdown.reduce((s, l) => s + l.equivReg, 0)) }}</td>
                   <td style="text-align: right; padding: 0.5rem 0.75rem; font-family: monospace; color: var(--accent-color);">{{ formatNumber(addressDetails.powerVoting) }}</td>
                 </tr>
               </tfoot>

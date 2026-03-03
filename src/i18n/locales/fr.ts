@@ -160,7 +160,7 @@ export default {
     powerCalcColEquivReg: 'Équiv. REG',
     powerCalcTotal: 'Total',
     powerCalcTableIntro: 'Décomposition par source : REG direct (wallet) et équivalent REG (chaque position LP). La colonne Power = contribution au Power Voting (valeur snapshot).',
-    powerCalcDecompositionNote: "REG direct = tokens REG en wallet. Équiv. REG = valorisation en REG des positions LP. Le Power total est la valeur du snapshot. La part par pool utilise les coefficients RIP-37 : V2 (Sushiswap 1,5, Honeyswap 1,3, Balancer 1,4) ; V3 : boost 1 à 10 selon proximité au prix (in range ≈ 10, out of range ≈ 1) ; puis mise à l'échelle pour que la somme égale le Power des pools.",
+    powerCalcDecompositionNote: "REG direct = tokens REG en wallet. Équiv. REG = valorisation en REG des positions LP. Le Power total est la valeur du snapshot. Les coefficients sont encore en cours d'amélioration ; il est difficile de recalculer les coefficients avec les données en sortie de snapshot.",
     powerCalcSnapshotTotal: 'Power Voting (valeur snapshot) : {value}',
     searchResultIntro: "Le calcul repose sur deux montants distincts : le REG direct (tokens REG en wallet) et l'équivalent REG (valorisation en REG des positions LP). Ils ne sont pas mélangés — le total ci‑dessous est leur somme pour plus de transparence.",
     regDirectLabel: 'REG direct (wallet)',

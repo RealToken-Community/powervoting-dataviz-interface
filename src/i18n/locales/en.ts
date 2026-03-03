@@ -1,6 +1,7 @@
 export default {
   nav: {
     search: 'Search address',
+    history: 'Snapshot history',
     generate: 'Generate',
     upload: 'Upload',
     analysis: 'Analysis',
@@ -28,6 +29,11 @@ export default {
   search: {
     title: 'Search address',
     subtitle: 'Search the latest snapshot for a wallet\'s information (REG, Power Voting, pool positions).',
+  },
+  history: {
+    title: 'Snapshot history',
+    subtitle: 'List of available snapshots. Load a snapshot to analyze it.',
+    clickToLoad: 'Click on a snapshot to load it and open the <strong>Analysis</strong> page with that snapshot data.',
   },
   upload: {
     title: 'Load data',

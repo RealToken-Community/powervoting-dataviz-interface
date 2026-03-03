@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import GenerateView from '../views/GenerateView.vue'
 import SearchView from '../views/SearchView.vue'
+import HistoryView from '../views/HistoryView.vue'
 import UploadView from '../views/UploadView.vue'
 import AnalysisView from '../views/AnalysisView.vue'
 import HomeView from '../views/HomeView.vue'
@@ -23,6 +24,11 @@ const router = createRouter({
       path: '/search',
       name: 'search',
       component: SearchView,
+    },
+    {
+      path: '/history',
+      name: 'history',
+      component: HistoryView,
     },
     {
       path: '/generate',

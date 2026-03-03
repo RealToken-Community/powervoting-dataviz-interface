@@ -2709,39 +2709,41 @@ const powerBreakdownChartOptions = {
         <!-- Détails des positions -->
         <div v-if="addressDetails.positions && addressDetails.positions.length > 0" style="margin-top: 2rem;">
           <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">{{ t('analysis.positionsInPools') }}</h4>
-          <div style="display: grid; gap: 1rem;">
-            <div
-              v-for="(position, index) in addressDetails.positions"
-              :key="index"
-              style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; border-left: 3px solid var(--primary-color);"
-            >
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-                <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.dexPool') }}</span>
-                  <div style="font-weight: 600; color: var(--text-primary);">{{ position.dex }} {{ position.poolType?.toUpperCase() || 'V2' }}</div>
-                </div>
-                <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.version') }}</span>
-                  <div style="font-weight: 600; color: var(--text-primary);">{{ position.poolType === 'v3' ? 'V3' : 'V2' }}</div>
-                </div>
-                <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.status') }}</span>
-                  <div style="font-weight: 600;" :style="{ color: position.isActive ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)' }">
+          <div class="positions-pools-table-wrapper" style="overflow-x: auto; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--bg-secondary);">
+            <table class="positions-pools-table" style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+              <thead>
+                <tr style="border-bottom: 2px solid var(--border-color); background: var(--card-bg);">
+                  <th style="text-align: left; padding: 0.75rem 1rem; color: var(--text-secondary); font-weight: 600;">{{ t('analysis.dexPool') }}</th>
+                  <th style="text-align: left; padding: 0.75rem 1rem; color: var(--text-secondary); font-weight: 600;">{{ t('analysis.version') }}</th>
+                  <th style="text-align: left; padding: 0.75rem 1rem; color: var(--text-secondary); font-weight: 600;">{{ t('analysis.status') }}</th>
+                  <th style="text-align: left; padding: 0.75rem 1rem; color: var(--text-secondary); font-weight: 600;">{{ t('analysis.positionsInPoolsTokens') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(position, index) in addressDetails.positions"
+                  :key="index"
+                  style="border-bottom: 1px solid var(--border-color);"
+                >
+                  <td style="padding: 0.75rem 1rem; color: var(--text-primary); font-weight: 600;" :style="{ borderLeft: '3px solid ' + (position.isActive ? 'rgba(34, 197, 94, 0.8)' : 'rgba(239, 68, 68, 0.8)') }">{{ position.dex }} {{ position.poolType?.toUpperCase() || 'V2' }}</td>
+                  <td style="padding: 0.75rem 1rem; color: var(--text-primary);">{{ position.poolType === 'v3' ? 'V3' : 'V2' }}</td>
+                  <td style="padding: 0.75rem 1rem; font-weight: 500;" :style="{ color: position.isActive ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)' }">
                     {{ position.isActive ? '🟢 ' + t('analysis.activeInRange') : '🔴 ' + t('analysis.inactiveOutOfRange') }}
-                  </div>
-                </div>
-                <template v-if="position.tokens && position.tokens.length > 0">
-                  <div v-for="(token, ti) in position.tokens" :key="ti">
-                    <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ token.tokenSymbol }}</span>
-                    <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(parseFloat(token.tokenBalance)) }} {{ token.tokenSymbol }}</div>
-                  </div>
-                </template>
-                <div v-else-if="position.counterpartAmount > 0">
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">{{ t('analysis.counterpart') }}</span>
-                  <div style="font-weight: 600; color: var(--text-primary);">{{ formatNumber(position.counterpartAmount) }} {{ position.counterpartToken || '' }}</div>
-                </div>
-              </div>
-            </div>
+                  </td>
+                  <td style="padding: 0.75rem 1rem; color: var(--text-primary);">
+                    <template v-if="position.tokens && position.tokens.length > 0">
+                      <span v-for="(token, ti) in position.tokens" :key="ti" style="display: block; margin-bottom: 0.15rem;">
+                        <span style="font-weight: 600;">{{ formatNumber(parseFloat(token.tokenBalance)) }}</span> {{ token.tokenSymbol }}
+                      </span>
+                    </template>
+                    <template v-else-if="position.counterpartAmount > 0">
+                      <span style="font-weight: 600;">{{ formatNumber(position.counterpartAmount) }}</span> {{ position.counterpartToken || '' }}
+                    </template>
+                    <span v-else style="color: var(--text-secondary);">—</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
         <div v-else style="padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; color: var(--text-secondary); text-align: center;">

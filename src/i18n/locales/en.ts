@@ -189,6 +189,7 @@ export default {
     regInWallet: 'REG in wallet',
     regInPools: 'REG in pools',
     positionsInPools: 'Positions in pools',
+    positionsInPoolsTokens: 'Tokens',
     dexPool: 'DEX / Pool',
     version: 'Version',
     regEquivalent: 'REG equivalent',

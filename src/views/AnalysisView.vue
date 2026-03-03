@@ -1471,22 +1471,22 @@ const searchAddressDetails = async () => {
     }
     const poolREG = totalREG - (walletREG + vaultREG)
 
-    // Reconstituer le Power Voting : wallet + vault (×1) + pools
+    // Reconstituer le Power Voting : wallet + vault (×1) + pools ; multiplicateur affiché = calculé (pas ×10 par défaut)
+    const formatMultiplier = (v: number) => (v % 1 === 0 ? v.toFixed(0) : v.toFixed(2))
     const powerBreakdown: Array<{ label: string; regDirect: number; equivReg: number; powerContribution: number }> = []
     powerBreakdown.push({
-      label: `${t('analysis.powerCalcWalletLine')} (×1)`,
+      label: `${t('analysis.powerCalcWalletLine')} (×${formatMultiplier(1)})`,
       regDirect: walletREG,
       equivReg: 0,
       powerContribution: walletREG,
     })
     powerBreakdown.push({
-      label: `${t('analysis.vaultIncentiveLabel')} (×1)`,
+      label: `${t('analysis.vaultIncentiveLabel')} (×${formatMultiplier(1)})`,
       regDirect: vaultREG,
       equivReg: 0,
       powerContribution: vaultREG,
     })
     const powerFromPools = Math.max(0, powerVoting - (walletREG + vaultREG))
-    // Coefficient par pool (aligné balance-calculator / RIP-37) : V2 selon DEX, V3 selon in range
     const getCoefficient = (pos: { dex: string; poolType: string; isActive: boolean }) => {
       if (pos.poolType === 'v3') return pos.isActive ? V3_BOOST_MAX : V3_BOOST_MIN
       const dex = (pos.dex || '').toLowerCase()
@@ -1495,18 +1495,26 @@ const searchAddressDetails = async () => {
       if (dex.includes('balancer')) return 1.4
       return 1.5
     }
-    const powerByPosition = positions.map((pos) => pos.regAmount * getCoefficient(pos))
-    const totalCalculated = powerByPosition.reduce((s, p) => s + p, 0)
-    const scale = totalCalculated > 0 ? powerFromPools / totalCalculated : 0
+    // Hors range (×1) : on attribue exactement equivREG × 1 ; le reste est réparti entre les autres pools
+    const coefs = positions.map((pos) => getCoefficient(pos))
+    const powerOutOfRange = positions.reduce((s, pos, i) => s + (coefs[i] === 1 ? pos.regAmount : 0), 0)
+    const remainder = Math.max(0, powerFromPools - powerOutOfRange)
+    const totalWeightBoosted = positions.reduce((s, pos, i) => s + (coefs[i] > 1 ? pos.regAmount * coefs[i] : 0), 0)
+    const powerByPosition = positions.map((pos, i) => {
+      if (coefs[i] === 1) return pos.regAmount
+      return totalWeightBoosted > 0 ? (remainder * (pos.regAmount * coefs[i])) / totalWeightBoosted : 0
+    })
     positions.forEach((pos, i) => {
-      const coef = getCoefficient(pos)
-      const coefDisplay = coef % 1 === 0 ? coef.toFixed(0) : coef.toFixed(2)
+      const coef = coefs[i]
+      const powerContrib = powerByPosition[i]
+      const equivReg = pos.regAmount
+      const multDisplay = equivReg > 0 ? powerContrib / equivReg : coef
       const poolLabel = `${pos.dex} ${(pos.poolType || 'v2').toUpperCase()}${pos.poolType === 'v3' ? (pos.isActive ? ' 🟢' : ' 🔴') : ''}`
       powerBreakdown.push({
-        label: `${poolLabel} (×${coefDisplay})`,
+        label: `${poolLabel} (×${formatMultiplier(multDisplay)})`,
         regDirect: 0,
-        equivReg: pos.regAmount,
-        powerContribution: powerByPosition[i] * scale,
+        equivReg,
+        powerContribution: powerContrib,
       })
     })
 

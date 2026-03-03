@@ -2707,7 +2707,7 @@ const powerBreakdownChartOptions = {
         </div>
 
         <!-- Détails des positions -->
-        <div v-if="addressDetails.positions && addressDetails.positions.length > 0">
+        <div v-if="addressDetails.positions && addressDetails.positions.length > 0" style="margin-top: 2rem;">
           <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">{{ t('analysis.positionsInPools') }}</h4>
           <div style="display: grid; gap: 1rem;">
             <div

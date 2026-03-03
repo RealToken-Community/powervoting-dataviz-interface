@@ -497,6 +497,43 @@ const previousTop20CurrentRanks = computed(() => {
 const CHART_GREEN = 'rgba(34, 197, 94, 0.85)'
 const CHART_RED = 'rgba(239, 68, 68, 0.85)'
 
+// Résumé évolution rang sur tout le snapshot (wallets présents dans les 2 snapshots)
+const fullSnapshotRankEvolutionSummary = computed(() => {
+  const prev = previousSnapshotPowerData.value
+  if (!prev || prev.sortedByPower.length === 0 || dataStore.powerVoting.length === 0) return null
+  const currentSorted = [...dataStore.powerVoting]
+    .map((p) => ({ address: (p.address || '').toLowerCase(), power: parseFloat(String(p.powerVoting || 0)) || 0 }))
+    .filter((x) => x.power > 0)
+    .sort((a, b) => b.power - a.power)
+  const currentRankByAddress = new Map<string, number>()
+  currentSorted.forEach((item, i) => {
+    currentRankByAddress.set(item.address, i + 1)
+  })
+  const prevRankByAddress = new Map<string, number>()
+  prev.sortedByPower.forEach((item, i) => {
+    prevRankByAddress.set(item.address, i + 1)
+  })
+  const placeChanges: number[] = []
+  currentSorted.forEach((item) => {
+    const prevRank = prevRankByAddress.get(item.address)
+    if (prevRank == null) return
+    const currentRank = currentRankByAddress.get(item.address) ?? 0
+    placeChanges.push(prevRank - currentRank)
+  })
+  const up = placeChanges.filter((c) => c > 0)
+  const down = placeChanges.filter((c) => c < 0)
+  const same = placeChanges.filter((c) => c === 0)
+  const avgGain = up.length > 0 ? up.reduce((s, c) => s + c, 0) / up.length : 0
+  const avgLoss = down.length > 0 ? down.reduce((s, c) => s + Math.abs(c), 0) / down.length : 0
+  return {
+    upCount: up.length,
+    downCount: down.length,
+    sameCount: same.length,
+    avgGain,
+    avgLoss,
+  }
+})
+
 function shortAddress(addr: string): string {
   if (!addr || addr.length < 14) return addr
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`
@@ -3531,6 +3568,25 @@ const powerBreakdownChartOptions = {
         </div>
       </div>
 
+      <!-- 3 cartes : évolution rang sur tout le snapshot (wallets présents dans les 2 snapshots) -->
+      <div class="top-holders-evolution-summary" v-if="fullSnapshotRankEvolutionSummary" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; margin-top: 1.5rem;">
+        <div class="top-holders-summary-card" style="background: var(--card-bg); border-radius: 1rem; border: 1px solid var(--border-color); padding: 1.25rem; border-left: 4px solid var(--success-color, #22c55e);">
+          <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.25rem;">{{ t('analysis.evolutionSummaryUp') }}</div>
+          <div class="top-holders-positive" style="font-size: 1.75rem; font-weight: 700;">{{ fullSnapshotRankEvolutionSummary.upCount }}</div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem;">{{ t('analysis.evolutionSummaryAvgGain') }}: <strong class="top-holders-positive">{{ formatNumber(fullSnapshotRankEvolutionSummary.avgGain) }}</strong> {{ t('analysis.placesGained') }}</div>
+        </div>
+        <div class="top-holders-summary-card" style="background: var(--card-bg); border-radius: 1rem; border: 1px solid var(--border-color); padding: 1.25rem; border-left: 4px solid var(--danger-color, #ef4444);">
+          <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.25rem;">{{ t('analysis.evolutionSummaryDown') }}</div>
+          <div class="top-holders-negative" style="font-size: 1.75rem; font-weight: 700;">{{ fullSnapshotRankEvolutionSummary.downCount }}</div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem;">{{ t('analysis.evolutionSummaryAvgLoss') }}: <strong class="top-holders-negative">{{ formatNumber(fullSnapshotRankEvolutionSummary.avgLoss) }}</strong> {{ t('analysis.placesLost') }}</div>
+        </div>
+        <div class="top-holders-summary-card" style="background: var(--card-bg); border-radius: 1rem; border: 1px solid var(--border-color); padding: 1.25rem; border-left: 4px solid rgba(148, 163, 184, 0.8);">
+          <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.25rem;">{{ t('analysis.evolutionSummarySame') }}</div>
+          <div style="font-size: 1.75rem; font-weight: 700; color: var(--text-primary);">{{ fullSnapshotRankEvolutionSummary.sameCount }}</div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem;">{{ t('analysis.evolutionSummarySameDesc') }}</div>
+        </div>
+      </div>
+
       <!-- Ancien top 20 : où sont-ils dans le classement actuel ? -->
       <div class="previous-top20-card" v-if="previousTop20CurrentRanks && previousTop20CurrentRanks.length > 0">
         <h3 class="previous-top20-title">📋 {{ t('analysis.previousTop20Title') }}</h3>
@@ -5395,6 +5451,9 @@ const powerBreakdownChartOptions = {
 @media (max-width: 968px) {
   .top-holders-charts-grid {
     grid-template-columns: 1fr;
+  }
+  .top-holders-evolution-summary {
+    grid-template-columns: 1fr !important;
   }
 }
 

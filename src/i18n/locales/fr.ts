@@ -45,6 +45,11 @@ export default {
     positionsV2Label: 'Positions V2',
     positionsV3Label: 'Positions V3',
     poolsChartYLabel: 'Nombre de pools / positions',
+    liquidityChartTitle: 'Liquidité apportée par les pools',
+    liquidityChartExplainer: 'Évolution de l\'apport de liquidité dans les pools : REG (tokens REG déposés) et équivalent REG (valorisation totale des positions en REG).',
+    liquidityRegLabel: 'Apport en REG',
+    liquidityEquivalentRegLabel: 'Apport en équivalent REG',
+    liquidityChartYLabel: 'Montant (REG)',
   },
   vote: {
     title: 'Vote',

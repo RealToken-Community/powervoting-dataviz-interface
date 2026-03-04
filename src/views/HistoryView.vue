@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
-import { getUniquePoolCountsByType } from '@/views/analysis/poolUtils'
+import { getUniquePoolCountsByType, getPoolLiquidityTotals } from '@/views/analysis/poolUtils'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -47,6 +47,13 @@ const poolsBySnapshot = ref<Array<{
   v3DataAvailable: boolean
 }>>([])
 const isLoadingPools = ref(false)
+const liquidityBySnapshot = ref<Array<{
+  date: string
+  dateFormatted: string
+  totalREGInPools: number
+  totalEquivalentREGInPools: number
+}>>([])
+const isLoadingLiquidity = ref(false)
 
 function computeGiniFromPowerVoting(powerVotingData: any): number | null {
   const raw = powerVotingData?.result?.powerVoting || powerVotingData
@@ -82,6 +89,7 @@ onMounted(async () => {
   if (snapshots.value.length > 0) {
     isLoadingGini.value = true
     isLoadingPools.value = true
+    isLoadingLiquidity.value = true
     const giniList: Array<{ date: string; dateFormatted: string; gini: number }> = []
     const poolsList: Array<{
       date: string
@@ -91,6 +99,12 @@ onMounted(async () => {
       v2PositionCount: number
       v3PositionCount: number
       v3DataAvailable: boolean
+    }> = []
+    const liquidityList: Array<{
+      date: string
+      dateFormatted: string
+      totalREGInPools: number
+      totalEquivalentREGInPools: number
     }> = []
     const sorted = [...snapshots.value].sort((a, b) => {
       const dateA = new Date(a.dateFormatted || a.date.split('-').reverse().join('-'))
@@ -118,14 +132,23 @@ onMounted(async () => {
           v3PositionCount: poolCounts.v3PositionCount,
           v3DataAvailable: poolCounts.v3DataAvailable,
         })
+        const liquidity = getPoolLiquidityTotals(balances)
+        liquidityList.push({
+          date: snapshot.date,
+          dateFormatted: formatSnapshotDate(snapshot.date),
+          totalREGInPools: liquidity.totalREGInPools,
+          totalEquivalentREGInPools: liquidity.totalEquivalentREGInPools,
+        })
       } catch {
         // skip this snapshot
       }
     }
     giniBySnapshot.value = giniList
     poolsBySnapshot.value = poolsList
+    liquidityBySnapshot.value = liquidityList
     isLoadingGini.value = false
     isLoadingPools.value = false
+    isLoadingLiquidity.value = false
   }
 })
 
@@ -363,6 +386,72 @@ const poolsChartOptions = computed(() => ({
   interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false },
 }))
 
+const liquidityChartData = computed(() => {
+  if (liquidityBySnapshot.value.length === 0) return null
+  const labels = liquidityBySnapshot.value.map((d) => d.dateFormatted)
+  return {
+    labels,
+    datasets: [
+      {
+        label: t('history.liquidityRegLabel'),
+        data: liquidityBySnapshot.value.map((d) => d.totalREGInPools),
+        borderColor: 'rgb(96, 165, 250)',
+        backgroundColor: 'rgba(96, 165, 250, 0.1)',
+        tension: 0.4,
+        borderWidth: 2,
+        fill: true,
+      },
+      {
+        label: t('history.liquidityEquivalentRegLabel'),
+        data: liquidityBySnapshot.value.map((d) => d.totalEquivalentREGInPools),
+        borderColor: 'rgb(74, 222, 128)',
+        backgroundColor: 'rgba(74, 222, 128, 0.1)',
+        tension: 0.4,
+        borderWidth: 2,
+        fill: true,
+      },
+    ],
+  }
+})
+
+const liquidityChartOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      position: 'top' as const,
+      labels: { color: 'rgb(255, 255, 255)', usePointStyle: true, padding: 15 },
+    },
+    tooltip: {
+      mode: 'index' as const,
+      intersect: false,
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      titleColor: 'rgb(255, 255, 255)',
+      bodyColor: 'rgb(255, 255, 255)',
+      callbacks: {
+        label: (context: any) => {
+          const v = context.parsed.y as number
+          if (v == null) return null
+          return `${context.dataset.label}: ${formatNumber(v)}`
+        },
+      },
+    },
+  },
+  scales: {
+    x: {
+      ticks: { color: 'rgb(255, 255, 255)', maxRotation: 45, minRotation: 45 },
+      grid: { color: 'rgba(255, 255, 255, 0.2)' },
+    },
+    y: {
+      min: 0,
+      ticks: { color: 'rgb(255, 255, 255)', callback: (value: any) => Number(value).toLocaleString('fr-FR') },
+      grid: { color: 'rgba(255, 255, 255, 0.2)' },
+      title: { display: true, text: t('history.liquidityChartYLabel'), color: 'rgb(255, 255, 255)' },
+    },
+  },
+  interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false },
+}))
+
 const giniChartData = computed(() => {
   if (giniBySnapshot.value.length === 0) return null
   return {
@@ -537,6 +626,16 @@ const giniChartOptions = computed(() => ({
           <Line :data="poolsChartData" :options="poolsChartOptions" />
         </div>
       </div>
+
+      <!-- Liquidité apportée par les pools (REG et équivalent REG) -->
+      <div class="liquidity-section">
+        <h3 class="liquidity-title">📊 {{ t('history.liquidityChartTitle') }}</h3>
+        <p class="liquidity-explainer">{{ t('history.liquidityChartExplainer') }}</p>
+        <div v-if="isLoadingLiquidity" class="liquidity-loading">{{ t('home.loadingSnapshot') }}</div>
+        <div v-else-if="liquidityChartData" class="snapshots-chart-container liquidity-chart">
+          <Line :data="liquidityChartData" :options="liquidityChartOptions" />
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -662,6 +761,31 @@ const giniChartOptions = computed(() => ({
   color: var(--text-muted);
 }
 .pools-chart {
+  margin-bottom: 0;
+}
+.liquidity-section {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border-color);
+}
+.liquidity-title {
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem 0;
+}
+.liquidity-explainer {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 1.25rem 0;
+  max-width: 640px;
+}
+.liquidity-loading {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+.liquidity-chart {
   margin-bottom: 0;
 }
 .snapshots-list {

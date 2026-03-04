@@ -170,6 +170,53 @@ export function getUniquePoolCountsByType(balancesArray: any[]): {
   }
 }
 
+/**
+ * Agrège l'apport de liquidité des pools (REG et équivalent REG) pour un snapshot.
+ * Utilisé pour le graphique d'évolution de la liquidité en historique.
+ */
+export function getPoolLiquidityTotals(balancesArray: any[]): {
+  totalREGInPools: number
+  totalEquivalentREGInPools: number
+} {
+  let totalREGInPools = 0
+  let totalEquivalentREGInPools = 0
+
+  const raw = Array.isArray(balancesArray) ? balancesArray : (balancesArray as any)?.result?.balances
+  const list = Array.isArray(raw) ? raw : []
+
+  list.forEach((wallet: any) => {
+    if (!wallet.sourceBalance) return
+    const networks = wallet.sourceBalance
+
+    Object.entries(networks).forEach(([, networkValue]: [string, any]) => {
+      const dexs = networkValue?.dexs
+      if (!dexs) return
+
+      Object.entries(dexs).forEach(([, rawPositions]: [string, any]) => {
+        if (!Array.isArray(rawPositions)) return
+
+        rawPositions.forEach((pos: any) => {
+          const equiv = parseFloat(String(pos.equivalentREG || '0'))
+          const isREG = String(pos.tokenSymbol || '').toUpperCase() === 'REG'
+          const tokenBalance = parseFloat(String(pos.tokenBalance || '0'))
+
+          if (equiv > 0 || (isREG && tokenBalance > 0)) {
+            if (isREG) {
+              totalREGInPools += tokenBalance
+            }
+            totalEquivalentREGInPools += equiv
+          }
+        })
+      })
+    })
+  })
+
+  return {
+    totalREGInPools,
+    totalEquivalentREGInPools,
+  }
+}
+
 export interface AnalyzePoolPositionsResult {
   totalPools: number
   regInPools: number

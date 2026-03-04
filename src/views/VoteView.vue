@@ -478,7 +478,7 @@ function formatBlockOrTime(value: bigint) {
   margin-bottom: 2rem;
 }
 .vote-title {
-  font-size: 1.75rem;
+  font-size: 2rem;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0 0 0.5rem 0;
@@ -494,7 +494,7 @@ function formatBlockOrTime(value: bigint) {
   margin-bottom: 2rem;
 }
 .vote-section-title {
-  font-size: 1.25rem;
+  font-size: 1.85rem;
   color: var(--text-primary);
   margin: 0 0 0.75rem 0;
 }
@@ -503,7 +503,7 @@ function formatBlockOrTime(value: bigint) {
   margin-bottom: 2rem;
 }
 .vote-participation-title {
-  font-size: 1.25rem;
+  font-size: 1.85rem;
   color: var(--text-primary);
   margin: 0 0 0.5rem 0;
 }

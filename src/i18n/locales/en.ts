@@ -81,6 +81,13 @@ export default {
     chartByPowerExplainer: 'Share of voting power (weight) between Yes, No and Abstain. Each segment is the total weight cast for that option.',
     chartByWalletExplainer: 'Share of wallet count between Yes, No and Abstain. Each wallet counts as 1, with no voting power weighting.',
     fullDescription: 'Full proposal description',
+    participationSectionTitle: 'Participation',
+    participationByPowerTitle: 'Participation by voting power',
+    participationByPowerExplainer: 'Share of voting power cast vs total distributed at vote time (getPastTotalSupply).',
+    participationByWalletTitle: 'Participation by wallet count',
+    participationByWalletExplainer: 'Share of wallets that voted vs total REG holders at vote time (closest snapshot).',
+    participated: 'Participated',
+    notParticipated: 'Did not participate',
   },
   upload: {
     title: 'Load data',

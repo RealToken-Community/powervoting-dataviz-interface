@@ -14,11 +14,52 @@ import {
   fetchProposalsFromGovernor,
   fetchVoteBreakdownByProposal,
   fetchCanceledProposalIds,
+  getPastTotalSupply,
+  fetchVoteStartTimestamps,
   type ProposalSummary,
   type VoteBreakdown,
 } from '@/utils/governanceClient'
+import { loadSnapshotManifest, type SnapshotInfo } from '@/utils/snapshotLoader'
 
 ChartJS.register(Title, Tooltip, Legend, ArcElement)
+
+function findClosestWalletCount(snapshots: SnapshotInfo[], voteTimestampSeconds: number): number | null {
+  if (!snapshots.length || voteTimestampSeconds <= 0) return null
+  const voteTime = voteTimestampSeconds * 1000
+  let closest = snapshots[0]
+  let minDiff = Math.abs(new Date(closest.dateFormatted).getTime() - voteTime)
+  for (const s of snapshots) {
+    const diff = Math.abs(new Date(s.dateFormatted).getTime() - voteTime)
+    if (diff < minDiff) {
+      minDiff = diff
+      closest = s
+    }
+  }
+  return closest.metrics?.walletCount ?? null
+}
+
+async function loadParticipationData(
+  proposal: ProposalSummary,
+  breakdown: VoteBreakdown
+): Promise<{ powerPct: number; walletPct: number; totalSupply: bigint; walletCount: number } | null> {
+  const powerCast = breakdown.byPower.for + breakdown.byPower.against + breakdown.byPower.abstain
+  const totalVoters = breakdown.byWallet.for + breakdown.byWallet.against + breakdown.byWallet.abstain
+  let totalSupply = 0n
+  try {
+    totalSupply = await getPastTotalSupply(proposal.voteStart)
+  } catch {
+    // token peut ne pas exposer getPastTotalSupply ou timepoint invalide
+  }
+  const [timestamps, manifest] = await Promise.all([
+    fetchVoteStartTimestamps([proposal]),
+    loadSnapshotManifest(),
+  ])
+  const ts = timestamps.get(proposal.proposalId) ?? 0
+  const walletCount = findClosestWalletCount(manifest, ts) ?? 0
+  const powerPct = totalSupply > 0n ? Number((powerCast * 10000n) / totalSupply) / 100 : 0
+  const walletPct = walletCount > 0 ? (totalVoters * 100) / walletCount : 0
+  return { powerPct, walletPct, totalSupply, walletCount }
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -28,6 +69,12 @@ const proposalId = computed(() => String(route.params.proposalId ?? ''))
 
 const proposal = ref<ProposalSummary | null>(null)
 const breakdown = ref<VoteBreakdown | null>(null)
+const participationData = ref<{
+  powerPct: number
+  walletPct: number
+  totalSupply: bigint
+  walletCount: number
+} | null>(null)
 const isLoading = ref(true)
 const notFound = ref(false)
 const error = ref<string | null>(null)
@@ -76,35 +123,41 @@ onMounted(async () => {
   if (state?.proposal && state.proposal.proposalId === id && state?.breakdown) {
     proposal.value = state.proposal
     breakdown.value = state.breakdown
-    isLoading.value = false
-    return
+  } else {
+    isLoading.value = true
+    error.value = null
+    notFound.value = false
+    try {
+      const [proposalsList, breakdownMap, canceledIds] = await Promise.all([
+        fetchProposalsFromGovernor(),
+        fetchVoteBreakdownByProposal(),
+        fetchCanceledProposalIds(),
+      ])
+      if (canceledIds.has(id)) {
+        notFound.value = true
+        proposal.value = null
+        breakdown.value = null
+      } else {
+        const p = proposalsList.find((x) => x.proposalId === id) ?? null
+        proposal.value = p
+        breakdown.value = breakdownMap.get(id) ?? null
+        if (!p) notFound.value = true
+      }
+    } catch (err) {
+      console.error('Failed to load vote detail:', err)
+      error.value = err instanceof Error ? err.message : t('voteDetail.fetchError')
+    }
   }
 
-  isLoading.value = true
-  error.value = null
-  notFound.value = false
-  try {
-    const [proposalsList, breakdownMap, canceledIds] = await Promise.all([
-      fetchProposalsFromGovernor(),
-      fetchVoteBreakdownByProposal(),
-      fetchCanceledProposalIds(),
-    ])
-    if (canceledIds.has(id)) {
-      notFound.value = true
-      proposal.value = null
-      breakdown.value = null
-    } else {
-      const p = proposalsList.find((x) => x.proposalId === id) ?? null
-      proposal.value = p
-      breakdown.value = breakdownMap.get(id) ?? null
-      if (!p) notFound.value = true
+  if (proposal.value && breakdown.value) {
+    try {
+      const data = await loadParticipationData(proposal.value, breakdown.value)
+      participationData.value = data
+    } catch (e) {
+      console.warn('Participation data failed', e)
     }
-  } catch (err) {
-    console.error('Failed to load vote detail:', err)
-    error.value = err instanceof Error ? err.message : t('voteDetail.fetchError')
-  } finally {
-    isLoading.value = false
   }
+  isLoading.value = false
 })
 
 const ripLabel = computed(() =>
@@ -200,6 +253,59 @@ const doughnutOptions = computed(() => ({
   },
 }))
 
+const participationByPowerChartData = computed(() => {
+  const p = participationData.value
+  if (!p) return null
+  const participated = Math.min(100, Math.max(0, p.powerPct))
+  const notParticipated = 100 - participated
+  return {
+    labels: [t('voteDetail.participated'), t('voteDetail.notParticipated')],
+    datasets: [
+      {
+        data: [participated, notParticipated],
+        backgroundColor: ['rgba(76, 175, 80, 0.85)', 'rgba(158, 158, 158, 0.5)'],
+        borderColor: ['rgb(76, 175, 80)', 'rgb(158, 158, 158)'],
+        borderWidth: 1,
+      },
+    ],
+  }
+})
+
+const participationByWalletChartData = computed(() => {
+  const p = participationData.value
+  if (!p) return null
+  const participated = Math.min(100, Math.max(0, p.walletPct))
+  const notParticipated = 100 - participated
+  return {
+    labels: [t('voteDetail.participated'), t('voteDetail.notParticipated')],
+    datasets: [
+      {
+        data: [participated, notParticipated],
+        backgroundColor: ['rgba(33, 150, 243, 0.85)', 'rgba(158, 158, 158, 0.5)'],
+        borderColor: ['rgb(33, 150, 243)', 'rgb(158, 158, 158)'],
+        borderWidth: 1,
+      },
+    ],
+  }
+})
+
+const participationDoughnutOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { position: 'bottom' as const, labels: { color: '#ffffff', padding: 16 } },
+    tooltip: {
+      titleColor: '#ffffff',
+      bodyColor: '#ffffff',
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      callbacks: {
+        label: (ctx: { raw: number; label: string }) =>
+          `${ctx.label}: ${Number(ctx.raw).toFixed(1)} %`,
+      },
+    },
+  },
+}))
+
 function goBack() {
   router.push({ name: 'vote' })
 }
@@ -284,6 +390,30 @@ function goBack() {
             {{ t('vote.voteAgainst') }}: {{ breakdown!.byWallet.against }} ({{ walletPct.against.toFixed(1) }}%) ·
             {{ t('vote.voteAbstain') }}: {{ breakdown!.byWallet.abstain }} ({{ walletPct.abstain.toFixed(1) }}%)
           </p>
+        </div>
+      </section>
+
+      <section v-if="participationData" class="vote-detail-participation">
+        <h2 class="vote-detail-section-title">{{ t('voteDetail.participationSectionTitle') }}</h2>
+        <div class="vote-detail-participation-charts">
+          <div class="vote-detail-chart-block" v-if="participationByPowerChartData">
+            <p class="vote-detail-chart-explainer">{{ t('voteDetail.participationByPowerExplainer') }}</p>
+            <div class="vote-detail-doughnut-wrap vote-detail-participation-doughnut">
+              <Doughnut :data="participationByPowerChartData" :options="participationDoughnutOptions" />
+            </div>
+            <p class="vote-detail-chart-legend">
+              {{ participationData.powerPct.toFixed(1) }} % {{ t('voteDetail.participated') }}
+            </p>
+          </div>
+          <div class="vote-detail-chart-block" v-if="participationByWalletChartData">
+            <p class="vote-detail-chart-explainer">{{ t('voteDetail.participationByWalletExplainer') }}</p>
+            <div class="vote-detail-doughnut-wrap vote-detail-participation-doughnut">
+              <Doughnut :data="participationByWalletChartData" :options="participationDoughnutOptions" />
+            </div>
+            <p class="vote-detail-chart-legend">
+              {{ participationData.walletPct.toFixed(1) }} % {{ t('voteDetail.participated') }}
+            </p>
+          </div>
         </div>
       </section>
 
@@ -409,6 +539,17 @@ function goBack() {
   color: var(--text-muted);
   margin: 0.75rem 0 0 0;
   line-height: 1.4;
+}
+.vote-detail-participation {
+  margin-bottom: 2rem;
+}
+.vote-detail-participation-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 2rem;
+}
+.vote-detail-participation-doughnut {
+  height: 220px;
 }
 .vote-detail-description { margin-top: 2rem; }
 .vote-detail-description-text {

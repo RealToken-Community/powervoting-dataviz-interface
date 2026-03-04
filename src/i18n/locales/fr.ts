@@ -81,6 +81,13 @@ export default {
     chartByPowerExplainer: 'Répartition du pouvoir de vote (weight) entre Oui, Non et Abstention. Chaque segment correspond au poids total des voix exprimées pour cette option.',
     chartByWalletExplainer: 'Répartition du nombre de wallets entre Oui, Non et Abstention. Chaque wallet compte pour 1, sans pondération par le pouvoir de vote.',
     fullDescription: 'Description complète de la proposition',
+    participationSectionTitle: 'Participation',
+    participationByPowerTitle: 'Participation en pouvoir de vote',
+    participationByPowerExplainer: 'Part du pouvoir de vote exprimé par rapport au total distribué au moment du vote (getPastTotalSupply).',
+    participationByWalletTitle: 'Participation en nombre de wallets',
+    participationByWalletExplainer: 'Part des wallets ayant voté par rapport au nombre total de détenteurs REG au moment du vote (snapshot le plus proche).',
+    participated: 'Participé',
+    notParticipated: 'Non participé',
   },
   upload: {
     title: 'Chargement des données',

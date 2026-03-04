@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
+import { getUniquePoolCountsByType } from '@/views/analysis/poolUtils'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -36,6 +37,16 @@ const isLoading = ref(false)
 const error = ref<string>('')
 const giniBySnapshot = ref<Array<{ date: string; dateFormatted: string; gini: number }>>([])
 const isLoadingGini = ref(false)
+const poolsBySnapshot = ref<Array<{
+  date: string
+  dateFormatted: string
+  v2PoolCount: number
+  v3PoolCount: number
+  v2PositionCount: number
+  v3PositionCount: number
+  v3DataAvailable: boolean
+}>>([])
+const isLoadingPools = ref(false)
 
 function computeGiniFromPowerVoting(powerVotingData: any): number | null {
   const raw = powerVotingData?.result?.powerVoting || powerVotingData
@@ -70,7 +81,17 @@ onMounted(async () => {
   }
   if (snapshots.value.length > 0) {
     isLoadingGini.value = true
-    const list: Array<{ date: string; dateFormatted: string; gini: number }> = []
+    isLoadingPools.value = true
+    const giniList: Array<{ date: string; dateFormatted: string; gini: number }> = []
+    const poolsList: Array<{
+      date: string
+      dateFormatted: string
+      v2PoolCount: number
+      v3PoolCount: number
+      v2PositionCount: number
+      v3PositionCount: number
+      v3DataAvailable: boolean
+    }> = []
     const sorted = [...snapshots.value].sort((a, b) => {
       const dateA = new Date(a.dateFormatted || a.date.split('-').reverse().join('-'))
       const dateB = new Date(b.dateFormatted || b.date.split('-').reverse().join('-'))
@@ -78,21 +99,33 @@ onMounted(async () => {
     })
     for (const snapshot of sorted) {
       try {
-        const { powerVoting } = await loadSnapshot(snapshot)
+        const { powerVoting, balances } = await loadSnapshot(snapshot)
         const gini = computeGiniFromPowerVoting(powerVoting)
         if (gini !== null) {
-          list.push({
+          giniList.push({
             date: snapshot.date,
             dateFormatted: formatSnapshotDate(snapshot.date),
             gini,
           })
         }
+        const poolCounts = getUniquePoolCountsByType(balances)
+        poolsList.push({
+          date: snapshot.date,
+          dateFormatted: formatSnapshotDate(snapshot.date),
+          v2PoolCount: poolCounts.v2PoolCount,
+          v3PoolCount: poolCounts.v3PoolCount,
+          v2PositionCount: poolCounts.v2PositionCount,
+          v3PositionCount: poolCounts.v3PositionCount,
+          v3DataAvailable: poolCounts.v3DataAvailable,
+        })
       } catch {
         // skip this snapshot
       }
     }
-    giniBySnapshot.value = list
+    giniBySnapshot.value = giniList
+    poolsBySnapshot.value = poolsList
     isLoadingGini.value = false
+    isLoadingPools.value = false
   }
 })
 
@@ -233,6 +266,98 @@ const snapshotsChartOptions = computed(() => ({
       ticks: { color: 'rgb(255, 255, 255)', callback: (value: any) => formatNumber(value) },
       grid: { drawOnChartArea: false },
       title: { display: true, text: 'Total Power Voting', color: 'rgb(236, 72, 153)' },
+    },
+  },
+  interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false },
+}))
+
+const poolsChartData = computed(() => {
+  if (poolsBySnapshot.value.length === 0) return null
+  const labels = poolsBySnapshot.value.map((d) => d.dateFormatted)
+  return {
+    labels,
+    datasets: [
+      {
+        label: t('history.poolsV2Label'),
+        data: poolsBySnapshot.value.map((d) => d.v2PoolCount),
+        borderColor: 'rgb(34, 197, 94)',
+        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+        tension: 0.4,
+        borderWidth: 2,
+        fill: true,
+      },
+      {
+        label: t('history.poolsV3Label'),
+        data: poolsBySnapshot.value.map((d) =>
+          d.v3DataAvailable ? d.v3PoolCount : null
+        ),
+        borderColor: 'rgb(59, 130, 246)',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        tension: 0.4,
+        borderWidth: 2,
+        fill: true,
+        spanGaps: false,
+      },
+      {
+        label: t('history.positionsV2Label'),
+        data: poolsBySnapshot.value.map((d) => d.v2PositionCount),
+        borderColor: 'rgb(134, 239, 172)',
+        backgroundColor: 'rgba(134, 239, 172, 0.1)',
+        tension: 0.4,
+        borderWidth: 2,
+        fill: true,
+        borderDash: [4, 4],
+      },
+      {
+        label: t('history.positionsV3Label'),
+        data: poolsBySnapshot.value.map((d) =>
+          d.v3DataAvailable ? d.v3PositionCount : null
+        ),
+        borderColor: 'rgb(147, 197, 253)',
+        backgroundColor: 'rgba(147, 197, 253, 0.1)',
+        tension: 0.4,
+        borderWidth: 2,
+        fill: true,
+        spanGaps: false,
+        borderDash: [4, 4],
+      },
+    ],
+  }
+})
+
+const poolsChartOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      position: 'top' as const,
+      labels: { color: 'rgb(255, 255, 255)', usePointStyle: true, padding: 15 },
+    },
+    tooltip: {
+      mode: 'index' as const,
+      intersect: false,
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      titleColor: 'rgb(255, 255, 255)',
+      bodyColor: 'rgb(255, 255, 255)',
+      callbacks: {
+        label: (context: any) => {
+          const v = context.parsed.y
+          if (v == null) return null
+          return `${context.dataset.label}: ${Number(v).toLocaleString('fr-FR')}`
+        },
+      },
+    },
+  },
+  scales: {
+    x: {
+      ticks: { color: 'rgb(255, 255, 255)', maxRotation: 45, minRotation: 45 },
+      grid: { color: 'rgba(255, 255, 255, 0.2)' },
+    },
+    y: {
+      min: 0,
+      ticks: { color: 'rgb(255, 255, 255)', callback: (value: any) => Number(value).toLocaleString('fr-FR') },
+      grid: { color: 'rgba(255, 255, 255, 0.2)' },
+      title: { display: true, text: t('history.poolsChartYLabel'), color: 'rgb(255, 255, 255)' },
     },
   },
   interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false },
@@ -402,6 +527,16 @@ const giniChartOptions = computed(() => ({
           <Line :data="giniChartData" :options="giniChartOptions" />
         </div>
       </div>
+
+      <!-- Évolution du nombre de pools V2 et V3 -->
+      <div class="pools-section">
+        <h3 class="pools-title">📊 {{ t('history.poolsChartTitle') }}</h3>
+        <p class="pools-explainer">{{ t('history.poolsChartExplainer') }}</p>
+        <div v-if="isLoadingPools" class="pools-loading">{{ t('home.loadingSnapshot') }}</div>
+        <div v-else-if="poolsChartData" class="snapshots-chart-container pools-chart">
+          <Line :data="poolsChartData" :options="poolsChartOptions" />
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -502,6 +637,31 @@ const giniChartOptions = computed(() => ({
   color: var(--text-muted);
 }
 .gini-chart {
+  margin-bottom: 0;
+}
+.pools-section {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border-color);
+}
+.pools-title {
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem 0;
+}
+.pools-explainer {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 1.25rem 0;
+  max-width: 640px;
+}
+.pools-loading {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+.pools-chart {
   margin-bottom: 0;
 }
 .snapshots-list {

@@ -38,6 +38,13 @@ export default {
     giniChartTitle: 'Évolution de l\'indice de Gini',
     giniChartLabel: 'Coefficient Gini',
     giniExplainer: 'L\'indice de Gini mesure l\'inégalité de répartition du pouvoir de vote entre les adresses. Proche de 0, le pouvoir est réparti de façon égale ; proche de 1, il est concentré entre peu de détenteurs. Ce graphique montre son évolution pour chaque snapshot.',
+    poolsChartTitle: 'Évolution du nombre de pools V2 et V3',
+    poolsChartExplainer: 'Pools uniques (lignes pleines) et nombre de positions (lignes pointillées) par snapshot. Si les données V3 ne sont pas présentes pour un snapshot, les courbes V3 n\'affichent rien pour cette date.',
+    poolsV2Label: 'Pools V2',
+    poolsV3Label: 'Pools V3',
+    positionsV2Label: 'Positions V2',
+    positionsV3Label: 'Positions V3',
+    poolsChartYLabel: 'Nombre de pools / positions',
   },
   vote: {
     title: 'Vote',

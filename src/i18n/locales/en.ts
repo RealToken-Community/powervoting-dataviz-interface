@@ -38,6 +38,13 @@ export default {
     giniChartTitle: 'Gini index over time',
     giniChartLabel: 'Gini coefficient',
     giniExplainer: 'The Gini index measures how unevenly voting power is distributed across addresses. Close to 0, power is shared equally; close to 1, it is concentrated among few holders. This chart shows its evolution for each snapshot.',
+    poolsChartTitle: 'Evolution of V2 and V3 pool count',
+    poolsChartExplainer: 'Unique pools (solid lines) and number of positions (dashed lines) per snapshot. If V3 data is not present for a snapshot, V3 curves show nothing for that date.',
+    poolsV2Label: 'Pools V2',
+    poolsV3Label: 'Pools V3',
+    positionsV2Label: 'Positions V2',
+    positionsV3Label: 'Positions V3',
+    poolsChartYLabel: 'Number of pools / positions',
   },
   vote: {
     title: 'Vote',

@@ -1,11 +1,24 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { fetchProposalsFromGovernor, type ProposalSummary } from '@/utils/governanceClient'
+import { Bar } from 'vue-chartjs'
+import {
+  Chart as ChartJS,
+  Title,
+  Tooltip,
+  Legend,
+  BarElement,
+  CategoryScale,
+  LinearScale,
+} from 'chart.js'
+import { fetchProposalsFromGovernor, fetchVoterCountByProposal, type ProposalSummary } from '@/utils/governanceClient'
 import { GOVERNANCE_CONTRACTS } from '@/constants/governance'
+
+ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
 
 const { t } = useI18n()
 const proposals = ref<ProposalSummary[]>([])
+const voterCountByProposalId = ref<Map<string, number>>(new Map())
 const isLoading = ref(true)
 const error = ref<string | null>(null)
 
@@ -13,7 +26,12 @@ onMounted(async () => {
   isLoading.value = true
   error.value = null
   try {
-    proposals.value = await fetchProposalsFromGovernor()
+    const [proposalsList, voterCounts] = await Promise.all([
+      fetchProposalsFromGovernor(),
+      fetchVoterCountByProposal(),
+    ])
+    proposals.value = proposalsList
+    voterCountByProposalId.value = voterCounts
   } catch (err) {
     console.error('Failed to fetch proposals:', err)
     error.value = err instanceof Error ? err.message : t('vote.fetchError')
@@ -23,6 +41,79 @@ onMounted(async () => {
   }
 })
 
+const barChartData = computed(() => {
+  const list = proposals.value
+  const counts = voterCountByProposalId.value
+  if (!list.length) return null
+  // Ordre chronologique : #1 à gauche, dernier vote à droite
+  const reversed = [...list].reverse()
+  const labels = reversed.map((p, i) => getRipLabel(p.description, i + 1))
+  const fullNames = reversed.map((p) => firstLine(p.description) || '—')
+  const data = reversed.map((p) => counts.get(p.proposalId) ?? 0)
+  return {
+    labels,
+    datasets: [
+      {
+        label: t('vote.chartVotersLabel'),
+        data,
+        fullNames,
+        backgroundColor: 'rgba(255, 140, 66, 0.7)',
+        borderColor: 'rgb(255, 140, 66)',
+        borderWidth: 1,
+      },
+    ],
+  }
+})
+
+const barChartOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    title: {
+      display: true,
+      text: t('vote.chartTitle'),
+      color: '#ffffff',
+      font: { size: 16 },
+    },
+    tooltip: {
+      titleColor: '#ffffff',
+      bodyColor: '#ffffff',
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      callbacks: {
+        title: (context: Array<{ dataIndex: number; dataset: { fullNames?: string[] } }>) => {
+          const ctx = context[0]
+          if (!ctx) return ''
+          const fullNames = ctx.dataset?.fullNames
+          return fullNames?.[ctx.dataIndex] ?? ''
+        },
+        label: (ctx: { raw: number }) => `${ctx.raw} ${t('vote.chartVotersLabel').toLowerCase()}`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      title: {
+        display: true,
+        text: t('vote.chartXLabel'),
+        color: '#ffffff',
+      },
+      grid: { display: false },
+      ticks: { color: '#ffffff', maxRotation: 45 },
+    },
+    y: {
+      beginAtZero: true,
+      title: {
+        display: true,
+        text: t('vote.chartYLabel'),
+        color: '#ffffff',
+      },
+      grid: { color: 'rgba(255, 255, 255, 0.2)' },
+      ticks: { color: '#ffffff', stepSize: 1 },
+    },
+  },
+}))
+
 function shortAddress(addr: string) {
   if (!addr || addr.length < 10) return addr || '—'
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`
@@ -31,6 +122,13 @@ function shortAddress(addr: string) {
 function firstLine(text: string) {
   const line = text?.split('\n')[0]?.trim() || ''
   return line.length > 140 ? line.slice(0, 140) + '…' : line
+}
+
+/** Extrait le numéro RIP de la description (ex. "RIP-3", "[RIP-3]", "RIP 3") → "[RIP-3]" */
+function getRipLabel(description: string, fallbackIndex: number): string {
+  const match = description?.match(/\[?RIP[- ]?(\d+)\]?/i) ?? description?.match(/RIP[- ](\d+)/i)
+  const num = match ? match[1] : String(fallbackIndex)
+  return `[RIP-${num}]`
 }
 
 function formatBlockOrTime(value: bigint) {
@@ -46,6 +144,12 @@ function formatBlockOrTime(value: bigint) {
       <h1 class="vote-title">{{ t('vote.title') }}</h1>
       <p class="vote-subtitle">{{ t('vote.subtitle') }}</p>
     </header>
+
+    <section v-if="barChartData && !error" class="vote-chart-section">
+      <div class="vote-chart-container">
+        <Bar :data="barChartData" :options="barChartOptions" />
+      </div>
+    </section>
 
     <section class="contracts-section">
       <h2 class="section-title">{{ t('vote.contractsTitle') }}</h2>
@@ -102,6 +206,16 @@ function formatBlockOrTime(value: bigint) {
   color: var(--text-secondary);
   margin: 0;
   line-height: 1.5;
+}
+.vote-chart-section {
+  margin-bottom: 2rem;
+}
+.vote-chart-container {
+  height: 320px;
+  padding: 1rem;
+  background: var(--card-bg);
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-color);
 }
 .section-title {
   font-size: 1.25rem;

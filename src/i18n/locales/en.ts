@@ -49,6 +49,10 @@ export default {
     fetchError: 'Failed to load proposals from the Governor.',
     start: 'Start',
     end: 'End',
+    chartTitle: 'Number of participating wallets per vote',
+    chartXLabel: 'Vote (proposal)',
+    chartYLabel: 'Number of wallets',
+    chartVotersLabel: 'Wallets',
   },
   upload: {
     title: 'Load data',

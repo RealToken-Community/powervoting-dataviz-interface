@@ -49,6 +49,10 @@ export default {
     fetchError: 'Impossible de charger les propositions depuis le Governor.',
     start: 'Début',
     end: 'Fin',
+    chartTitle: 'Nombre de wallets participants par vote',
+    chartXLabel: 'Vote (proposition)',
+    chartYLabel: 'Nombre de wallets',
+    chartVotersLabel: 'Wallets',
   },
   upload: {
     title: 'Chargement des données',

@@ -3,6 +3,7 @@ import GenerateView from '../views/GenerateView.vue'
 import SearchView from '../views/SearchView.vue'
 import HistoryView from '../views/HistoryView.vue'
 import UploadView from '../views/UploadView.vue'
+import VoteView from '../views/VoteView.vue'
 import AnalysisView from '../views/AnalysisView.vue'
 import HomeView from '../views/HomeView.vue'
 
@@ -39,6 +40,11 @@ const router = createRouter({
       path: '/upload',
       name: 'upload',
       component: UploadView,
+    },
+    {
+      path: '/vote',
+      name: 'vote',
+      component: VoteView,
     },
     {
       path: '/analysis',

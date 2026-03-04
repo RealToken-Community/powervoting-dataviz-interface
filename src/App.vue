@@ -24,6 +24,7 @@ const { t } = useI18n()
             <RouterLink to="/history">{{ t('nav.history') }}</RouterLink>
             <RouterLink to="/generate">{{ t('nav.generate') }}</RouterLink>
             <RouterLink to="/upload">{{ t('nav.upload') }}</RouterLink>
+            <RouterLink to="/vote">{{ t('nav.vote') }}</RouterLink>
             <!-- <RouterLink to="/analysis">{{ t('nav.analysis') }}</RouterLink> -->
             <span class="lang-switcher">
               <button type="button" class="lang-btn" :class="{ active: $i18n.locale === 'en' }" @click="setLocale('en')">{{ t('nav.langEn') }}</button>

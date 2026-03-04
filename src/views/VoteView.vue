@@ -302,17 +302,29 @@ function formatBlockOrTime(value: bigint) {
           :key="p.proposalId"
           class="proposal-card"
         >
-          <div class="proposal-header">
-            <span class="proposal-index">#{{ proposals.length - index }}</span>
-            <span class="proposal-id" :title="p.proposalId">ID {{ p.proposalId.length > 20 ? p.proposalId.slice(0, 16) + '…' : p.proposalId }}</span>
-          </div>
-          <p class="proposal-description">{{ firstLine(p.description) || '—' }}</p>
-          <div class="proposal-meta">
-            <span class="proposal-proposer" :title="p.proposer">{{ shortAddress(p.proposer) }}</span>
-            <span class="proposal-dates">
-              {{ t('vote.start') }} {{ formatBlockOrTime(p.voteStart) }} → {{ t('vote.end') }} {{ formatBlockOrTime(p.voteEnd) }}
-            </span>
-          </div>
+          <RouterLink
+            :to="{
+              name: 'voteDetail',
+              params: { proposalId: p.proposalId },
+              state: {
+                proposal: p,
+                breakdown: voteBreakdownByProposalId.get(p.proposalId) ?? null,
+              },
+            }"
+            class="proposal-card-link"
+          >
+            <div class="proposal-header">
+              <span class="proposal-index">#{{ proposals.length - index }}</span>
+              <span class="proposal-id" :title="p.proposalId">ID {{ p.proposalId.length > 20 ? p.proposalId.slice(0, 16) + '…' : p.proposalId }}</span>
+            </div>
+            <p class="proposal-description">{{ firstLine(p.description) || '—' }}</p>
+            <div class="proposal-meta">
+              <span class="proposal-proposer" :title="p.proposer">{{ shortAddress(p.proposer) }}</span>
+              <span class="proposal-dates">
+                {{ t('vote.start') }} {{ formatBlockOrTime(p.voteStart) }} → {{ t('vote.end') }} {{ formatBlockOrTime(p.voteEnd) }}
+              </span>
+            </div>
+          </RouterLink>
         </li>
       </ul>
     </section>
@@ -408,13 +420,19 @@ function formatBlockOrTime(value: bigint) {
   gap: 1rem;
 }
 .proposal-card {
+  transition: border-color 0.2s;
+}
+.proposal-card-link {
+  display: block;
   padding: 1.25rem;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: 0.75rem;
+  color: inherit;
+  text-decoration: none;
   transition: border-color 0.2s;
 }
-.proposal-card:hover {
+.proposal-card-link:hover {
   border-color: var(--primary-color);
 }
 .proposal-header {

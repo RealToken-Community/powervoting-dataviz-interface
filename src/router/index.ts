@@ -4,6 +4,7 @@ import SearchView from '../views/SearchView.vue'
 import HistoryView from '../views/HistoryView.vue'
 import UploadView from '../views/UploadView.vue'
 import VoteView from '../views/VoteView.vue'
+import VoteDetailView from '../views/VoteDetailView.vue'
 import AnalysisView from '../views/AnalysisView.vue'
 import HomeView from '../views/HomeView.vue'
 
@@ -45,6 +46,12 @@ const router = createRouter({
       path: '/vote',
       name: 'vote',
       component: VoteView,
+    },
+    {
+      path: '/vote/:proposalId',
+      name: 'voteDetail',
+      component: VoteDetailView,
+      props: true,
     },
     {
       path: '/analysis',

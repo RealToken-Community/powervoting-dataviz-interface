@@ -61,6 +61,18 @@ export default {
     voteAgainst: 'No',
     voteAbstain: 'Abstain',
   },
+  voteDetail: {
+    backToList: 'Back to votes list',
+    notFound: 'This vote was not found or has been canceled.',
+    fetchError: 'Failed to load vote details.',
+    proposer: 'Proposer:',
+    keyFigures: 'Key figures',
+    totalVoters: 'Wallets that voted',
+    totalPowerCast: 'Voting power cast (total)',
+    chartByPowerExplainer: 'Share of voting power (weight) between Yes, No and Abstain. Each segment is the total weight cast for that option.',
+    chartByWalletExplainer: 'Share of wallet count between Yes, No and Abstain. Each wallet counts as 1, with no voting power weighting.',
+    fullDescription: 'Full proposal description',
+  },
   upload: {
     title: 'Load data',
     subtitle: 'Import your REG balance and power voting files to start the analysis',

@@ -61,6 +61,18 @@ export default {
     voteAgainst: 'Non',
     voteAbstain: 'Abstention',
   },
+  voteDetail: {
+    backToList: 'Retour à la liste des votes',
+    notFound: 'Ce vote est introuvable ou a été annulé.',
+    fetchError: 'Impossible de charger les détails du vote.',
+    proposer: 'Proposant :',
+    keyFigures: 'Chiffres clés',
+    totalVoters: 'Wallets ayant voté',
+    totalPowerCast: 'Pouvoir de vote exprimé (total)',
+    chartByPowerExplainer: 'Répartition du pouvoir de vote (weight) entre Oui, Non et Abstention. Chaque segment correspond au poids total des voix exprimées pour cette option.',
+    chartByWalletExplainer: 'Répartition du nombre de wallets entre Oui, Non et Abstention. Chaque wallet compte pour 1, sans pondération par le pouvoir de vote.',
+    fullDescription: 'Description complète de la proposition',
+  },
   upload: {
     title: 'Chargement des données',
     subtitle: "Importez vos fichiers balances REG et power voting pour commencer l'analyse",

@@ -11,7 +11,8 @@ import {
   CategoryScale,
   LinearScale,
 } from 'chart.js'
-import { fetchProposalsFromGovernor, fetchVoteBreakdownByProposal, voterCountFromBreakdown, fetchCanceledProposalIds, type ProposalSummary, type VoteBreakdown } from '@/utils/governanceClient'
+import { fetchProposalsFromGovernor, fetchVoteBreakdownByProposal, voterCountFromBreakdown, fetchCanceledProposalIds, fetchPowerParticipation, fetchVoteStartTimestamps, type ProposalSummary, type VoteBreakdown } from '@/utils/governanceClient'
+import { loadSnapshotManifest, type SnapshotInfo } from '@/utils/snapshotLoader'
 import { GOVERNANCE_CONTRACTS } from '@/constants/governance'
 
 ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
@@ -19,23 +20,56 @@ ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
 const { t } = useI18n()
 const proposals = ref<ProposalSummary[]>([])
 const voteBreakdownByProposalId = ref<Map<string, VoteBreakdown>>(new Map())
+const powerParticipationByProposalId = ref<Map<string, { powerCast: bigint; totalSupply: bigint; pct: number }>>(new Map())
+const walletCountAtVoteByProposalId = ref<Map<string, number>>(new Map())
 const voterCountByProposalId = computed(() =>
   voterCountFromBreakdown(voteBreakdownByProposalId.value)
 )
 const isLoading = ref(true)
 const error = ref<string | null>(null)
 
+function findClosestWalletCount(snapshots: SnapshotInfo[], voteTimestampSeconds: number): number | null {
+  if (!snapshots.length || voteTimestampSeconds <= 0) return null
+  const voteTime = voteTimestampSeconds * 1000
+  let closest = snapshots[0]
+  let minDiff = Math.abs(new Date(closest.dateFormatted).getTime() - voteTime)
+  for (const s of snapshots) {
+    const diff = Math.abs(new Date(s.dateFormatted).getTime() - voteTime)
+    if (diff < minDiff) {
+      minDiff = diff
+      closest = s
+    }
+  }
+  return closest.metrics?.walletCount ?? null
+}
+
 onMounted(async () => {
   isLoading.value = true
   error.value = null
   try {
-    const [proposalsList, breakdown, canceledIds] = await Promise.all([
+    const [proposalsList, breakdown, canceledIds, manifest] = await Promise.all([
       fetchProposalsFromGovernor(),
       fetchVoteBreakdownByProposal(),
       fetchCanceledProposalIds(),
+      loadSnapshotManifest(),
     ])
-    proposals.value = proposalsList.filter((p) => !canceledIds.has(p.proposalId))
+    const filtered = proposalsList.filter((p) => !canceledIds.has(p.proposalId))
+    proposals.value = filtered
     voteBreakdownByProposalId.value = breakdown
+
+    const [powerParticipation, timestamps] = await Promise.all([
+      fetchPowerParticipation(filtered, breakdown),
+      fetchVoteStartTimestamps(filtered),
+    ])
+    powerParticipationByProposalId.value = powerParticipation
+
+    const walletCountMap = new Map<string, number>()
+    for (const p of filtered) {
+      const ts = timestamps.get(p.proposalId) ?? 0
+      const wc = findClosestWalletCount(manifest, ts)
+      if (wc != null) walletCountMap.set(p.proposalId, wc)
+    }
+    walletCountAtVoteByProposalId.value = walletCountMap
   } catch (err) {
     console.error('Failed to fetch proposals:', err)
     error.value = err instanceof Error ? err.message : t('vote.fetchError')
@@ -75,6 +109,47 @@ const barChartData = computed(() => {
       },
     ],
   }
+})
+
+const participationBarChartOptions = (titleKey: string) => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    title: {
+      display: true,
+      text: t(titleKey),
+      color: '#ffffff',
+      font: { size: 14 },
+    },
+    tooltip: {
+      titleColor: '#ffffff',
+      bodyColor: '#ffffff',
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      callbacks: {
+        title: (context: Array<{ dataIndex: number; dataset: { fullNames?: string[] } }>) => {
+          const ctx = context[0]
+          if (!ctx) return ''
+          return ctx.dataset?.fullNames?.[ctx.dataIndex] ?? ''
+        },
+        label: (ctx: { raw: number }) => `${Number(ctx.raw).toFixed(1)}%`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      title: { display: true, text: t('vote.chartXLabel'), color: '#ffffff' },
+      grid: { display: false },
+      ticks: { color: '#ffffff', maxRotation: 45 },
+    },
+    y: {
+      min: 0,
+      max: 100,
+      title: { display: true, text: '%', color: '#ffffff' },
+      grid: { color: 'rgba(255, 255, 255, 0.2)' },
+      ticks: { color: '#ffffff', callback: (v: number | string) => `${v}%` },
+    },
+  },
 })
 
 const barChartOptions = computed(() => ({
@@ -142,6 +217,58 @@ const yesNoAbstainByPowerChartData = computed(() => {
       { label: t('vote.voteFor'), data: forPct, backgroundColor: 'rgba(76, 175, 80, 0.85)', borderColor: 'rgb(76, 175, 80)', borderWidth: 1 },
       { label: t('vote.voteAgainst'), data: againstPct, backgroundColor: 'rgba(244, 67, 54, 0.85)', borderColor: 'rgb(244, 67, 54)', borderWidth: 1 },
       { label: t('vote.voteAbstain'), data: abstainPct, backgroundColor: 'rgba(158, 158, 158, 0.85)', borderColor: 'rgb(158, 158, 158)', borderWidth: 1 },
+    ],
+  }
+})
+
+/** Participation en pouvoir de vote : (pouvoir exprimé / total supply au snapshot) en %. */
+const participationByPowerChartData = computed(() => {
+  const list = proposals.value
+  const participation = powerParticipationByProposalId.value
+  const { labels, fullNames } = chartLabelsAndNames.value
+  if (!list.length || !labels.length) return null
+  const reversed = [...list].reverse()
+  const data = reversed.map((p) => participation.get(p.proposalId)?.pct ?? 0)
+  return {
+    labels,
+    datasets: [
+      {
+        label: t('vote.participationPowerLabel'),
+        data,
+        fullNames,
+        backgroundColor: 'rgba(255, 140, 66, 0.7)',
+        borderColor: 'rgb(255, 140, 66)',
+        borderWidth: 1,
+      },
+    ],
+  }
+})
+
+/** Participation en wallets : (wallets votants / total détenteurs REG au snapshot) en %. */
+const participationByWalletChartData = computed(() => {
+  const list = proposals.value
+  const voters = voterCountByProposalId.value
+  const walletCountAtVote = walletCountAtVoteByProposalId.value
+  const { labels, fullNames } = chartLabelsAndNames.value
+  if (!list.length || !labels.length) return null
+  const reversed = [...list].reverse()
+  const data = reversed.map((p) => {
+    const v = voters.get(p.proposalId) ?? 0
+    const total = walletCountAtVote.get(p.proposalId)
+    if (total == null || total === 0) return 0
+    return (v / total) * 100
+  })
+  return {
+    labels,
+    datasets: [
+      {
+        label: t('vote.participationWalletLabel'),
+        data,
+        fullNames,
+        backgroundColor: 'rgba(100, 181, 246, 0.7)',
+        borderColor: 'rgb(100, 181, 246)',
+        borderWidth: 1,
+      },
     ],
   }
 })
@@ -283,6 +410,23 @@ function formatBlockOrTime(value: bigint) {
       </div>
     </section>
 
+    <section v-if="(participationByPowerChartData || participationByWalletChartData) && !error" class="vote-participation-section">
+      <h2 class="vote-participation-title">{{ t('vote.participationSectionTitle') }}</h2>
+      <p class="vote-chart-explainer">{{ t('vote.participationSectionIntro') }}</p>
+      <div v-if="participationByPowerChartData" class="vote-chart-section">
+        <p class="vote-chart-explainer">{{ t('vote.participationByPowerExplainer') }}</p>
+        <div class="vote-chart-container">
+          <Bar :data="participationByPowerChartData" :options="participationBarChartOptions('vote.participationByPowerTitle')" />
+        </div>
+      </div>
+      <div v-if="participationByWalletChartData" class="vote-chart-section">
+        <p class="vote-chart-explainer">{{ t('vote.participationByWalletExplainer') }}</p>
+        <div class="vote-chart-container">
+          <Bar :data="participationByWalletChartData" :options="participationBarChartOptions('vote.participationByWalletTitle')" />
+        </div>
+      </div>
+    </section>
+
     <section class="contracts-section">
       <h2 class="section-title">{{ t('vote.contractsTitle') }}</h2>
       <p class="contract-address">
@@ -350,6 +494,15 @@ function formatBlockOrTime(value: bigint) {
   color: var(--text-secondary);
   margin: 0;
   line-height: 1.5;
+}
+.vote-participation-section {
+  margin-top: 2.5rem;
+  margin-bottom: 2rem;
+}
+.vote-participation-title {
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  margin: 0 0 0.5rem 0;
 }
 .vote-chart-section {
   margin-bottom: 2rem;

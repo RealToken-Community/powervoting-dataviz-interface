@@ -2,6 +2,10 @@ import { createPublicClient, http, parseAbiItem } from 'viem'
 import { gnosis } from 'viem/chains'
 import { GOVERNANCE_CONTRACTS } from '@/constants/governance'
 
+const TOKEN_ABI = [
+  { inputs: [{ name: 'timepoint', type: 'uint256' }], name: 'getPastTotalSupply', outputs: [{ type: 'uint256' }], stateMutability: 'view', type: 'function' },
+] as const
+
 const GOVERNOR_ABI = [
   parseAbiItem(
     'event ProposalCreated(uint256 proposalId, address proposer, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, uint256 voteStart, uint256 voteEnd, string description)'
@@ -167,5 +171,65 @@ export function voterCountFromBreakdown(
       b.byWallet.for + b.byWallet.against + b.byWallet.abstain
     )
   })
+  return result
+}
+
+/** Total supply du token de vote à un timepoint (bloc ou timestamp selon le token). */
+export async function getPastTotalSupply(timepoint: bigint): Promise<bigint> {
+  const result = await publicClient.readContract({
+    address: GOVERNANCE_CONTRACTS.Token as `0x${string}`,
+    abi: TOKEN_ABI,
+    functionName: 'getPastTotalSupply',
+    args: [timepoint],
+  })
+  return result as bigint
+}
+
+/** Pour chaque proposition : pouvoir exprimé vs total supply au snapshot (%). */
+export async function fetchPowerParticipation(
+  proposals: ProposalSummary[],
+  breakdown: Map<string, VoteBreakdown>
+): Promise<Map<string, { powerCast: bigint; totalSupply: bigint; pct: number }>> {
+  const result = new Map<string, { powerCast: bigint; totalSupply: bigint; pct: number }>()
+  for (const p of proposals) {
+    const b = breakdown.get(p.proposalId)
+    const powerCast = b
+      ? b.byPower.for + b.byPower.against + b.byPower.abstain
+      : 0n
+    let totalSupply = 0n
+    try {
+      totalSupply = await getPastTotalSupply(p.voteStart)
+    } catch {
+      // token peut ne pas exposer getPastTotalSupply ou timepoint invalide
+    }
+    const pct =
+      totalSupply > 0n ? Number((powerCast * 10000n) / totalSupply) / 100 : 0
+    result.set(p.proposalId, { powerCast, totalSupply, pct })
+  }
+  return result
+}
+
+/**
+ * Timestamp (secondes) du début de vote pour chaque proposition.
+ * voteStart peut être un timestamp Unix (Governor en mode clock) ou un numéro de bloc.
+ */
+export async function fetchVoteStartTimestamps(
+  proposals: ProposalSummary[]
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>()
+  for (const p of proposals) {
+    const v = Number(p.voteStart)
+    // Plage typique des timestamps Unix (secondes) : ~1e9 (2001) à ~2e10 (2600)
+    if (v >= 1e9 && v <= 2e10) {
+      result.set(p.proposalId, v)
+      continue
+    }
+    try {
+      const block = await publicClient.getBlock({ blockNumber: p.voteStart })
+      result.set(p.proposalId, Number(block.timestamp))
+    } catch {
+      result.set(p.proposalId, 0)
+    }
+  }
   return result
 }

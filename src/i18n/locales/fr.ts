@@ -53,6 +53,13 @@ export default {
     chartXLabel: 'Vote (proposition)',
     chartYLabel: 'Nombre de wallets',
     chartVotersLabel: 'Wallets',
+    chartByPowerTitle: 'Répartition Oui / Non / Abstention par pouvoir de vote',
+    chartByPowerExplainer: 'Chaque barre représente un vote. Les segments (Oui en vert, Non en rouge, Abstention en gris) correspondent au pourcentage du pouvoir de vote (weight) exprimé pour chaque option. Plus un wallet a de REG / Power Voting, plus son vote pèse dans ce pourcentage.',
+    chartByWalletTitle: 'Répartition Oui / Non / Abstention par nombre de wallets',
+    chartByWalletExplainer: 'Même principe par vote, mais ici chaque wallet compte pour 1, quel que soit son pouvoir de vote. On voit ainsi la part des adresses (en %) qui ont voté Oui, Non ou Abstention, sans pondération par le poids.',
+    voteFor: 'Oui',
+    voteAgainst: 'Non',
+    voteAbstain: 'Abstention',
   },
   upload: {
     title: 'Chargement des données',

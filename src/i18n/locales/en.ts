@@ -53,6 +53,13 @@ export default {
     chartXLabel: 'Vote (proposal)',
     chartYLabel: 'Number of wallets',
     chartVotersLabel: 'Wallets',
+    chartByPowerTitle: 'Yes / No / Abstain share by voting power',
+    chartByPowerExplainer: 'Each bar is one vote. The segments (Yes in green, No in red, Abstain in grey) show the share of voting power (weight) cast for each option. The more REG / Power Voting a wallet has, the more its vote counts in this percentage.',
+    chartByWalletTitle: 'Yes / No / Abstain share by number of wallets',
+    chartByWalletExplainer: 'Same idea per vote, but here each wallet counts as 1 regardless of voting power. This shows the share of addresses (in %) that voted Yes, No or Abstain, with no weight applied.',
+    voteFor: 'Yes',
+    voteAgainst: 'No',
+    voteAbstain: 'Abstain',
   },
   upload: {
     title: 'Load data',

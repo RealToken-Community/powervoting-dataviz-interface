@@ -72,11 +72,22 @@ export async function fetchCanceledProposalIds(): Promise<Set<string>> {
   return ids
 }
 
+/** OpenZeppelin Governor: 0 = Against, 1 = For, 2 = Abstain */
+export type VoteSupport = 'against' | 'for' | 'abstain'
+
+export interface VoteBreakdown {
+  byPower: { for: bigint; against: bigint; abstain: bigint }
+  byWallet: { for: number; against: number; abstain: number }
+}
+
 /**
- * Compte le nombre de wallets distincts ayant voté pour chaque proposition.
- * Retourne une Map proposalId -> nombre de votants.
+ * Pour chaque proposition, retourne la répartition des votes (Oui/Non/Abstention)
+ * en pouvoir de vote (weight) et en nombre de wallets.
+ * Permet aussi de dériver le nombre total de votants (somme byWallet).
  */
-export async function fetchVoterCountByProposal(): Promise<Map<string, number>> {
+export async function fetchVoteBreakdownByProposal(): Promise<
+  Map<string, VoteBreakdown>
+> {
   const logs = await publicClient.getContractEvents({
     address: GOVERNANCE_CONTRACTS.Governor as `0x${string}`,
     abi: GOVERNOR_ABI,
@@ -84,19 +95,77 @@ export async function fetchVoterCountByProposal(): Promise<Map<string, number>> 
     fromBlock: 0n,
   })
 
-  const countByProposal = new Map<string, Set<string>>()
-  for (const log of logs) {
-    const args = log.args as { voter: string; proposalId: bigint }
-    const proposalId = String(args.proposalId)
-    if (!countByProposal.has(proposalId)) {
-      countByProposal.set(proposalId, new Set())
+  const byProposal = new Map<
+    string,
+    {
+      power: { for: bigint; against: bigint; abstain: bigint }
+      walletFor: Set<string>
+      walletAgainst: Set<string>
+      walletAbstain: Set<string>
     }
-    countByProposal.get(proposalId)!.add((args.voter ?? '').toLowerCase())
+  >()
+
+  for (const log of logs) {
+    const args = log.args as {
+      voter: string
+      proposalId: bigint
+      support: number
+      weight: bigint
+    }
+    const proposalId = String(args.proposalId)
+    const voter = (args.voter ?? '').toLowerCase()
+    const weight = args.weight ?? 0n
+    const support = Number(args.support ?? 0)
+
+    if (!byProposal.has(proposalId)) {
+      byProposal.set(proposalId, {
+        power: { for: 0n, against: 0n, abstain: 0n },
+        walletFor: new Set(),
+        walletAgainst: new Set(),
+        walletAbstain: new Set(),
+      })
+    }
+    const entry = byProposal.get(proposalId)!
+
+    if (support === 1) {
+      entry.power.for += weight
+      entry.walletFor.add(voter)
+    } else if (support === 0) {
+      entry.power.against += weight
+      entry.walletAgainst.add(voter)
+    } else {
+      entry.power.abstain += weight
+      entry.walletAbstain.add(voter)
+    }
   }
 
+  const result = new Map<string, VoteBreakdown>()
+  byProposal.forEach((entry, proposalId) => {
+    result.set(proposalId, {
+      byPower: { ...entry.power },
+      byWallet: {
+        for: entry.walletFor.size,
+        against: entry.walletAgainst.size,
+        abstain: entry.walletAbstain.size,
+      },
+    })
+  })
+  return result
+}
+
+/**
+ * Compte le nombre de wallets distincts ayant voté pour chaque proposition.
+ * Dérivé de fetchVoteBreakdownByProposal pour éviter un double appel RPC.
+ */
+export function voterCountFromBreakdown(
+  breakdown: Map<string, VoteBreakdown>
+): Map<string, number> {
   const result = new Map<string, number>()
-  countByProposal.forEach((voters, proposalId) => {
-    result.set(proposalId, voters.size)
+  breakdown.forEach((b, proposalId) => {
+    result.set(
+      proposalId,
+      b.byWallet.for + b.byWallet.against + b.byWallet.abstain
+    )
   })
   return result
 }

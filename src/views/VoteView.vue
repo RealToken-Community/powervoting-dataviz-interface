@@ -11,14 +11,17 @@ import {
   CategoryScale,
   LinearScale,
 } from 'chart.js'
-import { fetchProposalsFromGovernor, fetchVoterCountByProposal, fetchCanceledProposalIds, type ProposalSummary } from '@/utils/governanceClient'
+import { fetchProposalsFromGovernor, fetchVoteBreakdownByProposal, voterCountFromBreakdown, fetchCanceledProposalIds, type ProposalSummary, type VoteBreakdown } from '@/utils/governanceClient'
 import { GOVERNANCE_CONTRACTS } from '@/constants/governance'
 
 ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
 
 const { t } = useI18n()
 const proposals = ref<ProposalSummary[]>([])
-const voterCountByProposalId = ref<Map<string, number>>(new Map())
+const voteBreakdownByProposalId = ref<Map<string, VoteBreakdown>>(new Map())
+const voterCountByProposalId = computed(() =>
+  voterCountFromBreakdown(voteBreakdownByProposalId.value)
+)
 const isLoading = ref(true)
 const error = ref<string | null>(null)
 
@@ -26,13 +29,13 @@ onMounted(async () => {
   isLoading.value = true
   error.value = null
   try {
-    const [proposalsList, voterCounts, canceledIds] = await Promise.all([
+    const [proposalsList, breakdown, canceledIds] = await Promise.all([
       fetchProposalsFromGovernor(),
-      fetchVoterCountByProposal(),
+      fetchVoteBreakdownByProposal(),
       fetchCanceledProposalIds(),
     ])
     proposals.value = proposalsList.filter((p) => !canceledIds.has(p.proposalId))
-    voterCountByProposalId.value = voterCounts
+    voteBreakdownByProposalId.value = breakdown
   } catch (err) {
     console.error('Failed to fetch proposals:', err)
     error.value = err instanceof Error ? err.message : t('vote.fetchError')
@@ -42,14 +45,22 @@ onMounted(async () => {
   }
 })
 
+const chartLabelsAndNames = computed(() => {
+  const list = proposals.value
+  if (!list.length) return { labels: [] as string[], fullNames: [] as string[] }
+  const reversed = [...list].reverse()
+  return {
+    labels: reversed.map((p, i) => getRipLabel(p.description, i + 1)),
+    fullNames: reversed.map((p) => firstLine(p.description) || '—'),
+  }
+})
+
 const barChartData = computed(() => {
   const list = proposals.value
   const counts = voterCountByProposalId.value
-  if (!list.length) return null
-  // Ordre chronologique : #1 à gauche, dernier vote à droite
+  const { labels, fullNames } = chartLabelsAndNames.value
+  if (!list.length || !labels.length) return null
   const reversed = [...list].reverse()
-  const labels = reversed.map((p, i) => getRipLabel(p.description, i + 1))
-  const fullNames = reversed.map((p) => firstLine(p.description) || '—')
   const data = reversed.map((p) => counts.get(p.proposalId) ?? 0)
   return {
     labels,
@@ -115,6 +126,112 @@ const barChartOptions = computed(() => ({
   },
 }))
 
+/** Répartition % Oui / Non / Abstention par pouvoir de vote (weight) */
+const yesNoAbstainByPowerChartData = computed(() => {
+  const list = proposals.value
+  const breakdown = voteBreakdownByProposalId.value
+  const { labels } = chartLabelsAndNames.value
+  if (!list.length || !labels.length) return null
+  const reversed = [...list].reverse()
+  const forPct = reversed.map((p) => pctPower(p.proposalId, 'for', breakdown))
+  const againstPct = reversed.map((p) => pctPower(p.proposalId, 'against', breakdown))
+  const abstainPct = reversed.map((p) => pctPower(p.proposalId, 'abstain', breakdown))
+  return {
+    labels,
+    datasets: [
+      { label: t('vote.voteFor'), data: forPct, backgroundColor: 'rgba(76, 175, 80, 0.85)', borderColor: 'rgb(76, 175, 80)', borderWidth: 1 },
+      { label: t('vote.voteAgainst'), data: againstPct, backgroundColor: 'rgba(244, 67, 54, 0.85)', borderColor: 'rgb(244, 67, 54)', borderWidth: 1 },
+      { label: t('vote.voteAbstain'), data: abstainPct, backgroundColor: 'rgba(158, 158, 158, 0.85)', borderColor: 'rgb(158, 158, 158)', borderWidth: 1 },
+    ],
+  }
+})
+
+/** Répartition % Oui / Non / Abstention par nombre de wallets (1 wallet = 1 voix) */
+const yesNoAbstainByWalletChartData = computed(() => {
+  const list = proposals.value
+  const breakdown = voteBreakdownByProposalId.value
+  const { labels } = chartLabelsAndNames.value
+  if (!list.length || !labels.length) return null
+  const reversed = [...list].reverse()
+  const forPct = reversed.map((p) => pctWallet(p.proposalId, 'for', breakdown))
+  const againstPct = reversed.map((p) => pctWallet(p.proposalId, 'against', breakdown))
+  const abstainPct = reversed.map((p) => pctWallet(p.proposalId, 'abstain', breakdown))
+  return {
+    labels,
+    datasets: [
+      { label: t('vote.voteFor'), data: forPct, backgroundColor: 'rgba(76, 175, 80, 0.85)', borderColor: 'rgb(76, 175, 80)', borderWidth: 1 },
+      { label: t('vote.voteAgainst'), data: againstPct, backgroundColor: 'rgba(244, 67, 54, 0.85)', borderColor: 'rgb(244, 67, 54)', borderWidth: 1 },
+      { label: t('vote.voteAbstain'), data: abstainPct, backgroundColor: 'rgba(158, 158, 158, 0.85)', borderColor: 'rgb(158, 158, 158)', borderWidth: 1 },
+    ],
+  }
+})
+
+function pctPower(
+  proposalId: string,
+  key: 'for' | 'against' | 'abstain',
+  breakdown: Map<string, VoteBreakdown>
+): number {
+  const b = breakdown.get(proposalId)
+  if (!b) return 0
+  const total = b.byPower.for + b.byPower.against + b.byPower.abstain
+  if (total === 0n) return 0
+  const val = b.byPower[key]
+  return Number((val * 10000n) / total) / 100
+}
+
+function pctWallet(
+  proposalId: string,
+  key: 'for' | 'against' | 'abstain',
+  breakdown: Map<string, VoteBreakdown>
+): number {
+  const b = breakdown.get(proposalId)
+  if (!b) return 0
+  const total = b.byWallet.for + b.byWallet.against + b.byWallet.abstain
+  if (total === 0) return 0
+  return (b.byWallet[key] / total) * 100
+}
+
+function stackedBarChartOptions(titleKey: string) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: '#ffffff' } },
+      title: {
+        display: true,
+        text: titleKey ? t(titleKey) : '',
+        color: '#ffffff',
+        font: { size: 14 },
+      },
+      tooltip: {
+      titleColor: '#ffffff',
+      bodyColor: '#ffffff',
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      callbacks: {
+        label: (ctx: { raw: number; dataset: { label?: string } }) =>
+          `${ctx.dataset?.label ?? ''}: ${Number(ctx.raw).toFixed(1)}%`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      stacked: true,
+      title: { display: true, text: t('vote.chartXLabel'), color: '#ffffff' },
+      grid: { display: false },
+      ticks: { color: '#ffffff', maxRotation: 45 },
+    },
+    y: {
+      stacked: true,
+      min: 0,
+      max: 100,
+      title: { display: true, text: '%', color: '#ffffff' },
+      grid: { color: 'rgba(255, 255, 255, 0.2)' },
+      ticks: { color: '#ffffff', callback: (v: number | string) => `${v}%` },
+    },
+  },
+  }
+}
+
 function shortAddress(addr: string) {
   if (!addr || addr.length < 10) return addr || '—'
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`
@@ -149,6 +266,20 @@ function formatBlockOrTime(value: bigint) {
     <section v-if="barChartData && !error" class="vote-chart-section">
       <div class="vote-chart-container">
         <Bar :data="barChartData" :options="barChartOptions" />
+      </div>
+    </section>
+
+    <section v-if="yesNoAbstainByPowerChartData && !error" class="vote-chart-section">
+      <p class="vote-chart-explainer">{{ t('vote.chartByPowerExplainer') }}</p>
+      <div class="vote-chart-container">
+        <Bar :data="yesNoAbstainByPowerChartData" :options="stackedBarChartOptions('vote.chartByPowerTitle')" />
+      </div>
+    </section>
+
+    <section v-if="yesNoAbstainByWalletChartData && !error" class="vote-chart-section">
+      <p class="vote-chart-explainer">{{ t('vote.chartByWalletExplainer') }}</p>
+      <div class="vote-chart-container">
+        <Bar :data="yesNoAbstainByWalletChartData" :options="stackedBarChartOptions('vote.chartByWalletTitle')" />
       </div>
     </section>
 
@@ -210,6 +341,13 @@ function formatBlockOrTime(value: bigint) {
 }
 .vote-chart-section {
   margin-bottom: 2rem;
+}
+.vote-chart-explainer {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0 0 0.75rem 0;
+  line-height: 1.4;
+  max-width: 60rem;
 }
 .vote-chart-container {
   height: 320px;

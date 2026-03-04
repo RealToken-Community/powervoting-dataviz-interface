@@ -34,6 +34,29 @@ const snapshots = ref<SnapshotInfo[]>([])
 const isLoadingSnapshots = ref(true)
 const isLoading = ref(false)
 const error = ref<string>('')
+const giniBySnapshot = ref<Array<{ date: string; dateFormatted: string; gini: number }>>([])
+const isLoadingGini = ref(false)
+
+function computeGiniFromPowerVoting(powerVotingData: any): number | null {
+  const raw = powerVotingData?.result?.powerVoting || powerVotingData
+  const arr = Array.isArray(raw) ? raw : []
+  const sortedPower = arr
+    .map((p: any) => parseFloat(String(p.powerVoting || 0)))
+    .filter((p: number) => !isNaN(p) && p > 0)
+    .sort((a: number, b: number) => a - b)
+  if (sortedPower.length === 0) return null
+  const n = sortedPower.length
+  const totalPower = sortedPower.reduce((sum: number, p: number) => sum + p, 0)
+  if (totalPower === 0) return 0
+  let gini = 0
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      gini += Math.abs(sortedPower[i] - sortedPower[j])
+    }
+  }
+  gini = gini / (2 * n * n * (totalPower / n))
+  return Math.round(gini * 10000) / 10000
+}
 
 onMounted(async () => {
   isLoadingSnapshots.value = true
@@ -44,6 +67,32 @@ onMounted(async () => {
     error.value = t('home.errorLoadSnapshots')
   } finally {
     isLoadingSnapshots.value = false
+  }
+  if (snapshots.value.length > 0) {
+    isLoadingGini.value = true
+    const list: Array<{ date: string; dateFormatted: string; gini: number }> = []
+    const sorted = [...snapshots.value].sort((a, b) => {
+      const dateA = new Date(a.dateFormatted || a.date.split('-').reverse().join('-'))
+      const dateB = new Date(b.dateFormatted || b.date.split('-').reverse().join('-'))
+      return dateA.getTime() - dateB.getTime()
+    })
+    for (const snapshot of sorted) {
+      try {
+        const { powerVoting } = await loadSnapshot(snapshot)
+        const gini = computeGiniFromPowerVoting(powerVoting)
+        if (gini !== null) {
+          list.push({
+            date: snapshot.date,
+            dateFormatted: formatSnapshotDate(snapshot.date),
+            gini,
+          })
+        }
+      } catch {
+        // skip this snapshot
+      }
+    }
+    giniBySnapshot.value = list
+    isLoadingGini.value = false
   }
 })
 
@@ -188,6 +237,62 @@ const snapshotsChartOptions = computed(() => ({
   },
   interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false },
 }))
+
+const giniChartData = computed(() => {
+  if (giniBySnapshot.value.length === 0) return null
+  return {
+    labels: giniBySnapshot.value.map((d) => d.dateFormatted),
+    datasets: [
+      {
+        label: t('history.giniChartLabel'),
+        data: giniBySnapshot.value.map((d) => d.gini),
+        borderColor: 'rgb(255, 140, 66)',
+        backgroundColor: 'rgba(255, 140, 66, 0.1)',
+        tension: 0.4,
+        borderWidth: 2,
+        fill: true,
+      },
+    ],
+  }
+})
+
+const giniChartOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      position: 'top' as const,
+      labels: { color: 'rgb(255, 255, 255)', usePointStyle: true, padding: 15 },
+    },
+    tooltip: {
+      mode: 'index' as const,
+      intersect: false,
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      titleColor: 'rgb(255, 255, 255)',
+      bodyColor: 'rgb(255, 255, 255)',
+      callbacks: {
+        label: (context: any) => {
+          const v = context.parsed.y as number
+          return `${t('history.giniChartLabel')}: ${v.toFixed(4)}`
+        },
+      },
+    },
+  },
+  scales: {
+    x: {
+      ticks: { color: 'rgb(255, 255, 255)', maxRotation: 45, minRotation: 45 },
+      grid: { color: 'rgba(255, 255, 255, 0.2)' },
+    },
+    y: {
+      min: 0,
+      max: 1,
+      ticks: { color: 'rgb(255, 255, 255)', callback: (value: any) => Number(value).toFixed(2) },
+      grid: { color: 'rgba(255, 255, 255, 0.2)' },
+      title: { display: true, text: t('history.giniChartLabel'), color: 'rgb(255, 140, 66)' },
+    },
+  },
+  interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false },
+}))
 </script>
 
 <template>
@@ -287,6 +392,16 @@ const snapshotsChartOptions = computed(() => ({
       <div class="snapshots-chart-container" v-if="snapshotsChartData">
         <Line :data="snapshotsChartData" :options="snapshotsChartOptions" />
       </div>
+
+      <!-- Évolution de l'indice de Gini -->
+      <div class="gini-section">
+        <h3 class="gini-title">📊 {{ t('history.giniChartTitle') }}</h3>
+        <p class="gini-explainer">{{ t('history.giniExplainer') }}</p>
+        <div v-if="isLoadingGini" class="gini-loading">{{ t('home.loadingSnapshot') }}</div>
+        <div v-else-if="giniChartData" class="snapshots-chart-container gini-chart">
+          <Line :data="giniChartData" :options="giniChartOptions" />
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -363,6 +478,31 @@ const snapshotsChartOptions = computed(() => ({
   border: 1px solid var(--border-color);
   border-radius: 0.75rem;
   height: 400px;
+}
+.gini-section {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border-color);
+}
+.gini-title {
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem 0;
+}
+.gini-explainer {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 1.25rem 0;
+  max-width: 640px;
+}
+.gini-loading {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+.gini-chart {
+  margin-bottom: 0;
 }
 .snapshots-list {
   display: flex;

@@ -34,6 +34,9 @@ export default {
     title: 'Snapshot history',
     subtitle: 'List of available snapshots. Load a snapshot to analyze it.',
     clickToLoad: 'Click on a snapshot to load it and open the <strong>Analysis</strong> page with that snapshot data.',
+    giniChartTitle: 'Gini index over time',
+    giniChartLabel: 'Gini coefficient',
+    giniExplainer: 'The Gini index measures how unevenly voting power is distributed across addresses. Close to 0, power is shared equally; close to 1, it is concentrated among few holders. This chart shows its evolution for each snapshot.',
   },
   upload: {
     title: 'Load data',

@@ -6,6 +6,7 @@ const GOVERNOR_ABI = [
   parseAbiItem(
     'event ProposalCreated(uint256 proposalId, address proposer, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, uint256 voteStart, uint256 voteEnd, string description)'
   ),
+  parseAbiItem('event ProposalCanceled(uint256 proposalId)'),
   parseAbiItem(
     'event VoteCast(address indexed voter, uint256 proposalId, uint8 support, uint256 weight, string reason)'
   ),
@@ -51,6 +52,24 @@ export async function fetchProposalsFromGovernor(): Promise<ProposalSummary[]> {
 
   proposals.sort((a, b) => Number(b.voteEnd - a.voteEnd))
   return proposals
+}
+
+/**
+ * Retourne l'ensemble des proposalId ayant émis ProposalCanceled (votes annulés).
+ */
+export async function fetchCanceledProposalIds(): Promise<Set<string>> {
+  const logs = await publicClient.getContractEvents({
+    address: GOVERNANCE_CONTRACTS.Governor as `0x${string}`,
+    abi: GOVERNOR_ABI,
+    eventName: 'ProposalCanceled',
+    fromBlock: 0n,
+  })
+  const ids = new Set<string>()
+  for (const log of logs) {
+    const args = log.args as { proposalId: bigint }
+    ids.add(String(args.proposalId))
+  }
+  return ids
 }
 
 /**

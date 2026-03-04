@@ -11,7 +11,7 @@ import {
   CategoryScale,
   LinearScale,
 } from 'chart.js'
-import { fetchProposalsFromGovernor, fetchVoterCountByProposal, type ProposalSummary } from '@/utils/governanceClient'
+import { fetchProposalsFromGovernor, fetchVoterCountByProposal, fetchCanceledProposalIds, type ProposalSummary } from '@/utils/governanceClient'
 import { GOVERNANCE_CONTRACTS } from '@/constants/governance'
 
 ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
@@ -26,11 +26,12 @@ onMounted(async () => {
   isLoading.value = true
   error.value = null
   try {
-    const [proposalsList, voterCounts] = await Promise.all([
+    const [proposalsList, voterCounts, canceledIds] = await Promise.all([
       fetchProposalsFromGovernor(),
       fetchVoterCountByProposal(),
+      fetchCanceledProposalIds(),
     ])
-    proposals.value = proposalsList
+    proposals.value = proposalsList.filter((p) => !canceledIds.has(p.proposalId))
     voterCountByProposalId.value = voterCounts
   } catch (err) {
     console.error('Failed to fetch proposals:', err)

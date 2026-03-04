@@ -387,32 +387,18 @@ function formatBlockOrTime(value: bigint) {
   <div class="vote-view">
     <header class="vote-header">
       <h1 class="vote-title">{{ t('vote.title') }}</h1>
-      <p class="vote-subtitle">{{ t('vote.subtitle') }}</p>
+      <p class="vote-subtitle">{{ t('vote.subtitle', { address: GOVERNANCE_CONTRACTS.Governor }) }}</p>
     </header>
 
-    <section v-if="barChartData && !error" class="vote-chart-section">
-      <div class="vote-chart-container">
-        <Bar :data="barChartData" :options="barChartOptions" />
-      </div>
-    </section>
-
-    <section v-if="yesNoAbstainByPowerChartData && !error" class="vote-chart-section">
-      <p class="vote-chart-explainer">{{ t('vote.chartByPowerExplainer') }}</p>
-      <div class="vote-chart-container">
-        <Bar :data="yesNoAbstainByPowerChartData" :options="stackedBarChartOptions('vote.chartByPowerTitle')" />
-      </div>
-    </section>
-
-    <section v-if="yesNoAbstainByWalletChartData && !error" class="vote-chart-section">
-      <p class="vote-chart-explainer">{{ t('vote.chartByWalletExplainer') }}</p>
-      <div class="vote-chart-container">
-        <Bar :data="yesNoAbstainByWalletChartData" :options="stackedBarChartOptions('vote.chartByWalletTitle')" />
-      </div>
-    </section>
-
-    <section v-if="(participationByPowerChartData || participationByWalletChartData) && !error" class="vote-participation-section">
+    <section v-if="(barChartData || participationByPowerChartData || participationByWalletChartData) && !error" class="vote-participation-section">
       <h2 class="vote-participation-title">{{ t('vote.participationSectionTitle') }}</h2>
       <p class="vote-chart-explainer">{{ t('vote.participationSectionIntro') }}</p>
+      <div v-if="barChartData" class="vote-chart-section">
+        <p class="vote-chart-explainer">{{ t('vote.chartVotersPerVoteExplainer') }}</p>
+        <div class="vote-chart-container">
+          <Bar :data="barChartData" :options="barChartOptions" />
+        </div>
+      </div>
       <div v-if="participationByPowerChartData" class="vote-chart-section">
         <p class="vote-chart-explainer">{{ t('vote.participationByPowerExplainer') }}</p>
         <div class="vote-chart-container">
@@ -427,12 +413,20 @@ function formatBlockOrTime(value: bigint) {
       </div>
     </section>
 
-    <section class="contracts-section">
-      <h2 class="section-title">{{ t('vote.contractsTitle') }}</h2>
-      <p class="contract-address">
-        <strong>Governor</strong>
-        <code>{{ GOVERNANCE_CONTRACTS.Governor }}</code>
-      </p>
+    <section v-if="(yesNoAbstainByPowerChartData || yesNoAbstainByWalletChartData) && !error" class="vote-results-section">
+      <h2 class="vote-section-title">{{ t('vote.resultsSectionTitle') }}</h2>
+      <div v-if="yesNoAbstainByPowerChartData" class="vote-chart-section">
+        <p class="vote-chart-explainer">{{ t('vote.chartByPowerExplainer') }}</p>
+        <div class="vote-chart-container">
+          <Bar :data="yesNoAbstainByPowerChartData" :options="stackedBarChartOptions('vote.chartByPowerTitle')" />
+        </div>
+      </div>
+      <div v-if="yesNoAbstainByWalletChartData" class="vote-chart-section">
+        <p class="vote-chart-explainer">{{ t('vote.chartByWalletExplainer') }}</p>
+        <div class="vote-chart-container">
+          <Bar :data="yesNoAbstainByWalletChartData" :options="stackedBarChartOptions('vote.chartByWalletTitle')" />
+        </div>
+      </div>
     </section>
 
     <section class="proposals-section">
@@ -495,6 +489,15 @@ function formatBlockOrTime(value: bigint) {
   margin: 0;
   line-height: 1.5;
 }
+.vote-results-section {
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+}
+.vote-section-title {
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem 0;
+}
 .vote-participation-section {
   margin-top: 2.5rem;
   margin-bottom: 2rem;
@@ -525,28 +528,6 @@ function formatBlockOrTime(value: bigint) {
   font-size: 1.25rem;
   color: var(--text-primary);
   margin: 0 0 1rem 0;
-}
-.contracts-section {
-  margin-bottom: 2.5rem;
-  padding: 1.25rem;
-  background: var(--card-bg);
-  border-radius: 0.75rem;
-  border: 1px solid var(--border-color);
-}
-.contract-address {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-.contract-address code {
-  font-family: ui-monospace, monospace;
-  font-size: 0.85rem;
-  word-break: break-all;
-  color: var(--text-primary);
 }
 .proposals-section {
   margin-top: 2rem;

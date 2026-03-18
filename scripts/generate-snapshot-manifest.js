@@ -17,6 +17,16 @@ function readJson(filePath) {
 function computeBalancesMetrics(balancesArray, allowedTypes) {
   const filtered = balancesArray.filter((b) => allowedTypes.has(String(b.type || '')))
   const totalREG = filtered.reduce((sum, b) => {
+    const source = b?.sourceBalance
+    if (source && typeof source === 'object') {
+      let onchain = 0
+      Object.values(source).forEach((net) => {
+        const v = parseFloat(String(net?.walletBalance ?? 0))
+        if (!isNaN(v)) onchain += v
+      })
+      return sum + onchain
+    }
+
     const reg = parseFloat(String(b.totalBalanceREG || b.totalBalance || 0))
     return sum + (isNaN(reg) ? 0 : reg)
   }, 0)
@@ -66,7 +76,7 @@ function generateManifest() {
         const balances = balancesData.result?.balances || balancesData
         const balancesArray = Array.isArray(balances) ? balances : []
 
-        const balancesMetrics = computeBalancesMetrics(balancesArray, new Set(['wallet']))
+        const balancesMetrics = computeBalancesMetrics(balancesArray, new Set(['wallet', 'liquidityPool']))
         walletCount = balancesMetrics.walletCount
         totalREG = balancesMetrics.totalREG
 

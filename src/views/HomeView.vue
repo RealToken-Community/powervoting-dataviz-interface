@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
@@ -58,6 +58,20 @@ watch(
   }
 )
 
+// Scroll vers l'ancre (#section) une fois l'analyse chargée (contenu asynchrone)
+watch(
+  () => [selectedSnapshot.value, route.hash] as const,
+  async ([snapshot, hash]) => {
+    if (!snapshot || !hash) return
+    await nextTick()
+    setTimeout(() => {
+      const el = document.querySelector(hash)
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 400)
+  },
+  { immediate: true },
+)
+
 const selectSnapshot = async (snapshot: SnapshotInfo, updateUrl = false) => {
   if (selectedSnapshot.value?.date === snapshot.date) return
   isLoadingSnapshot.value = true
@@ -66,6 +80,7 @@ const selectSnapshot = async (snapshot: SnapshotInfo, updateUrl = false) => {
     const { balances, powerVoting } = await loadSnapshot(snapshot)
     dataStore.setBalancesData(balances)
     dataStore.setPowerVotingData(powerVoting)
+    dataStore.setCurrentSnapshotDate(snapshot.date)
     selectedSnapshot.value = snapshot
     if (updateUrl) {
       router.replace(`/${snapshot.date}`)

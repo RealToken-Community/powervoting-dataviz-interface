@@ -14,6 +14,22 @@ export interface PowerVotingData {
   powerVoting: string | number
 }
 
+/** Retourne le solde REG on-chain pour une entrée (adresse), sans ré-attribuer la liquidité des pools. */
+function getOnchainRegBalance(entry: any): number {
+  const source = entry?.sourceBalance
+  if (source && typeof source === 'object') {
+    let sum = 0
+    Object.values(source).forEach((net: any) => {
+      const v = parseFloat(String(net?.walletBalance ?? 0))
+      if (!isNaN(v)) sum += v
+    })
+    return sum
+  }
+
+  const fallback = parseFloat(String(entry?.totalBalanceREG ?? entry?.totalBalance ?? 0))
+  return isNaN(fallback) ? 0 : fallback
+}
+
 export const useDataStore = defineStore('data', () => {
   const rawBalancesData = ref<any>(null)
   const rawPowerVotingData = ref<any>(null)
@@ -26,6 +42,19 @@ export const useDataStore = defineStore('data', () => {
     return Array.isArray(data) ? data : []
   })
 
+  /** Balances filtrées pour l’affichage “REG en wallet” (exclut les pools/contrats). */
+  const walletBalances = computed<BalanceData[]>(() => {
+    return balances.value.filter((b) => String(b.type || '') === 'wallet')
+  })
+
+  /** Balances utilisées pour représenter l’offre totale on-chain (wallets + adresses de pools). */
+  const onchainBalances = computed(() => {
+    return balances.value.filter((b) => {
+      const t = String(b.type || '')
+      return t === 'wallet' || t === 'liquidityPool'
+    })
+  })
+
   const powerVoting = computed<PowerVotingData[]>(() => {
     if (!rawPowerVotingData.value) return []
 
@@ -36,10 +65,10 @@ export const useDataStore = defineStore('data', () => {
 
   // Statistics
   const balanceStats = computed(() => {
-    if (balances.value.length === 0) return null
+    if (onchainBalances.value.length === 0) return null
 
-    const values = balances.value
-      .map((b) => parseFloat(String(b.totalBalanceREG || b.totalBalance || 0)))
+    const values = onchainBalances.value
+      .map((b) => getOnchainRegBalance(b))
       .filter((v) => !isNaN(v))
 
     if (values.length === 0) return null
@@ -101,10 +130,10 @@ export const useDataStore = defineStore('data', () => {
 
   // Distribution data for charts
   const balanceDistribution = computed(() => {
-    if (balances.value.length === 0) return null
+    if (onchainBalances.value.length === 0) return null
 
-    const values = balances.value
-      .map((b) => parseFloat(String(b.totalBalanceREG || b.totalBalance || 0)))
+    const values = onchainBalances.value
+      .map((b) => getOnchainRegBalance(b))
       .filter((v) => !isNaN(v) && v > 0)
 
     if (values.length === 0) return null
@@ -156,12 +185,12 @@ export const useDataStore = defineStore('data', () => {
 
   // Top holders
   const topBalanceHolders = computed(() => {
-    if (balances.value.length === 0) return []
+    if (onchainBalances.value.length === 0) return []
 
-    return [...balances.value]
+    return [...onchainBalances.value]
       .map((b) => ({
         address: b.walletAddress,
-        balance: parseFloat(String(b.totalBalanceREG || b.totalBalance || 0)),
+        balance: getOnchainRegBalance(b),
       }))
       .filter((item) => !isNaN(item.balance))
       .sort((a, b) => b.balance - a.balance)
@@ -286,8 +315,6 @@ export const useDataStore = defineStore('data', () => {
                 regAmount,
               })
             } else {
-              // Pour V2 ou positions sans positionId, traiter comme une position unique
-              // Filtrer seulement celles avec regAmount > 0
               if (regAmount > 0) {
                 v2Positions.push({
                   ...pos,
@@ -300,14 +327,11 @@ export const useDataStore = defineStore('data', () => {
             }
           })
 
-          // Pour les positions V3 groupées, créer une seule position agrégée
+          // Pour les positions V3 groupées : comme develop, somme des regAmount (même calcul que develop pour la courbe)
           positionsByPositionId.forEach((tokens) => {
             if (tokens.length === 0) return
 
-            // Agréger le regAmount de tous les tokens de cette position (même ceux avec 0)
             const totalRegAmount = tokens.reduce((sum, token) => sum + token.regAmount, 0)
-            
-            // Filtrer les positions avec total REG <= 0
             if (totalRegAmount <= 0) return
 
             // Prendre la première entrée comme base (elle contient toutes les infos de la position)
@@ -345,7 +369,6 @@ export const useDataStore = defineStore('data', () => {
             })
           })
 
-          // Ajouter les positions V2
           positions.push(...v2Positions)
         })
         })
@@ -355,6 +378,7 @@ export const useDataStore = defineStore('data', () => {
         const totalLiquidity = positions.reduce((sum, pos) => sum + pos.regAmount, 0)
         const dexCount = new Set(positions.map((pos) => `${pos.network}-${pos.dex}`)).size
 
+        // Total REG du snapshot (pour les graphiques uniquement). La search bar recalcule "REG en wallet" depuis les données brutes.
         const totalWalletREG = parseFloat(String(wallet.totalBalanceREG || wallet.totalBalance || 0)) || 0
 
         return {
@@ -396,7 +420,7 @@ export const useDataStore = defineStore('data', () => {
             // Estimation du multiplicateur basé sur le type de pool
             let estimatedMultiplier = 1.5 // V2 par défaut
             if (pos.poolType === 'v3') {
-              estimatedMultiplier = pos.isActive === true ? 2.5 : 0.1
+              estimatedMultiplier = pos.isActive === true ? 10 : 1 // V3 : boost 1–10 (modèle voté)
             } else if (pos.poolType === 'v2') {
               const dexName = (pos.dex || '').toLowerCase()
               if (dexName.includes('sushiswap')) {
@@ -471,6 +495,13 @@ export const useDataStore = defineStore('data', () => {
     rawPowerVotingData.value = data
   }
 
+  function setCurrentSnapshotDate(date: string | null) {
+    currentSnapshotDate.value = date
+  }
+
+  /** Date du snapshot actuellement chargé (ex: "17-02-2026" ou "Actuel" pour upload). */
+  const currentSnapshotDate = ref<string | null>(null)
+
   const comparisonSnapshot = ref<{
     balances: any
     powerVoting: any
@@ -481,7 +512,7 @@ export const useDataStore = defineStore('data', () => {
     if (!comparisonSnapshot.value) return null
 
     const current = {
-      holders: balances.value.length,
+      holders: walletBalances.value.length,
       poolWallets: addressPoolProfiles.value.length,
       totalPower: powerVoting.value.reduce((sum, p) => sum + parseFloat(String(p.powerVoting || 0)), 0),
     }
@@ -491,6 +522,8 @@ export const useDataStore = defineStore('data', () => {
 
     const compBalancesArray = Array.isArray(compBalances) ? compBalances : []
     const compPowerArray = Array.isArray(compPower) ? compPower : []
+
+    const compWalletBalances = compBalancesArray.filter((b: any) => String(b?.type || '') === 'wallet')
 
     // Calculate pool wallets for comparison (simplified - would need full processing)
     const compPoolWallets = compBalancesArray.filter((b: any) => {
@@ -504,7 +537,7 @@ export const useDataStore = defineStore('data', () => {
     }).length
 
     const comparison = {
-      holders: compBalancesArray.length,
+      holders: compWalletBalances.length,
       poolWallets: compPoolWallets,
       totalPower: compPowerArray.reduce((sum: number, p: any) => sum + parseFloat(String(p.powerVoting || 0)), 0),
     }
@@ -533,6 +566,7 @@ export const useDataStore = defineStore('data', () => {
     rawBalancesData.value = null
     rawPowerVotingData.value = null
     comparisonSnapshot.value = null
+    currentSnapshotDate.value = null
   }
 
   return {
@@ -551,6 +585,8 @@ export const useDataStore = defineStore('data', () => {
     snapshotComparison,
     setBalancesData,
     setPowerVotingData,
+    setCurrentSnapshotDate,
+    currentSnapshotDate,
     setComparisonSnapshot,
     clearComparisonSnapshot,
     clearData,
@@ -591,6 +627,7 @@ interface AddressPoolPosition extends PoolPosition {
 
 interface AddressPoolProfile {
   address: string
+  /** Total REG du snapshot (pour les graphiques) — ne pas utiliser pour l’affichage "REG en wallet" de la search bar */
   walletREG: number
   poolLiquidityREG: number
   positions: AddressPoolPosition[]

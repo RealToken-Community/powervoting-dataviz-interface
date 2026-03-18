@@ -8,6 +8,35 @@ const __dirname = path.dirname(__filename)
 const snapshotDir = path.join(__dirname, '../public/snapshot')
 const manifestPath = path.join(snapshotDir, 'manifest.json')
 
+/** Read and parse a JSON file. */
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+}
+
+/** Sum REG from balances, filtered by allowed entry types. */
+function computeBalancesMetrics(balancesArray, allowedTypes) {
+  const filtered = balancesArray.filter((b) => allowedTypes.has(String(b.type || '')))
+  const totalREG = filtered.reduce((sum, b) => {
+    const source = b?.sourceBalance
+    if (source && typeof source === 'object') {
+      let onchain = 0
+      Object.values(source).forEach((net) => {
+        const v = parseFloat(String(net?.walletBalance ?? 0))
+        if (!isNaN(v)) onchain += v
+      })
+      return sum + onchain
+    }
+
+    const reg = parseFloat(String(b.totalBalanceREG || b.totalBalance || 0))
+    return sum + (isNaN(reg) ? 0 : reg)
+  }, 0)
+
+  return {
+    walletCount: filtered.length,
+    totalREG,
+  }
+}
+
 function generateManifest() {
   const snapshots = []
 
@@ -26,8 +55,8 @@ function generateManifest() {
     const files = fs.readdirSync(datePath)
 
     const balancesFile = files.find((f) => f.startsWith('balancesREG_') && f.endsWith('.json'))
-    const powerFile = files.find(
-      (f) => f.startsWith('powerVotingREG_') && f.endsWith('.json'),
+    const powerFile = files.find((f) =>
+      (f.startsWith('powerVotingREG_') || f.startsWith('powerVotingREG-')) && f.endsWith('.json'),
     )
 
     if (balancesFile && powerFile) {
@@ -43,19 +72,17 @@ function generateManifest() {
       try {
         // Read balances file
         const balancesPath = path.join(datePath, balancesFile)
-        const balancesData = JSON.parse(fs.readFileSync(balancesPath, 'utf8'))
+        const balancesData = readJson(balancesPath)
         const balances = balancesData.result?.balances || balancesData
         const balancesArray = Array.isArray(balances) ? balances : []
 
-        walletCount = balancesArray.length
-        totalREG = balancesArray.reduce((sum, b) => {
-          const reg = parseFloat(String(b.totalBalanceREG || b.totalBalance || 0))
-          return sum + (isNaN(reg) ? 0 : reg)
-        }, 0)
+        const balancesMetrics = computeBalancesMetrics(balancesArray, new Set(['wallet', 'liquidityPool']))
+        walletCount = balancesMetrics.walletCount
+        totalREG = balancesMetrics.totalREG
 
         // Read power voting file
         const powerPath = path.join(datePath, powerFile)
-        const powerData = JSON.parse(fs.readFileSync(powerPath, 'utf8'))
+        const powerData = readJson(powerPath)
         const powerVoting = powerData.result?.powerVoting || powerData
         const powerArray = Array.isArray(powerVoting) ? powerVoting : []
 
@@ -65,6 +92,7 @@ function generateManifest() {
         }, 0)
       } catch (err) {
         console.warn(`⚠️  Could not calculate metrics for ${dateDir}:`, err.message)
+        console.warn(`⚠️  balancesFile=${balancesFile} powerVotingFile=${powerFile}`)
       }
 
       snapshots.push({

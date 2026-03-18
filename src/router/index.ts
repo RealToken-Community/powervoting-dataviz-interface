@@ -1,12 +1,21 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import DocumentationView from '../views/DocumentationView.vue'
 import GenerateView from '../views/GenerateView.vue'
+import SearchView from '../views/SearchView.vue'
+import HistoryView from '../views/HistoryView.vue'
 import UploadView from '../views/UploadView.vue'
+import VoteView from '../views/VoteView.vue'
+import VoteDetailView from '../views/VoteDetailView.vue'
 import AnalysisView from '../views/AnalysisView.vue'
 import HomeView from '../views/HomeView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
+  scrollBehavior(to) {
+    if (to.hash) {
+      return { el: to.hash, behavior: 'smooth' }
+    }
+    return { top: 0 }
+  },
   routes: [
     {
       path: '/',
@@ -14,9 +23,14 @@ const router = createRouter({
       component: HomeView,
     },
     {
-      path: '/documentation',
-      name: 'documentation',
-      component: DocumentationView,
+      path: '/search',
+      name: 'search',
+      component: SearchView,
+    },
+    {
+      path: '/history',
+      name: 'history',
+      component: HistoryView,
     },
     {
       path: '/generate',
@@ -27,6 +41,17 @@ const router = createRouter({
       path: '/upload',
       name: 'upload',
       component: UploadView,
+    },
+    {
+      path: '/vote',
+      name: 'vote',
+      component: VoteView,
+    },
+    {
+      path: '/vote/:proposalId',
+      name: 'voteDetail',
+      component: VoteDetailView,
+      props: true,
     },
     {
       path: '/analysis',

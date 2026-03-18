@@ -1342,6 +1342,7 @@ const useFile = async (file: { name: string; url: string }) => {
     } else if (file.name.includes('powerVoting')) {
       dataStore.setPowerVotingData(data)
     }
+    dataStore.setCurrentSnapshotDate('Actuel')
 
     router.push('/')
   } catch (err) {

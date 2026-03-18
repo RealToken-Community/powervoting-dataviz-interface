@@ -26,6 +26,11 @@ export const useDataStore = defineStore('data', () => {
     return Array.isArray(data) ? data : []
   })
 
+  /** Balances filtrées pour l’affichage “REG en wallet” (exclut les pools/contrats). */
+  const walletBalances = computed<BalanceData[]>(() => {
+    return balances.value.filter((b) => String(b.type || '') === 'wallet')
+  })
+
   const powerVoting = computed<PowerVotingData[]>(() => {
     if (!rawPowerVotingData.value) return []
 
@@ -36,9 +41,9 @@ export const useDataStore = defineStore('data', () => {
 
   // Statistics
   const balanceStats = computed(() => {
-    if (balances.value.length === 0) return null
+    if (walletBalances.value.length === 0) return null
 
-    const values = balances.value
+    const values = walletBalances.value
       .map((b) => parseFloat(String(b.totalBalanceREG || b.totalBalance || 0)))
       .filter((v) => !isNaN(v))
 
@@ -101,9 +106,9 @@ export const useDataStore = defineStore('data', () => {
 
   // Distribution data for charts
   const balanceDistribution = computed(() => {
-    if (balances.value.length === 0) return null
+    if (walletBalances.value.length === 0) return null
 
-    const values = balances.value
+    const values = walletBalances.value
       .map((b) => parseFloat(String(b.totalBalanceREG || b.totalBalance || 0)))
       .filter((v) => !isNaN(v) && v > 0)
 
@@ -156,9 +161,9 @@ export const useDataStore = defineStore('data', () => {
 
   // Top holders
   const topBalanceHolders = computed(() => {
-    if (balances.value.length === 0) return []
+    if (walletBalances.value.length === 0) return []
 
-    return [...balances.value]
+    return [...walletBalances.value]
       .map((b) => ({
         address: b.walletAddress,
         balance: parseFloat(String(b.totalBalanceREG || b.totalBalance || 0)),
@@ -483,7 +488,7 @@ export const useDataStore = defineStore('data', () => {
     if (!comparisonSnapshot.value) return null
 
     const current = {
-      holders: balances.value.length,
+      holders: walletBalances.value.length,
       poolWallets: addressPoolProfiles.value.length,
       totalPower: powerVoting.value.reduce((sum, p) => sum + parseFloat(String(p.powerVoting || 0)), 0),
     }
@@ -493,6 +498,8 @@ export const useDataStore = defineStore('data', () => {
 
     const compBalancesArray = Array.isArray(compBalances) ? compBalances : []
     const compPowerArray = Array.isArray(compPower) ? compPower : []
+
+    const compWalletBalances = compBalancesArray.filter((b: any) => String(b?.type || '') === 'wallet')
 
     // Calculate pool wallets for comparison (simplified - would need full processing)
     const compPoolWallets = compBalancesArray.filter((b: any) => {
@@ -506,7 +513,7 @@ export const useDataStore = defineStore('data', () => {
     }).length
 
     const comparison = {
-      holders: compBalancesArray.length,
+      holders: compWalletBalances.length,
       poolWallets: compPoolWallets,
       totalPower: compPowerArray.reduce((sum: number, p: any) => sum + parseFloat(String(p.powerVoting || 0)), 0),
     }

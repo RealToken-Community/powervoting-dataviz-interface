@@ -6,8 +6,8 @@
       "balancesFile": "balancesREG_2026-03-18T10h04mn32_utc+01.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2026_03_18T10h05mn41.json",
       "metrics": {
-        "walletCount": 6737,
-        "totalREG": 502270478.64,
+        "walletCount": 6725,
+        "totalREG": 501825472.38,
         "totalPowerVoting": 2592537.91
       }
     },
@@ -17,8 +17,8 @@
       "balancesFile": "balancesREG_2026-03-01T15h11mn07_utc+01.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2026_03_01T15h11mn36.json",
       "metrics": {
-        "walletCount": 6738,
-        "totalREG": 502292689.87,
+        "walletCount": 6726,
+        "totalREG": 501828225.61,
         "totalPowerVoting": 2568565.4
       }
     },
@@ -28,8 +28,8 @@
       "balancesFile": "balancesREG_2026-02-18T10h15mn58_utc+00.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2026_02_17T22h16mn34.json",
       "metrics": {
-        "walletCount": 6721,
-        "totalREG": 502292248.13,
+        "walletCount": 6709,
+        "totalREG": 501824126.45,
         "totalPowerVoting": 3466777.74
       }
     },
@@ -39,8 +39,8 @@
       "balancesFile": "balancesREG_2026-01-24T19h25mn03_utc+01.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2026_01_26T23h10mn40.json",
       "metrics": {
-        "walletCount": 6883,
-        "totalREG": 502188514.65,
+        "walletCount": 6871,
+        "totalREG": 501734201.78,
         "totalPowerVoting": 3341092.1
       }
     },
@@ -50,8 +50,8 @@
       "balancesFile": "balancesREG_2025-11-17T17h21mn00_utc+01.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2025_11_17T17h25mn12.json",
       "metrics": {
-        "walletCount": 6926,
-        "totalREG": 496864955.11,
+        "walletCount": 6914,
+        "totalREG": 496421369.93,
         "totalPowerVoting": 3253215.28
       }
     },
@@ -61,8 +61,8 @@
       "balancesFile": "balancesREG_2025-08-14T09h29mn41_utc+02.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2025_08_14T10h16mn16.json",
       "metrics": {
-        "walletCount": 7036,
-        "totalREG": 501996536.79,
+        "walletCount": 7024,
+        "totalREG": 501558388.3,
         "totalPowerVoting": 3093845.99
       }
     },
@@ -72,8 +72,8 @@
       "balancesFile": "balancesREG_2025-06-17T10h50mn25_utc+02.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2025_06_17T10h51mn35.json",
       "metrics": {
-        "walletCount": 6996,
-        "totalREG": 501656368.57,
+        "walletCount": 6984,
+        "totalREG": 501265769.43,
         "totalPowerVoting": 2642079.74
       }
     },
@@ -83,8 +83,8 @@
       "balancesFile": "balancesREG_2025-05-04T09h52mn57_utc+02.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2025_05_04T09h53mn26.json",
       "metrics": {
-        "walletCount": 6882,
-        "totalREG": 501464391.13,
+        "walletCount": 6870,
+        "totalREG": 501124629.44,
         "totalPowerVoting": 2315495.47
       }
     },
@@ -94,8 +94,8 @@
       "balancesFile": "balancesREG_2025-04-12T14h58mn04_utc+02.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2025_04_12T14h59mn01.json",
       "metrics": {
-        "walletCount": 6950,
-        "totalREG": 501168357.12,
+        "walletCount": 6938,
+        "totalREG": 500864955.41,
         "totalPowerVoting": 2114971.42
       }
     },
@@ -105,8 +105,8 @@
       "balancesFile": "balancesREG_2025-03-23T11h13mn29_utc+01.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2025_03_23T11h14mn14.json",
       "metrics": {
-        "walletCount": 6795,
-        "totalREG": 500860637.6,
+        "walletCount": 6784,
+        "totalREG": 500602044.59,
         "totalPowerVoting": 1191403.11
       }
     },
@@ -116,8 +116,8 @@
       "balancesFile": "balancesREG_2025-03-15T14h42mn43_utc+01.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2025_03_15T14h43mn31.json",
       "metrics": {
-        "walletCount": 6704,
-        "totalREG": 500419806.9,
+        "walletCount": 6693,
+        "totalREG": 500202848.11,
         "totalPowerVoting": 803351.66
       }
     },
@@ -127,8 +127,8 @@
       "balancesFile": "balancesREG_2025-02-26T09h04mn55_utc+01.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2025_02_26T09h06mn09.json",
       "metrics": {
-        "walletCount": 6768,
-        "totalREG": 500320877.13,
+        "walletCount": 6757,
+        "totalREG": 500106499.17,
         "totalPowerVoting": 803317.98
       }
     },
@@ -138,8 +138,8 @@
       "balancesFile": "balancesREG_2025-02-05T14h21mn49_utc+01.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2025_02_05T14h22mn42.json",
       "metrics": {
-        "walletCount": 6819,
-        "totalREG": 500328818.18,
+        "walletCount": 6808,
+        "totalREG": 500122394.54,
         "totalPowerVoting": 813081.92
       }
     },
@@ -149,8 +149,8 @@
       "balancesFile": "balancesREG_2024-12-27T11h51mn57_utc+01.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2024_12_27T11h53mn47.json",
       "metrics": {
-        "walletCount": 6119,
-        "totalREG": 69494919.55,
+        "walletCount": 6108,
+        "totalREG": 69296639.38,
         "totalPowerVoting": 788255.99
       }
     },
@@ -160,8 +160,8 @@
       "balancesFile": "balancesREG_2024-11-14T00h04mn14_utc+01.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2024_11_14T00h04mn33.json",
       "metrics": {
-        "walletCount": 6224,
-        "totalREG": 69294497.48,
+        "walletCount": 6213,
+        "totalREG": 69288356.48,
         "totalPowerVoting": 777620.8
       }
     },
@@ -171,8 +171,8 @@
       "balancesFile": "balancesREG_29-10-2024T17h58mn08_utc+01.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_29_10_2024T17h59mn16.json",
       "metrics": {
-        "walletCount": 6283,
-        "totalREG": 69115562.57,
+        "walletCount": 6272,
+        "totalREG": 69104000.89,
         "totalPowerVoting": 794321.78
       }
     },
@@ -182,8 +182,8 @@
       "balancesFile": "balancesREG_2025-04-26T15h41mn35_utc+02.json",
       "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2025_04_26T15h43mn12.json",
       "metrics": {
-        "walletCount": 6909,
-        "totalREG": 501408902.66,
+        "walletCount": 6897,
+        "totalREG": 501079721.76,
         "totalPowerVoting": 2211958.91
       }
     }

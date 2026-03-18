@@ -286,8 +286,6 @@ export const useDataStore = defineStore('data', () => {
                 regAmount,
               })
             } else {
-              // Pour V2 ou positions sans positionId, traiter comme une position unique
-              // Filtrer seulement celles avec regAmount > 0
               if (regAmount > 0) {
                 v2Positions.push({
                   ...pos,
@@ -300,14 +298,11 @@ export const useDataStore = defineStore('data', () => {
             }
           })
 
-          // Pour les positions V3 groupées, créer une seule position agrégée
+          // Pour les positions V3 groupées : comme develop, somme des regAmount (même calcul que develop pour la courbe)
           positionsByPositionId.forEach((tokens) => {
             if (tokens.length === 0) return
 
-            // Agréger le regAmount de tous les tokens de cette position (même ceux avec 0)
             const totalRegAmount = tokens.reduce((sum, token) => sum + token.regAmount, 0)
-            
-            // Filtrer les positions avec total REG <= 0
             if (totalRegAmount <= 0) return
 
             // Prendre la première entrée comme base (elle contient toutes les infos de la position)
@@ -345,7 +340,6 @@ export const useDataStore = defineStore('data', () => {
             })
           })
 
-          // Ajouter les positions V2
           positions.push(...v2Positions)
         })
         })
@@ -355,6 +349,7 @@ export const useDataStore = defineStore('data', () => {
         const totalLiquidity = positions.reduce((sum, pos) => sum + pos.regAmount, 0)
         const dexCount = new Set(positions.map((pos) => `${pos.network}-${pos.dex}`)).size
 
+        // Total REG du snapshot (pour les graphiques uniquement). La search bar recalcule "REG en wallet" depuis les données brutes.
         const totalWalletREG = parseFloat(String(wallet.totalBalanceREG || wallet.totalBalance || 0)) || 0
 
         return {
@@ -396,7 +391,7 @@ export const useDataStore = defineStore('data', () => {
             // Estimation du multiplicateur basé sur le type de pool
             let estimatedMultiplier = 1.5 // V2 par défaut
             if (pos.poolType === 'v3') {
-              estimatedMultiplier = pos.isActive === true ? 2.5 : 0.1
+              estimatedMultiplier = pos.isActive === true ? 10 : 1 // V3 : boost 1–10 (modèle voté)
             } else if (pos.poolType === 'v2') {
               const dexName = (pos.dex || '').toLowerCase()
               if (dexName.includes('sushiswap')) {
@@ -601,6 +596,7 @@ interface AddressPoolPosition extends PoolPosition {
 
 interface AddressPoolProfile {
   address: string
+  /** Total REG du snapshot (pour les graphiques) — ne pas utiliser pour l’affichage "REG en wallet" de la search bar */
   walletREG: number
   poolLiquidityREG: number
   positions: AddressPoolPosition[]

@@ -147,6 +147,8 @@ const loadSnapshotVersionNote = async () => {
     }
 
     const markdown = await response.text()
+    // En dev (Vite), un fichier absent peut retourner index.html (fallback SPA).
+    if (markdown.trimStart().startsWith('<!DOCTYPE html>')) return
     versionNoteContent.value = markdown.trim()
   } catch (err) {
     console.error(`Failed to load version note for snapshot ${snapshotDate}:`, err)
@@ -173,7 +175,10 @@ const loadSnapshotOptionsModifiers = async () => {
       throw new Error(`HTTP ${response.status}`)
     }
 
-    optionsModifiersContent.value = (await response.text()).trim()
+    const typescriptCode = await response.text()
+    // En dev (Vite), un fichier absent peut retourner index.html (fallback SPA).
+    if (typescriptCode.trimStart().startsWith('<!DOCTYPE html>')) return
+    optionsModifiersContent.value = typescriptCode.trim()
   } catch (err) {
     console.error(`Failed to load optionsModifiers.ts for snapshot ${snapshotDate}:`, err)
     optionsModifiersError.value = `Impossible de charger optionsModifiers.ts pour ${snapshotDate}.`

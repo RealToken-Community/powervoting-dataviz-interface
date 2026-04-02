@@ -44,6 +44,12 @@ const expandedAddressResults = ref<Record<string, boolean>>({})
 const availableSnapshots = ref<SnapshotInfo[]>([])
 const selectedComparisonSnapshot = ref<string | null>(null)
 const isLoadingComparison = ref(false)
+const versionNoteContent = ref<string>('')
+const versionNoteError = ref<string>('')
+const isLoadingVersionNote = ref(false)
+const optionsModifiersContent = ref<string>('')
+const optionsModifiersError = ref<string>('')
+const isLoadingOptionsModifiers = ref(false)
 
 // Address search functionality
 const searchAddress = ref<string>('0xc6a82e72156a11a2e1634633af5e4517b451f0d9')
@@ -112,6 +118,8 @@ onMounted(async () => {
     console.log('Available snapshots loaded:', availableSnapshots.value.length)
     // Load snapshot statistics
     await loadSnapshotStats()
+    await loadSnapshotVersionNote()
+    await loadSnapshotOptionsModifiers()
     // Lancer automatiquement la recherche avec l'adresse par défaut
     if (searchAddress.value.trim()) {
       await searchAddressAcrossSnapshots()
@@ -120,6 +128,67 @@ onMounted(async () => {
     console.error('Failed to load snapshots:', err)
   }
 })
+
+/** Charge la note de version Markdown du snapshot courant. */
+const loadSnapshotVersionNote = async () => {
+  const snapshotDate = dataStore.currentSnapshotDate
+
+  versionNoteContent.value = ''
+  versionNoteError.value = ''
+
+  if (!snapshotDate || snapshotDate === 'Actuel') return
+
+  isLoadingVersionNote.value = true
+  try {
+    const response = await fetch(`/snapshot/${snapshotDate}/version_note.md`, { cache: 'no-store' })
+    if (response.status === 404) return
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    const markdown = await response.text()
+    versionNoteContent.value = markdown.trim()
+  } catch (err) {
+    console.error(`Failed to load version note for snapshot ${snapshotDate}:`, err)
+    versionNoteError.value = `Impossible de charger version_note.md pour ${snapshotDate}.`
+  } finally {
+    isLoadingVersionNote.value = false
+  }
+}
+
+/** Charge le fichier optionsModifiers.ts du snapshot courant. */
+const loadSnapshotOptionsModifiers = async () => {
+  const snapshotDate = dataStore.currentSnapshotDate
+
+  optionsModifiersContent.value = ''
+  optionsModifiersError.value = ''
+
+  if (!snapshotDate || snapshotDate === 'Actuel') return
+
+  isLoadingOptionsModifiers.value = true
+  try {
+    const response = await fetch(`/snapshot/${snapshotDate}/optionsModifiers.ts`, { cache: 'no-store' })
+    if (response.status === 404) return
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    optionsModifiersContent.value = (await response.text()).trim()
+  } catch (err) {
+    console.error(`Failed to load optionsModifiers.ts for snapshot ${snapshotDate}:`, err)
+    optionsModifiersError.value = `Impossible de charger optionsModifiers.ts pour ${snapshotDate}.`
+  } finally {
+    isLoadingOptionsModifiers.value = false
+  }
+}
+
+watch(
+  () => dataStore.currentSnapshotDate,
+  async () => {
+    await loadSnapshotVersionNote()
+    await loadSnapshotOptionsModifiers()
+  },
+)
 
 const copiedAnchorId = ref<string | null>(null)
 const copySectionLink = async (ev: MouseEvent, anchorId: string) => {
@@ -3368,6 +3437,34 @@ const powerBreakdownChartOptions = {
         </button>
       </div>
     </div>
+
+    <section
+      v-if="(dataStore.currentSnapshotDate && dataStore.currentSnapshotDate !== 'Actuel') && (isLoadingVersionNote || versionNoteContent || versionNoteError)"
+      class="version-note-section"
+      id="version-note"
+    >
+      <div class="header-title-row header-title-row-h3">
+        <h3>Version</h3>
+      </div>
+      <p class="version-note-subtitle">Snapshot : {{ dataStore.currentSnapshotDate }}</p>
+      <p v-if="isLoadingVersionNote" class="version-note-loading">Chargement de la note de version...</p>
+      <pre v-else-if="versionNoteContent" class="version-note-content">{{ versionNoteContent }}</pre>
+      <p v-else-if="versionNoteError" class="version-note-error">{{ versionNoteError }}</p>
+    </section>
+
+    <section
+      v-if="(dataStore.currentSnapshotDate && dataStore.currentSnapshotDate !== 'Actuel') && (isLoadingOptionsModifiers || optionsModifiersContent || optionsModifiersError)"
+      class="version-note-section"
+      id="code-parametre"
+    >
+      <details class="collapsible-block">
+        <summary class="collapsible-title">Code parametre</summary>
+        <p class="version-note-subtitle">Fichier : optionsModifiers.ts</p>
+        <p v-if="isLoadingOptionsModifiers" class="version-note-loading">Chargement du code parametre...</p>
+        <pre v-else-if="optionsModifiersContent" class="code-parameters-content"><code>{{ optionsModifiersContent }}</code></pre>
+        <p v-else-if="optionsModifiersError" class="version-note-error">{{ optionsModifiersError }}</p>
+      </details>
+    </section>
     </template>
   </div>
 </template>
@@ -3399,6 +3496,59 @@ const powerBreakdownChartOptions = {
 .analysis-header p {
   color: var(--text-secondary);
   font-size: 1.125rem;
+}
+
+.version-note-section {
+  margin-top: 2rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border-color);
+  border-radius: 1rem;
+  background: var(--card-bg);
+}
+
+.version-note-subtitle {
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+}
+
+.version-note-loading {
+  color: var(--text-secondary);
+}
+
+.version-note-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.version-note-error {
+  margin: 0;
+  color: #ef4444;
+}
+
+.collapsible-block {
+  width: 100%;
+}
+
+.collapsible-title {
+  cursor: pointer;
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.code-parameters-content {
+  margin: 0;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  background: #000;
+  color: #f8fafc;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  overflow-x: auto;
 }
 
 .stats-grid {

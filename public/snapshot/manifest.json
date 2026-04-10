@@ -1,6 +1,17 @@
 {
   "snapshots": [
     {
+      "date": "10-04-2026",
+      "dateFormatted": "2026-04-10",
+      "balancesFile": "balancesREG_2026-04-10T12h04mn59_utc+02.json",
+      "powerVotingFile": "powerVotingREG_balancesREGModel_linearModel_2026_04_10T12h07mn09.json",
+      "metrics": {
+        "walletCount": 6730,
+        "totalREG": 501709576.71,
+        "totalPowerVoting": 2593112.59
+      }
+    },
+    {
       "date": "01-04-2026",
       "dateFormatted": "2026-04-01",
       "balancesFile": "balancesREG_2026-04-01T11h41mn00_utc+02.json",

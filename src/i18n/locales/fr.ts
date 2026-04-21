@@ -101,6 +101,13 @@ export default {
     participationByWalletExplainer: 'Part des wallets ayant voté par rapport au nombre total de détenteurs REG au moment du vote (snapshot le plus proche).',
     participated: 'Participé',
     notParticipated: 'Non participé',
+    topVotersTitle: 'Top 20 votants (par poids)',
+    topVotersExplainer: 'Les 20 wallets avec le poids de vote le plus élevé pour cette proposition.',
+    voterAddress: 'Adresse',
+    voterChoice: 'Vote',
+    voterPctOfCast: '% du poids exprimé',
+    voterPctOfSupply: '% de la supply totale',
+    noVoters: 'Aucun votant trouvé pour cette proposition.',
   },
   upload: {
     title: 'Chargement des données',

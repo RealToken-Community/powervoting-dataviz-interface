@@ -101,6 +101,13 @@ export default {
     participationByWalletExplainer: 'Share of wallets that voted vs total REG holders at vote time (closest snapshot).',
     participated: 'Participated',
     notParticipated: 'Did not participate',
+    topVotersTitle: 'Top 20 voters (by weight)',
+    topVotersExplainer: 'The 20 wallets with the highest voting weight for this proposal.',
+    voterAddress: 'Address',
+    voterChoice: 'Vote',
+    voterPctOfCast: '% of cast weight',
+    voterPctOfSupply: '% of total supply',
+    noVoters: 'No voters found for this proposal.',
   },
   upload: {
     title: 'Load data',

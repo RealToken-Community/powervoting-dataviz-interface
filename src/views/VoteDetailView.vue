@@ -14,9 +14,11 @@ import {
   fetchProposalsFromGovernor,
   fetchVoteBreakdownByProposal,
   fetchCanceledProposalIds,
+  fetchProposalVoteCasts,
   getPastTotalSupply,
   fetchVoteStartTimestamps,
   type ProposalSummary,
+  type ProposalVoteCast,
   type VoteBreakdown,
 } from '@/utils/governanceClient'
 import { loadSnapshotManifest, type SnapshotInfo } from '@/utils/snapshotLoader'
@@ -75,6 +77,7 @@ const participationData = ref<{
   totalSupply: bigint
   walletCount: number
 } | null>(null)
+const proposalVoteCasts = ref<ProposalVoteCast[]>([])
 const isLoading = ref(true)
 const notFound = ref(false)
 const error = ref<string | null>(null)
@@ -137,6 +140,18 @@ function formatTotalSupply(value: bigint | null): string {
   return formatPower(value)
 }
 
+/** Formate un pourcentage avec 2 décimales. */
+function formatPct(value: number): string {
+  return `${value.toFixed(2)}%`
+}
+
+/** Retourne le libellé de support (Pour/Contre/Abstention). */
+function supportLabel(support: 'for' | 'against' | 'abstain'): string {
+  if (support === 'for') return t('vote.voteFor')
+  if (support === 'against') return t('vote.voteAgainst')
+  return t('vote.voteAbstain')
+}
+
 onMounted(async () => {
   const id = proposalId.value
   if (!id) {
@@ -177,8 +192,12 @@ onMounted(async () => {
 
   if (proposal.value && breakdown.value) {
     try {
-      const data = await loadParticipationData(proposal.value, breakdown.value)
+      const [data, voteCasts] = await Promise.all([
+        loadParticipationData(proposal.value, breakdown.value),
+        fetchProposalVoteCasts(proposal.value.proposalId),
+      ])
       participationData.value = data
+      proposalVoteCasts.value = voteCasts
     } catch (e) {
       console.warn('Participation data failed', e)
     }
@@ -332,6 +351,19 @@ const participationDoughnutOptions = computed(() => ({
   },
 }))
 
+const top20Voters = computed(() => {
+  const totalCast = totalPower.value
+  const totalSupply = participationData.value?.totalSupply ?? 0n
+  return [...proposalVoteCasts.value]
+    .sort((a, b) => (a.weight === b.weight ? 0 : a.weight > b.weight ? -1 : 1))
+    .slice(0, 20)
+    .map((v) => {
+      const pctOfCast = totalCast > 0n ? Number((v.weight * 10000n) / totalCast) / 100 : 0
+      const pctOfSupply = totalSupply > 0n ? Number((v.weight * 10000n) / totalSupply) / 100 : 0
+      return { ...v, pctOfCast, pctOfSupply }
+    })
+})
+
 function goBack() {
   router.push({ name: 'vote' })
 }
@@ -444,6 +476,34 @@ function goBack() {
               {{ participationData.walletPct.toFixed(1) }} % {{ t('voteDetail.participated') }}
             </p>
           </div>
+        </div>
+      </section>
+
+      <section class="vote-detail-voters">
+        <h2 class="vote-detail-section-title">{{ t('voteDetail.topVotersTitle') }}</h2>
+        <p class="vote-detail-chart-explainer">{{ t('voteDetail.topVotersExplainer') }}</p>
+        <div class="vote-voters-table-wrap">
+          <table class="vote-voters-table">
+            <thead>
+              <tr>
+                <th>{{ t('voteDetail.voterAddress') }}</th>
+                <th>{{ t('voteDetail.voterChoice') }}</th>
+                <th>{{ t('voteDetail.voterPctOfCast') }}</th>
+                <th>{{ t('voteDetail.voterPctOfSupply') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="v in top20Voters" :key="`${v.voter}-${v.blockNumber}-${v.logIndex}`">
+                <td class="vote-voters-address" :title="v.voter">{{ shortAddress(v.voter) }}</td>
+                <td>{{ supportLabel(v.support) }}</td>
+                <td>{{ formatPct(v.pctOfCast) }}</td>
+                <td>{{ formatPct(v.pctOfSupply) }}</td>
+              </tr>
+              <tr v-if="top20Voters.length === 0">
+                <td colspan="4">{{ t('voteDetail.noVoters') }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -580,6 +640,35 @@ function goBack() {
 }
 .vote-detail-participation-doughnut {
   height: 220px;
+}
+.vote-detail-voters {
+  margin-bottom: 2rem;
+}
+.vote-voters-table-wrap {
+  overflow-x: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+}
+.vote-voters-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 680px;
+}
+.vote-voters-table th,
+.vote-voters-table td {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+.vote-voters-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.vote-voters-address {
+  font-family: ui-monospace, monospace;
 }
 .vote-detail-description { margin-top: 2rem; }
 .vote-detail-description-text {

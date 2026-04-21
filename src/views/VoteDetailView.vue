@@ -2,26 +2,32 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Doughnut } from 'vue-chartjs'
+import { Doughnut, Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
   Title,
   Tooltip,
   Legend,
   ArcElement,
+  LineElement,
+  PointElement,
+  CategoryScale,
+  LinearScale,
 } from 'chart.js'
 import {
   fetchProposalsFromGovernor,
   fetchVoteBreakdownByProposal,
   fetchCanceledProposalIds,
+  fetchProposalVoteCasts,
   getPastTotalSupply,
   fetchVoteStartTimestamps,
   type ProposalSummary,
+  type ProposalVoteCast,
   type VoteBreakdown,
 } from '@/utils/governanceClient'
 import { loadSnapshotManifest, type SnapshotInfo } from '@/utils/snapshotLoader'
 
-ChartJS.register(Title, Tooltip, Legend, ArcElement)
+ChartJS.register(Title, Tooltip, Legend, ArcElement, LineElement, PointElement, CategoryScale, LinearScale)
 
 function findClosestWalletCount(snapshots: SnapshotInfo[], voteTimestampSeconds: number): number | null {
   if (!snapshots.length || voteTimestampSeconds <= 0) return null
@@ -75,6 +81,7 @@ const participationData = ref<{
   totalSupply: bigint
   walletCount: number
 } | null>(null)
+const proposalVoteCasts = ref<ProposalVoteCast[]>([])
 const isLoading = ref(true)
 const notFound = ref(false)
 const error = ref<string | null>(null)
@@ -100,15 +107,53 @@ function shortAddress(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`
 }
 
-/** Affiche le pouvoir de vote de façon compacte pour éviter le débordement (ex. 345.77 × 10²⁴). */
+/** Formate un bigint en nombre lisible avec séparateurs de milliers. */
+function formatBigIntWithGrouping(value: bigint): string {
+  const negative = value < 0n
+  const digits = (negative ? -value : value).toString()
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+  return negative ? `-${grouped}` : grouped
+}
+
+/** Formate une valeur compacte avec suffixes k, M, MM. */
+function formatCompactNumber(value: number): string {
+  const abs = Math.abs(value)
+  if (abs >= 1e9) return `${(value / 1e9).toFixed(2).replace(/\.?0+$/, '')} MM`
+  if (abs >= 1e6) return `${(value / 1e6).toFixed(2).replace(/\.?0+$/, '')} M`
+  if (abs >= 1e3) return `${(value / 1e3).toFixed(2).replace(/\.?0+$/, '')} k`
+  return value.toFixed(2).replace(/\.?0+$/, '')
+}
+
+/** Formate le pouvoir de vote en unité token (base 1e18). */
 function formatPower(value: bigint): string {
-  const n = Number(value)
-  if (n >= 1e27) return (n / 1e27).toFixed(2) + ' × 10²⁷'
-  if (n >= 1e24) return (n / 1e24).toFixed(2) + ' × 10²⁴'
-  if (n >= 1e21) return (n / 1e21).toFixed(2) + ' × 10²¹'
-  if (n >= 1e18) return (n / 1e18).toFixed(2) + ' × 10¹⁸'
-  if (n >= 1e15) return (n / 1e15).toFixed(2) + ' × 10¹⁵'
-  return n.toLocaleString('fr-FR', { maximumFractionDigits: 0 })
+  const decimals = 18n
+  const base = 10n ** decimals
+  const integerPart = value / base
+  const fractionalRaw = value % base
+  const fractionalStr = fractionalRaw.toString().padStart(Number(decimals), '0')
+  const shortFraction = fractionalStr.slice(0, 2)
+  const asNumber = Number(`${integerPart.toString()}.${shortFraction}`)
+
+  if (Number.isFinite(asNumber)) return formatCompactNumber(asNumber)
+  return formatBigIntWithGrouping(integerPart)
+}
+
+/** Retourne un libellé court quand la supply totale n'est pas disponible. */
+function formatTotalSupply(value: bigint | null): string {
+  if (value == null || value <= 0n) return '—'
+  return formatPower(value)
+}
+
+/** Formate un pourcentage avec 2 décimales. */
+function formatPct(value: number): string {
+  return `${value.toFixed(2)}%`
+}
+
+/** Retourne le libellé de support (Pour/Contre/Abstention). */
+function supportLabel(support: 'for' | 'against' | 'abstain'): string {
+  if (support === 'for') return t('vote.voteFor')
+  if (support === 'against') return t('vote.voteAgainst')
+  return t('vote.voteAbstain')
 }
 
 onMounted(async () => {
@@ -151,8 +196,12 @@ onMounted(async () => {
 
   if (proposal.value && breakdown.value) {
     try {
-      const data = await loadParticipationData(proposal.value, breakdown.value)
+      const [data, voteCasts] = await Promise.all([
+        loadParticipationData(proposal.value, breakdown.value),
+        fetchProposalVoteCasts(proposal.value.proposalId),
+      ])
       participationData.value = data
+      proposalVoteCasts.value = voteCasts
     } catch (e) {
       console.warn('Participation data failed', e)
     }
@@ -306,6 +355,80 @@ const participationDoughnutOptions = computed(() => ({
   },
 }))
 
+const top20Voters = computed(() => {
+  const totalCast = totalPower.value
+  const totalSupply = participationData.value?.totalSupply ?? 0n
+  return [...proposalVoteCasts.value]
+    .sort((a, b) => (a.weight === b.weight ? 0 : a.weight > b.weight ? -1 : 1))
+    .slice(0, 20)
+    .map((v) => {
+      const pctOfCast = totalCast > 0n ? Number((v.weight * 10000n) / totalCast) / 100 : 0
+      const pctOfSupply = totalSupply > 0n ? Number((v.weight * 10000n) / totalSupply) / 100 : 0
+      return { ...v, pctOfCast, pctOfSupply }
+    })
+})
+
+const topVotersComparisonChartData = computed(() => {
+  if (top20Voters.value.length === 0) return null
+  return {
+    labels: top20Voters.value.map((v) => shortAddress(v.voter)),
+    datasets: [
+      {
+        label: t('voteDetail.voterPctOfCast'),
+        data: top20Voters.value.map((v) => v.pctOfCast),
+        borderColor: 'rgb(255, 140, 66)',
+        backgroundColor: 'rgba(255, 140, 66, 0.25)',
+        borderWidth: 2,
+        tension: 0.25,
+        pointRadius: 3,
+      },
+      {
+        label: t('voteDetail.voterPctOfSupply'),
+        data: top20Voters.value.map((v) => v.pctOfSupply),
+        borderColor: 'rgb(100, 181, 246)',
+        backgroundColor: 'rgba(100, 181, 246, 0.25)',
+        borderWidth: 2,
+        tension: 0.25,
+        pointRadius: 3,
+      },
+    ],
+  }
+})
+
+const topVotersComparisonChartOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      position: 'bottom' as const,
+      labels: { color: '#ffffff', padding: 14 },
+    },
+    tooltip: {
+      titleColor: '#ffffff',
+      bodyColor: '#ffffff',
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      callbacks: {
+        label: (ctx: { dataset: { label?: string }; raw: number }) =>
+          `${ctx.dataset?.label ?? ''}: ${Number(ctx.raw).toFixed(2)}%`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      ticks: { color: '#ffffff' },
+      grid: { color: 'rgba(255, 255, 255, 0.1)' },
+    },
+    y: {
+      ticks: {
+        color: '#ffffff',
+        callback: (v: number | string) => `${v}%`,
+      },
+      grid: { color: 'rgba(255, 255, 255, 0.15)' },
+      beginAtZero: true,
+    },
+  },
+}))
+
 function goBack() {
   router.push({ name: 'vote' })
 }
@@ -352,6 +475,10 @@ function goBack() {
           <div class="vote-detail-card">
             <span class="vote-detail-card-value">{{ formatPower(totalPower) }}</span>
             <span class="vote-detail-card-label">{{ t('voteDetail.totalPowerCast') }}</span>
+          </div>
+          <div class="vote-detail-card">
+            <span class="vote-detail-card-value">{{ formatTotalSupply(participationData?.totalSupply ?? null) }}</span>
+            <span class="vote-detail-card-label">{{ t('voteDetail.totalPowerSupplyAtVote') }}</span>
           </div>
           <div class="vote-detail-card" v-if="breakdown">
             <span class="vote-detail-card-value">{{ breakdown.byWallet.for }} ({{ walletPct.for.toFixed(1) }}%)</span>
@@ -414,6 +541,41 @@ function goBack() {
               {{ participationData.walletPct.toFixed(1) }} % {{ t('voteDetail.participated') }}
             </p>
           </div>
+        </div>
+      </section>
+
+      <section class="vote-detail-voters">
+        <h2 class="vote-detail-section-title">{{ t('voteDetail.topVotersTitle') }}</h2>
+        <p class="vote-detail-chart-explainer">{{ t('voteDetail.topVotersExplainer') }}</p>
+        <div class="vote-voters-comparison" v-if="topVotersComparisonChartData">
+          <h3 class="vote-detail-subtitle">{{ t('voteDetail.topVotersChartTitle') }}</h3>
+          <p class="vote-detail-chart-explainer">{{ t('voteDetail.topVotersChartExplainer') }}</p>
+          <div class="vote-voters-chart-wrap">
+            <Line :data="topVotersComparisonChartData" :options="topVotersComparisonChartOptions" />
+          </div>
+        </div>
+        <div class="vote-voters-table-wrap">
+          <table class="vote-voters-table">
+            <thead>
+              <tr>
+                <th>{{ t('voteDetail.voterAddress') }}</th>
+                <th>{{ t('voteDetail.voterChoice') }}</th>
+                <th>{{ t('voteDetail.voterPctOfCast') }}</th>
+                <th>{{ t('voteDetail.voterPctOfSupply') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="v in top20Voters" :key="`${v.voter}-${v.blockNumber}-${v.logIndex}`">
+                <td class="vote-voters-address" :title="v.voter">{{ shortAddress(v.voter) }}</td>
+                <td>{{ supportLabel(v.support) }}</td>
+                <td>{{ formatPct(v.pctOfCast) }}</td>
+                <td>{{ formatPct(v.pctOfSupply) }}</td>
+              </tr>
+              <tr v-if="top20Voters.length === 0">
+                <td colspan="4">{{ t('voteDetail.noVoters') }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -550,6 +712,51 @@ function goBack() {
 }
 .vote-detail-participation-doughnut {
   height: 220px;
+}
+.vote-detail-voters {
+  margin-bottom: 2rem;
+}
+.vote-voters-table-wrap {
+  overflow-x: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+}
+.vote-voters-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 680px;
+}
+.vote-voters-table th,
+.vote-voters-table td {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+.vote-voters-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.vote-voters-address {
+  font-family: ui-monospace, monospace;
+}
+.vote-voters-comparison {
+  margin-top: 1rem;
+  margin-bottom: 0.75rem;
+  padding: 1rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+}
+.vote-detail-subtitle {
+  font-size: 1rem;
+  color: var(--text-primary);
+  margin: 0 0 0.5rem 0;
+}
+.vote-voters-chart-wrap {
+  height: 300px;
 }
 .vote-detail-description { margin-top: 2rem; }
 .vote-detail-description-text {

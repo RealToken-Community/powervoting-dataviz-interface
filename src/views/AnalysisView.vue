@@ -1581,6 +1581,39 @@ const powerConcentrationData = computed(() => {
   }
 })
 
+/** Calcule le nombre minimal d'adresses nécessaires pour dépasser 50% du power voting. */
+const majorityControlData = computed(() => {
+  if (!powerConcentrationData.value) return null
+
+  const sortedPower = [...dataStore.powerVoting]
+    .map(p => parseFloat(String(p.powerVoting || 0)))
+    .filter(p => !isNaN(p) && p > 0)
+    .sort((a, b) => b - a)
+
+  if (sortedPower.length === 0) return null
+
+  const totalPower = sortedPower.reduce((sum, p) => sum + p, 0)
+  if (totalPower <= 0) return null
+
+  const target = totalPower * 0.5
+  let cumulative = 0
+  let addressCount = 0
+
+  for (const power of sortedPower) {
+    cumulative += power
+    addressCount += 1
+    if (cumulative > target) break
+  }
+
+  return {
+    addressCount,
+    totalAddresses: sortedPower.length,
+    pctAddresses: (addressCount / sortedPower.length) * 100,
+    cumulativePower: cumulative,
+    cumulativePct: (cumulative / totalPower) * 100,
+  }
+})
+
 // Gini coefficient calculation
 const giniCoefficient = computed(() => {
   if (!powerConcentrationData.value) return null
@@ -2977,6 +3010,27 @@ const powerBreakdownChartOptions = {
           <p class="chart-note" style="margin-top: 1rem; font-size: 0.875rem; color: var(--text-secondary);">
             {{ t('analysis.lorenzNote') }}
           </p>
+        </div>
+      </div>
+
+      <div v-if="majorityControlData" class="majority-control-card">
+        <h3>🎯 {{ t('analysis.majorityControlTitle') }}</h3>
+        <p class="chart-note">
+          {{ t('analysis.majorityControlDesc') }}
+        </p>
+        <div class="stat-content">
+          <div class="stat-item">
+            <span class="stat-label">{{ t('analysis.majorityAddressCount') }}</span>
+            <span class="stat-value">{{ formatInteger(majorityControlData.addressCount) }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">{{ t('analysis.majorityAddressPct') }}</span>
+            <span class="stat-value">{{ formatNumber(majorityControlData.pctAddresses) }}%</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">{{ t('analysis.majorityCumulativePct') }}</span>
+            <span class="stat-value">{{ formatNumber(majorityControlData.cumulativePct) }}%</span>
+          </div>
         </div>
       </div>
     </div>
@@ -5057,6 +5111,22 @@ const powerBreakdownChartOptions = {
 .concentration-table-card h3 {
   font-size: 1.25rem;
   margin-bottom: 1.5rem;
+  color: var(--text-primary);
+}
+
+.majority-control-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid var(--border-color);
+  padding: 2rem;
+  margin: 2rem 0 0 0;
+  box-shadow: var(--shadow-lg);
+}
+
+.majority-control-card h3 {
+  font-size: 1.25rem;
+  margin: 0 0 0.75rem 0;
   color: var(--text-primary);
 }
 

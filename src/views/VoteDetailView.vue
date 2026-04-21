@@ -2,13 +2,17 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Doughnut } from 'vue-chartjs'
+import { Doughnut, Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
   Title,
   Tooltip,
   Legend,
   ArcElement,
+  LineElement,
+  PointElement,
+  CategoryScale,
+  LinearScale,
 } from 'chart.js'
 import {
   fetchProposalsFromGovernor,
@@ -23,7 +27,7 @@ import {
 } from '@/utils/governanceClient'
 import { loadSnapshotManifest, type SnapshotInfo } from '@/utils/snapshotLoader'
 
-ChartJS.register(Title, Tooltip, Legend, ArcElement)
+ChartJS.register(Title, Tooltip, Legend, ArcElement, LineElement, PointElement, CategoryScale, LinearScale)
 
 function findClosestWalletCount(snapshots: SnapshotInfo[], voteTimestampSeconds: number): number | null {
   if (!snapshots.length || voteTimestampSeconds <= 0) return null
@@ -364,6 +368,67 @@ const top20Voters = computed(() => {
     })
 })
 
+const topVotersComparisonChartData = computed(() => {
+  if (top20Voters.value.length === 0) return null
+  return {
+    labels: top20Voters.value.map((v) => shortAddress(v.voter)),
+    datasets: [
+      {
+        label: t('voteDetail.voterPctOfCast'),
+        data: top20Voters.value.map((v) => v.pctOfCast),
+        borderColor: 'rgb(255, 140, 66)',
+        backgroundColor: 'rgba(255, 140, 66, 0.25)',
+        borderWidth: 2,
+        tension: 0.25,
+        pointRadius: 3,
+      },
+      {
+        label: t('voteDetail.voterPctOfSupply'),
+        data: top20Voters.value.map((v) => v.pctOfSupply),
+        borderColor: 'rgb(100, 181, 246)',
+        backgroundColor: 'rgba(100, 181, 246, 0.25)',
+        borderWidth: 2,
+        tension: 0.25,
+        pointRadius: 3,
+      },
+    ],
+  }
+})
+
+const topVotersComparisonChartOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      position: 'bottom' as const,
+      labels: { color: '#ffffff', padding: 14 },
+    },
+    tooltip: {
+      titleColor: '#ffffff',
+      bodyColor: '#ffffff',
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      callbacks: {
+        label: (ctx: { dataset: { label?: string }; raw: number }) =>
+          `${ctx.dataset?.label ?? ''}: ${Number(ctx.raw).toFixed(2)}%`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      ticks: { color: '#ffffff' },
+      grid: { color: 'rgba(255, 255, 255, 0.1)' },
+    },
+    y: {
+      ticks: {
+        color: '#ffffff',
+        callback: (v: number | string) => `${v}%`,
+      },
+      grid: { color: 'rgba(255, 255, 255, 0.15)' },
+      beginAtZero: true,
+    },
+  },
+}))
+
 function goBack() {
   router.push({ name: 'vote' })
 }
@@ -482,6 +547,13 @@ function goBack() {
       <section class="vote-detail-voters">
         <h2 class="vote-detail-section-title">{{ t('voteDetail.topVotersTitle') }}</h2>
         <p class="vote-detail-chart-explainer">{{ t('voteDetail.topVotersExplainer') }}</p>
+        <div class="vote-voters-comparison" v-if="topVotersComparisonChartData">
+          <h3 class="vote-detail-subtitle">{{ t('voteDetail.topVotersChartTitle') }}</h3>
+          <p class="vote-detail-chart-explainer">{{ t('voteDetail.topVotersChartExplainer') }}</p>
+          <div class="vote-voters-chart-wrap">
+            <Line :data="topVotersComparisonChartData" :options="topVotersComparisonChartOptions" />
+          </div>
+        </div>
         <div class="vote-voters-table-wrap">
           <table class="vote-voters-table">
             <thead>
@@ -669,6 +741,22 @@ function goBack() {
 }
 .vote-voters-address {
   font-family: ui-monospace, monospace;
+}
+.vote-voters-comparison {
+  margin-top: 1rem;
+  margin-bottom: 0.75rem;
+  padding: 1rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+}
+.vote-detail-subtitle {
+  font-size: 1rem;
+  color: var(--text-primary);
+  margin: 0 0 0.5rem 0;
+}
+.vote-voters-chart-wrap {
+  height: 300px;
 }
 .vote-detail-description { margin-top: 2rem; }
 .vote-detail-description-text {

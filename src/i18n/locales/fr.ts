@@ -107,6 +107,8 @@ export default {
     voterChoice: 'Vote',
     voterPctOfCast: '% du poids exprimé',
     voterPctOfSupply: '% de la supply totale',
+    topVotersChartTitle: 'Comparaison des 2 pourcentages (Top 20)',
+    topVotersChartExplainer: 'Courbe orange : % du poids exprimé. Courbe bleue : % de la supply totale.',
     noVoters: 'Aucun votant trouvé pour cette proposition.',
   },
   upload: {

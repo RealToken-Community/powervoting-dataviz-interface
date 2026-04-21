@@ -107,6 +107,8 @@ export default {
     voterChoice: 'Vote',
     voterPctOfCast: '% of cast weight',
     voterPctOfSupply: '% of total supply',
+    topVotersChartTitle: 'Comparison of both percentages (Top 20)',
+    topVotersChartExplainer: 'Orange line: % of cast weight. Blue line: % of total supply.',
     noVoters: 'No voters found for this proposal.',
   },
   upload: {

@@ -84,6 +84,14 @@ export interface VoteBreakdown {
   byWallet: { for: number; against: number; abstain: number }
 }
 
+export interface ProposalVoteCast {
+  voter: string
+  support: VoteSupport
+  weight: bigint
+  blockNumber: bigint
+  logIndex: number
+}
+
 /**
  * Pour chaque proposition, retourne la répartition des votes (Oui/Non/Abstention)
  * en pouvoir de vote (weight) et en nombre de wallets.
@@ -172,6 +180,53 @@ export function voterCountFromBreakdown(
     )
   })
   return result
+}
+
+/**
+ * Retourne les votes individuels d'une proposition, dédupliqués par wallet (dernier vote retenu).
+ */
+export async function fetchProposalVoteCasts(proposalId: string): Promise<ProposalVoteCast[]> {
+  const logs = await publicClient.getContractEvents({
+    address: GOVERNANCE_CONTRACTS.Governor as `0x${string}`,
+    abi: GOVERNOR_ABI,
+    eventName: 'VoteCast',
+    fromBlock: 0n,
+  })
+
+  const latestByVoter = new Map<string, ProposalVoteCast>()
+  for (const log of logs) {
+    const args = log.args as {
+      voter: string
+      proposalId: bigint
+      support: number
+      weight: bigint
+    }
+    if (String(args.proposalId) !== proposalId) continue
+    const voter = (args.voter ?? '').toLowerCase()
+    const supportNum = Number(args.support ?? 0)
+    const support: VoteSupport =
+      supportNum === 1 ? 'for' : supportNum === 0 ? 'against' : 'abstain'
+
+    const candidate: ProposalVoteCast = {
+      voter,
+      support,
+      weight: args.weight ?? 0n,
+      blockNumber: log.blockNumber ?? 0n,
+      logIndex: Number(log.logIndex ?? 0),
+    }
+
+    const current = latestByVoter.get(voter)
+    if (!current) {
+      latestByVoter.set(voter, candidate)
+      continue
+    }
+    const isNewer =
+      candidate.blockNumber > current.blockNumber ||
+      (candidate.blockNumber === current.blockNumber && candidate.logIndex > current.logIndex)
+    if (isNewer) latestByVoter.set(voter, candidate)
+  }
+
+  return [...latestByVoter.values()]
 }
 
 /** Total supply du token de vote à un timepoint (bloc ou timestamp selon le token). */

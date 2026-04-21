@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Doughnut, Line } from 'vue-chartjs'
@@ -25,7 +25,7 @@ import {
   type ProposalVoteCast,
   type VoteBreakdown,
 } from '@/utils/governanceClient'
-import { loadSnapshotManifest, type SnapshotInfo } from '@/utils/snapshotLoader'
+import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
 
 ChartJS.register(Title, Tooltip, Legend, ArcElement, LineElement, PointElement, CategoryScale, LinearScale)
 
@@ -82,6 +82,9 @@ const participationData = ref<{
   walletCount: number
 } | null>(null)
 const proposalVoteCasts = ref<ProposalVoteCast[]>([])
+const allProposals = ref<ProposalSummary[]>([])
+const comparisonProposalId = ref<string>('')
+const snapshotPowerByAddress = ref<Map<string, number>>(new Map())
 const isLoading = ref(true)
 const notFound = ref(false)
 const error = ref<string | null>(null)
@@ -156,6 +159,43 @@ function supportLabel(support: 'for' | 'against' | 'abstain'): string {
   return t('vote.voteAbstain')
 }
 
+/** Extrait un tableau d'entrees powerVoting depuis des formats snapshot heterogenes. */
+function getPowerVotingEntries(raw: any): Array<{ address: string; powerVoting: number }> {
+  const data = raw?.result?.powerVoting ?? raw?.powerVoting ?? raw
+  if (!Array.isArray(data)) return []
+  return data
+    .map((row: any) => ({
+      address: String(row?.address ?? '').toLowerCase(),
+      powerVoting: Number(row?.powerVoting ?? 0),
+    }))
+    .filter((row) => row.address && Number.isFinite(row.powerVoting) && row.powerVoting > 0)
+}
+
+/** Charge le mapping adresse->powerVoting du snapshot le plus proche du vote courant. */
+async function loadSnapshotPowerMapForProposal(targetProposal: ProposalSummary): Promise<Map<string, number>> {
+  const [timestamps, manifest] = await Promise.all([
+    fetchVoteStartTimestamps([targetProposal]),
+    loadSnapshotManifest(),
+  ])
+  const ts = timestamps.get(targetProposal.proposalId) ?? 0
+  if (!manifest.length || ts <= 0) return new Map()
+  const voteTime = ts * 1000
+  let closest = manifest[0]
+  let minDiff = Math.abs(new Date(closest.dateFormatted).getTime() - voteTime)
+  for (const s of manifest) {
+    const diff = Math.abs(new Date(s.dateFormatted).getTime() - voteTime)
+    if (diff < minDiff) {
+      minDiff = diff
+      closest = s
+    }
+  }
+  const snap = await loadSnapshot(closest)
+  const entries = getPowerVotingEntries(snap.powerVoting)
+  const map = new Map<string, number>()
+  for (const e of entries) map.set(e.address, e.powerVoting)
+  return map
+}
+
 onMounted(async () => {
   const id = proposalId.value
   if (!id) {
@@ -202,10 +242,23 @@ onMounted(async () => {
       ])
       participationData.value = data
       proposalVoteCasts.value = voteCasts
+      comparisonProposalId.value = proposal.value.proposalId
     } catch (e) {
       console.warn('Participation data failed', e)
     }
   }
+
+  try {
+    const proposals = await fetchProposalsFromGovernor()
+    allProposals.value = proposals
+    if (proposal.value) {
+      comparisonProposalId.value = comparisonProposalId.value || proposal.value.proposalId
+      snapshotPowerByAddress.value = await loadSnapshotPowerMapForProposal(proposal.value)
+    }
+  } catch (e) {
+    console.warn('Failed to load simulation data', e)
+  }
+
   isLoading.value = false
 })
 
@@ -429,6 +482,128 @@ const topVotersComparisonChartOptions = computed(() => ({
   },
 }))
 
+const comparisonProposalOptions = computed(() =>
+  allProposals.value.map((p) => ({
+    value: p.proposalId,
+    label: `${getRipLabel(p.description)} ${firstLine(p.description)}`,
+  }))
+)
+
+const selectedComparisonRipLabel = computed(() => {
+  const selected = allProposals.value.find((p) => p.proposalId === comparisonProposalId.value)
+  return selected ? getRipLabel(selected.description) : '—'
+})
+
+const simulatedComparisonChartData = computed(() => {
+  const votes = proposalVoteCasts.value
+  if (!votes.length) return null
+
+  let originalFor = 0n
+  let originalAgainst = 0n
+  let originalAbstain = 0n
+  let simulatedFor = 0
+  let simulatedAgainst = 0
+  let simulatedAbstain = 0
+
+  for (const v of votes) {
+    const simulatedPower = snapshotPowerByAddress.value.get(v.voter.toLowerCase()) ?? 0
+    if (v.support === 'for') {
+      originalFor += v.weight
+      simulatedFor += simulatedPower
+    } else if (v.support === 'against') {
+      originalAgainst += v.weight
+      simulatedAgainst += simulatedPower
+    } else {
+      originalAbstain += v.weight
+      simulatedAbstain += simulatedPower
+    }
+  }
+
+  const originalTotal = originalFor + originalAgainst + originalAbstain
+  const simulatedTotal = simulatedFor + simulatedAgainst + simulatedAbstain
+  return {
+    labels: [t('vote.voteFor'), t('vote.voteAgainst'), t('vote.voteAbstain')],
+    originalRaw: [originalFor, originalAgainst, originalAbstain],
+    original: [
+      originalTotal > 0n ? Number((originalFor * 10000n) / originalTotal) / 100 : 0,
+      originalTotal > 0n ? Number((originalAgainst * 10000n) / originalTotal) / 100 : 0,
+      originalTotal > 0n ? Number((originalAbstain * 10000n) / originalTotal) / 100 : 0,
+    ],
+    simulatedRaw: [simulatedFor, simulatedAgainst, simulatedAbstain],
+    simulated: [
+      simulatedTotal > 0 ? (simulatedFor / simulatedTotal) * 100 : 0,
+      simulatedTotal > 0 ? (simulatedAgainst / simulatedTotal) * 100 : 0,
+      simulatedTotal > 0 ? (simulatedAbstain / simulatedTotal) * 100 : 0,
+    ],
+  }
+})
+
+/** Genere une legende detaillee Oui/Non/Abstention avec valeur et pourcentage. */
+function formatVoteLegend(values: [string, string, string], pcts: [number, number, number]): string {
+  return `${t('vote.voteFor')}: ${values[0]} (${pcts[0].toFixed(1)}%) · ${t('vote.voteAgainst')}: ${values[1]} (${pcts[1].toFixed(1)}%) · ${t('vote.voteAbstain')}: ${values[2]} (${pcts[2].toFixed(1)}%)`
+}
+
+function formatVoteLegendHtml(values: [string, string, string], pcts: [number, number, number]): string {
+  return `<span class="vote-legend-yes">${t('vote.voteFor')}: ${values[0]} (${pcts[0].toFixed(1)}%)</span> · <span class="vote-legend-no">${t('vote.voteAgainst')}: ${values[1]} (${pcts[1].toFixed(1)}%)</span> · <span class="vote-legend-abstain">${t('vote.voteAbstain')}: ${values[2]} (${pcts[2].toFixed(1)}%)</span>`
+}
+
+const simulationSummaryHtml = computed(() => {
+  const data = simulatedComparisonChartData.value
+  if (!data) return ''
+  const originalLegend = formatVoteLegendHtml(
+    [
+      formatPower(data.originalRaw[0]),
+      formatPower(data.originalRaw[1]),
+      formatPower(data.originalRaw[2]),
+    ],
+    [data.original[0], data.original[1], data.original[2]]
+  )
+  const simulatedLegend = formatVoteLegendHtml(
+    [
+      formatCompactNumber(data.simulatedRaw[0]),
+      formatCompactNumber(data.simulatedRaw[1]),
+      formatCompactNumber(data.simulatedRaw[2]),
+    ],
+    [data.simulated[0], data.simulated[1], data.simulated[2]]
+  )
+  return `${t('voteDetail.simulationSummaryPrefix')} <strong>${ripLabel.value}</strong> (${t('voteDetail.simulationSummaryOriginalSnapshot')}) : ${originalLegend}. ${t('voteDetail.simulationSummaryComparisonPrefix')} <strong>${ripLabel.value}</strong>, ${t('voteDetail.simulationSummaryWithPowerFrom')} <strong>${selectedComparisonRipLabel.value}</strong>, ${t('voteDetail.simulationSummaryIs')} : ${simulatedLegend}.`
+})
+
+const simulatedComparisonDoughnutOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { position: 'bottom' as const, labels: { color: '#ffffff' } },
+    tooltip: {
+      titleColor: '#ffffff',
+      bodyColor: '#ffffff',
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      callbacks: {
+        label: (ctx: { dataset: { label?: string }; raw: number }) =>
+          `${ctx.dataset?.label ?? ''}: ${Number(ctx.raw).toFixed(2)}%`,
+      },
+    },
+  },
+}))
+
+watch(comparisonProposalId, async (id) => {
+  if (!id) {
+    snapshotPowerByAddress.value = new Map()
+    return
+  }
+  try {
+    const selected = allProposals.value.find((p) => p.proposalId === id)
+    if (!selected) {
+      snapshotPowerByAddress.value = new Map()
+      return
+    }
+    snapshotPowerByAddress.value = await loadSnapshotPowerMapForProposal(selected)
+  } catch (e) {
+    console.warn('Failed to load comparison snapshot power map', e)
+    snapshotPowerByAddress.value = new Map()
+  }
+})
+
 function goBack() {
   router.push({ name: 'vote' })
 }
@@ -541,6 +716,102 @@ function goBack() {
               {{ participationData.walletPct.toFixed(1) }} % {{ t('voteDetail.participated') }}
             </p>
           </div>
+        </div>
+      </section>
+
+      <section class="vote-detail-simulation">
+        <h2 class="vote-detail-section-title">{{ t('voteDetail.simulationSectionTitle') }}</h2>
+        <p class="vote-detail-chart-explainer">{{ t('voteDetail.simulationSectionExplainer') }}</p>
+        <div class="vote-detail-simulation-controls">
+          <label class="vote-detail-simulation-label" for="comparison-proposal">
+            {{ t('voteDetail.simulationSelectLabel') }}
+          </label>
+          <select id="comparison-proposal" v-model="comparisonProposalId" class="vote-detail-simulation-select">
+            <option v-for="opt in comparisonProposalOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+        <div class="vote-detail-chart-block" v-if="simulatedComparisonChartData">
+          <div class="vote-detail-simulation-doughnuts">
+            <div class="vote-detail-simulation-doughnut-item">
+              <h3 class="vote-detail-subtitle">
+                {{ t('voteDetail.simulationOriginalLabel') }} - {{ ripLabel }} {{ t('voteDetail.simulationOriginalSnapshotSuffix') }}
+              </h3>
+              <div class="vote-detail-doughnut-wrap vote-detail-simulation-chart-wrap">
+                <Doughnut
+                  :data="{
+                    labels: simulatedComparisonChartData.labels,
+                    datasets: [{
+                      data: simulatedComparisonChartData.original,
+                      backgroundColor: ['rgba(76, 175, 80, 0.85)', 'rgba(244, 67, 54, 0.85)', 'rgba(158, 158, 158, 0.85)'],
+                      borderColor: ['rgb(76, 175, 80)', 'rgb(244, 67, 54)', 'rgb(158, 158, 158)'],
+                      borderWidth: 1,
+                    }],
+                  }"
+                  :options="simulatedComparisonDoughnutOptions"
+                />
+              </div>
+              <p class="vote-detail-chart-legend">
+                {{
+                  formatVoteLegend(
+                    [
+                      formatPower(simulatedComparisonChartData.originalRaw[0]),
+                      formatPower(simulatedComparisonChartData.originalRaw[1]),
+                      formatPower(simulatedComparisonChartData.originalRaw[2]),
+                    ],
+                    [
+                      simulatedComparisonChartData.original[0],
+                      simulatedComparisonChartData.original[1],
+                      simulatedComparisonChartData.original[2],
+                    ]
+                  )
+                }}
+              </p>
+            </div>
+            <div class="vote-detail-simulation-doughnut-item">
+              <h3 class="vote-detail-subtitle">
+                {{ t('voteDetail.simulationReweightedTitlePrefix') }} {{ ripLabel }}, {{ t('voteDetail.simulationReweightedTitleMiddle') }} {{ selectedComparisonRipLabel }}
+              </h3>
+              <div class="vote-detail-doughnut-wrap vote-detail-simulation-chart-wrap">
+                <Doughnut
+                  :data="{
+                    labels: simulatedComparisonChartData.labels,
+                    datasets: [{
+                      data: simulatedComparisonChartData.simulated,
+                      backgroundColor: ['rgba(76, 175, 80, 0.85)', 'rgba(244, 67, 54, 0.85)', 'rgba(158, 158, 158, 0.85)'],
+                      borderColor: ['rgb(76, 175, 80)', 'rgb(244, 67, 54)', 'rgb(158, 158, 158)'],
+                      borderWidth: 1,
+                    }],
+                  }"
+                  :options="simulatedComparisonDoughnutOptions"
+                />
+              </div>
+              <p class="vote-detail-chart-legend">
+                {{
+                  formatVoteLegend(
+                    [
+                      formatCompactNumber(simulatedComparisonChartData.simulatedRaw[0]),
+                      formatCompactNumber(simulatedComparisonChartData.simulatedRaw[1]),
+                      formatCompactNumber(simulatedComparisonChartData.simulatedRaw[2]),
+                    ],
+                    [
+                      simulatedComparisonChartData.simulated[0],
+                      simulatedComparisonChartData.simulated[1],
+                      simulatedComparisonChartData.simulated[2],
+                    ]
+                  )
+                }}
+              </p>
+            </div>
+          </div>
+          <p class="vote-detail-chart-explainer vote-detail-simulation-explainer">
+            {{ t('voteDetail.simulationMethodExplainer') }}
+          </p>
+          <p class="vote-detail-chart-explainer vote-detail-simulation-summary" v-if="simulationSummaryHtml">
+            <strong>{{ t('voteDetail.simulationReadTitle') }}:</strong>
+            <span v-html="simulationSummaryHtml"></span>
+          </p>
         </div>
       </section>
 
@@ -713,6 +984,53 @@ function goBack() {
 .vote-detail-participation-doughnut {
   height: 220px;
 }
+.vote-detail-simulation {
+  margin-bottom: 2rem;
+}
+.vote-detail-simulation-controls {
+  margin: 0 0 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.vote-detail-simulation-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.vote-detail-simulation-select {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.7rem;
+}
+.vote-detail-simulation-chart-wrap {
+  height: 240px;
+}
+.vote-detail-simulation-doughnuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+.vote-detail-simulation-doughnut-item {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+}
+.vote-detail-simulation-explainer {
+  margin-top: 0.9rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.vote-detail-simulation-summary {
+  margin-top: 0.5rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.vote-detail-simulation-summary :deep(.vote-legend-yes) { color: rgb(76, 175, 80); font-weight: 600; }
+.vote-detail-simulation-summary :deep(.vote-legend-no) { color: rgb(244, 67, 54); font-weight: 600; }
+.vote-detail-simulation-summary :deep(.vote-legend-abstain) { color: rgb(158, 158, 158); font-weight: 600; }
 .vote-detail-voters {
   margin-bottom: 2rem;
 }

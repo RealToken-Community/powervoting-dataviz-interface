@@ -90,6 +90,7 @@ export default {
     keyFigures: 'Chiffres clés',
     totalVoters: 'Wallets ayant voté',
     totalPowerCast: 'Pouvoir de vote exprimé (total)',
+    totalPowerSupplyAtVote: 'Pouvoir de vote total disponible (snapshot du vote)',
     chartByPowerExplainer: 'Répartition du pouvoir de vote (weight) entre Oui, Non et Abstention. Chaque segment correspond au poids total des voix exprimées pour cette option.',
     chartByWalletExplainer: 'Répartition du nombre de wallets entre Oui, Non et Abstention. Chaque wallet compte pour 1, sans pondération par le pouvoir de vote.',
     fullDescription: 'Description complète de la proposition',

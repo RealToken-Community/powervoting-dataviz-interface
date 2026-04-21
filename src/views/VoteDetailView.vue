@@ -100,15 +100,41 @@ function shortAddress(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`
 }
 
-/** Affiche le pouvoir de vote de façon compacte pour éviter le débordement (ex. 345.77 × 10²⁴). */
+/** Formate un bigint en nombre lisible avec séparateurs de milliers. */
+function formatBigIntWithGrouping(value: bigint): string {
+  const negative = value < 0n
+  const digits = (negative ? -value : value).toString()
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+  return negative ? `-${grouped}` : grouped
+}
+
+/** Formate une valeur compacte avec suffixes k, M, MM. */
+function formatCompactNumber(value: number): string {
+  const abs = Math.abs(value)
+  if (abs >= 1e9) return `${(value / 1e9).toFixed(2).replace(/\.?0+$/, '')} MM`
+  if (abs >= 1e6) return `${(value / 1e6).toFixed(2).replace(/\.?0+$/, '')} M`
+  if (abs >= 1e3) return `${(value / 1e3).toFixed(2).replace(/\.?0+$/, '')} k`
+  return value.toFixed(2).replace(/\.?0+$/, '')
+}
+
+/** Formate le pouvoir de vote en unité token (base 1e18). */
 function formatPower(value: bigint): string {
-  const n = Number(value)
-  if (n >= 1e27) return (n / 1e27).toFixed(2) + ' × 10²⁷'
-  if (n >= 1e24) return (n / 1e24).toFixed(2) + ' × 10²⁴'
-  if (n >= 1e21) return (n / 1e21).toFixed(2) + ' × 10²¹'
-  if (n >= 1e18) return (n / 1e18).toFixed(2) + ' × 10¹⁸'
-  if (n >= 1e15) return (n / 1e15).toFixed(2) + ' × 10¹⁵'
-  return n.toLocaleString('fr-FR', { maximumFractionDigits: 0 })
+  const decimals = 18n
+  const base = 10n ** decimals
+  const integerPart = value / base
+  const fractionalRaw = value % base
+  const fractionalStr = fractionalRaw.toString().padStart(Number(decimals), '0')
+  const shortFraction = fractionalStr.slice(0, 2)
+  const asNumber = Number(`${integerPart.toString()}.${shortFraction}`)
+
+  if (Number.isFinite(asNumber)) return formatCompactNumber(asNumber)
+  return formatBigIntWithGrouping(integerPart)
+}
+
+/** Retourne un libellé court quand la supply totale n'est pas disponible. */
+function formatTotalSupply(value: bigint | null): string {
+  if (value == null || value <= 0n) return '—'
+  return formatPower(value)
 }
 
 onMounted(async () => {
@@ -352,6 +378,10 @@ function goBack() {
           <div class="vote-detail-card">
             <span class="vote-detail-card-value">{{ formatPower(totalPower) }}</span>
             <span class="vote-detail-card-label">{{ t('voteDetail.totalPowerCast') }}</span>
+          </div>
+          <div class="vote-detail-card">
+            <span class="vote-detail-card-value">{{ formatTotalSupply(participationData?.totalSupply ?? null) }}</span>
+            <span class="vote-detail-card-label">{{ t('voteDetail.totalPowerSupplyAtVote') }}</span>
           </div>
           <div class="vote-detail-card" v-if="breakdown">
             <span class="vote-detail-card-value">{{ breakdown.byWallet.for }} ({{ walletPct.for.toFixed(1) }}%)</span>

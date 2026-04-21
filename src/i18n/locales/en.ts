@@ -90,6 +90,7 @@ export default {
     keyFigures: 'Key figures',
     totalVoters: 'Wallets that voted',
     totalPowerCast: 'Voting power cast (total)',
+    totalPowerSupplyAtVote: 'Total voting power available (vote snapshot)',
     chartByPowerExplainer: 'Share of voting power (weight) between Yes, No and Abstain. Each segment is the total weight cast for that option.',
     chartByWalletExplainer: 'Share of wallet count between Yes, No and Abstain. Each wallet counts as 1, with no voting power weighting.',
     fullDescription: 'Full proposal description',

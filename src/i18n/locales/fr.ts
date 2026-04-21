@@ -125,6 +125,8 @@ export default {
     simulationSummaryComparisonPrefix: 'En comparaison, le resultat simule pour',
     simulationSummaryWithPowerFrom: 'avec le powervoting issu de',
     simulationSummaryIs: 'est',
+    simulationDiffTitle: 'Interpretation graphique des ecarts',
+    simulationDiffExplainer: 'Variation du resultat simule par rapport au resultat original (en points de pourcentage).',
     noVoters: 'Aucun votant trouvé pour cette proposition.',
   },
   upload: {

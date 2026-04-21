@@ -125,6 +125,8 @@ export default {
     simulationSummaryComparisonPrefix: 'In comparison, the simulated result for',
     simulationSummaryWithPowerFrom: 'using power voting from',
     simulationSummaryIs: 'is',
+    simulationDiffTitle: 'Visual interpretation of differences',
+    simulationDiffExplainer: 'Change in simulated result versus original result (in percentage points).',
     noVoters: 'No voters found for this proposal.',
   },
   upload: {

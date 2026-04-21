@@ -569,6 +569,21 @@ const simulationSummaryHtml = computed(() => {
   return `${t('voteDetail.simulationSummaryPrefix')} <strong>${ripLabel.value}</strong> (${t('voteDetail.simulationSummaryOriginalSnapshot')}) : ${originalLegend}. ${t('voteDetail.simulationSummaryComparisonPrefix')} <strong>${ripLabel.value}</strong>, ${t('voteDetail.simulationSummaryWithPowerFrom')} <strong>${selectedComparisonRipLabel.value}</strong>, ${t('voteDetail.simulationSummaryIs')} : ${simulatedLegend}.`
 })
 
+const simulationDiffRows = computed(() => {
+  const data = simulatedComparisonChartData.value
+  if (!data) return []
+  const rows = [
+    { key: 'yes', label: t('vote.voteFor'), colorClass: 'yes', diff: data.simulated[0] - data.original[0] },
+    { key: 'no', label: t('vote.voteAgainst'), colorClass: 'no', diff: data.simulated[1] - data.original[1] },
+    { key: 'abstain', label: t('vote.voteAbstain'), colorClass: 'abstain', diff: data.simulated[2] - data.original[2] },
+  ]
+  return rows.map((r) => ({
+    ...r,
+    widthPct: Math.min(100, Math.abs(r.diff) * 2), // 50 pts => 100% de largeur
+    sign: r.diff > 0 ? '+' : '',
+  }))
+})
+
 const simulatedComparisonDoughnutOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
@@ -812,6 +827,16 @@ function goBack() {
             <strong>{{ t('voteDetail.simulationReadTitle') }}:</strong>
             <span v-html="simulationSummaryHtml"></span>
           </p>
+          <div class="vote-detail-simulation-diff" v-if="simulationDiffRows.length">
+            <p class="vote-detail-chart-explainer"><strong>{{ t('voteDetail.simulationDiffTitle') }}:</strong> {{ t('voteDetail.simulationDiffExplainer') }}</p>
+            <div v-for="row in simulationDiffRows" :key="row.key" class="vote-detail-simulation-diff-row">
+              <div class="vote-detail-simulation-diff-label">{{ row.label }}</div>
+              <div class="vote-detail-simulation-diff-track">
+                <div class="vote-detail-simulation-diff-bar" :class="`is-${row.colorClass}`" :style="{ width: `${row.widthPct}%` }"></div>
+              </div>
+              <div class="vote-detail-simulation-diff-value">{{ row.sign }}{{ row.diff.toFixed(1) }} pts</div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1031,6 +1056,38 @@ function goBack() {
 .vote-detail-simulation-summary :deep(.vote-legend-yes) { color: rgb(76, 175, 80); font-weight: 600; }
 .vote-detail-simulation-summary :deep(.vote-legend-no) { color: rgb(244, 67, 54); font-weight: 600; }
 .vote-detail-simulation-summary :deep(.vote-legend-abstain) { color: rgb(158, 158, 158); font-weight: 600; }
+.vote-detail-simulation-diff {
+  margin-top: 0.75rem;
+}
+.vote-detail-simulation-diff-row {
+  display: grid;
+  grid-template-columns: 92px 1fr 86px;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+.vote-detail-simulation-diff-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.vote-detail-simulation-diff-track {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.vote-detail-simulation-diff-bar {
+  height: 100%;
+  border-radius: 999px;
+}
+.vote-detail-simulation-diff-bar.is-yes { background: rgba(76, 175, 80, 0.9); }
+.vote-detail-simulation-diff-bar.is-no { background: rgba(244, 67, 54, 0.9); }
+.vote-detail-simulation-diff-bar.is-abstain { background: rgba(158, 158, 158, 0.9); }
+.vote-detail-simulation-diff-value {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  text-align: right;
+}
 .vote-detail-voters {
   margin-bottom: 2rem;
 }

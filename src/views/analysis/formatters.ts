@@ -11,6 +11,15 @@ export function formatInteger(num: number): string {
   return new Intl.NumberFormat('fr-FR').format(Math.round(num))
 }
 
+/** Formate un pourcentage avec plus de décimales pour les très petites valeurs. */
+export function formatPercentage(num: number): string {
+  const fractionDigits = num > 0 && num < 0.01 ? 6 : 2
+  return `${new Intl.NumberFormat('fr-FR', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(num)} %`
+}
+
 export function getSnapshotDiff(snapshot: SnapshotInfo, allSnapshots: SnapshotInfo[]) {
   if (!snapshot.metrics || allSnapshots.length === 0) return null
 

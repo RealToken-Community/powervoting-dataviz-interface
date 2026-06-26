@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useDataStore } from '@/stores/dataStore'
 import { loadSnapshotManifest, loadSnapshot, type SnapshotInfo } from '@/utils/snapshotLoader'
-import { formatNumber, formatInteger, getSnapshotDiff, formatDiff, shortAddress } from './analysis/formatters'
+import { formatNumber, formatInteger, formatPercentage, getSnapshotDiff, formatDiff, shortAddress } from './analysis/formatters'
 import { CHART_GREEN, CHART_RED, V3_BOOST_MIN, V3_BOOST_MAX } from './analysis/constants'
 import { analyzeSnapshotPools, analyzePoolPositions } from './analysis/poolUtils'
 import { useComparison } from './analysis/composables/useComparison'
@@ -1527,6 +1527,56 @@ const powerVotingDistributionChartData = computed(() => {
 
 })
 
+const chainRegDistributionChartData = computed(() => {
+  const totals = dataStore.chainRegTotals
+  if (!totals) return null
+
+  return {
+    labels: [
+      t('analysis.chainGnosis'),
+      t('analysis.chainEthereum'),
+      t('analysis.chainPolygon'),
+    ],
+    datasets: [
+      {
+        label: t('analysis.totalRegByChain'),
+        data: [totals.gnosis, totals.ethereum, totals.polygon],
+        backgroundColor: [
+          'rgba(34, 197, 94, 0.8)',
+          'rgba(99, 102, 241, 0.8)',
+          'rgba(251, 146, 60, 0.8)',
+        ],
+        borderColor: [
+          'rgb(34, 197, 94)',
+          'rgb(99, 102, 241)',
+          'rgb(251, 146, 60)',
+        ],
+        borderWidth: 2,
+      },
+    ],
+  }
+})
+
+const chainRegSummaryRows = computed(() => {
+  const totals = dataStore.chainRegTotals
+  if (!totals) return null
+
+  const grandTotal = totals.gnosis + totals.ethereum + totals.polygon
+  if (grandTotal <= 0) return null
+
+  return [
+    { chainId: 'gnosis', chain: t('analysis.chainGnosis'), regTotal: totals.gnosis, percentage: (totals.gnosis / grandTotal) * 100, color: '#22c55e' },
+    { chainId: 'ethereum', chain: t('analysis.chainEthereum'), regTotal: totals.ethereum, percentage: (totals.ethereum / grandTotal) * 100, color: '#6366f1' },
+    { chainId: 'polygon', chain: t('analysis.chainPolygon'), regTotal: totals.polygon, percentage: (totals.polygon / grandTotal) * 100, color: '#fb923c' },
+  ]
+})
+
+const chainRegSummaryTotal = computed(() => {
+  const rows = chainRegSummaryRows.value
+  if (!rows) return 0
+  return rows.reduce((sum, row) => sum + row.regTotal, 0)
+})
+
 const poolsDistributionChartData = computed(() => {
   const analysis = dataStore.poolAnalysis
   if (!analysis) return null
@@ -2027,6 +2077,47 @@ const countChartOptions = {
     },
   },
 }
+
+const chainRegChartOptions = computed(() => ({
+  ...chartOptions,
+  layout: {
+    padding: {
+      top: 8,
+      bottom: 8,
+    },
+  },
+  plugins: {
+    ...chartOptions.plugins,
+    legend: {
+      display: false,
+    },
+  },
+  scales: {
+    ...chartOptions.scales,
+    y: {
+      ...chartOptions.scales.y,
+      title: {
+        display: true,
+        text: t('analysis.regInWalletAxis'),
+        color: '#cbd5e1',
+        font: {
+          size: 13,
+          weight: 'bold',
+        },
+      },
+      ticks: {
+        ...chartOptions.scales.y.ticks,
+        callback: (value: number) => formatNumber(Number(value)),
+      },
+    },
+    x: {
+      ...chartOptions.scales.x,
+      grid: {
+        display: false,
+      },
+    },
+  },
+}))
 
 // Chart options for power concentration
 const powerConcentrationChartOptions = {
@@ -2929,6 +3020,50 @@ const powerBreakdownChartOptions = {
           <Bar :data="powerVotingDistributionChartData" :options="countChartOptions" />
         </div>
       </div>
+
+      <div class="chart-card full-width chain-reg-card" v-if="chainRegDistributionChartData">
+        <h3>🔗 {{ t('analysis.distributionRegByChain') }}</h3>
+        <p class="chain-reg-note">{{ t('analysis.distributionRegByChainNote') }}</p>
+
+        <div class="chain-reg-content">
+          <div class="chain-reg-chart-panel">
+            <div class="chart-container chain-reg-chart-container">
+              <Bar :data="chainRegDistributionChartData" :options="chainRegChartOptions" />
+            </div>
+          </div>
+
+          <div class="chain-reg-summary-panel" v-if="chainRegSummaryRows">
+            <table class="chain-reg-summary-table">
+              <thead>
+                <tr>
+                  <th>{{ t('analysis.chainColumn') }}</th>
+                  <th>{{ t('analysis.regAmountColumn') }}</th>
+                  <th>{{ t('analysis.regShareColumn') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in chainRegSummaryRows" :key="row.chainId">
+                  <td>
+                    <span class="chain-reg-label">
+                      <span class="chain-reg-dot" :style="{ backgroundColor: row.color }" aria-hidden="true"></span>
+                      {{ row.chain }}
+                    </span>
+                  </td>
+                  <td>{{ formatNumber(row.regTotal) }}</td>
+                  <td>{{ formatPercentage(row.percentage) }}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td><strong>{{ t('analysis.total') }}</strong></td>
+                  <td><strong>{{ formatNumber(chainRegSummaryTotal) }}</strong></td>
+                  <td><strong>100,00 %</strong></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
 
     <template v-if="!props.searchOnly">
@@ -3703,6 +3838,103 @@ const powerBreakdownChartOptions = {
 
 .chart-card.full-width {
   grid-column: 1 / -1;
+}
+
+.chain-reg-card h3 {
+  margin-bottom: 1rem;
+}
+
+.chain-reg-note {
+  margin: 0 0 1.5rem;
+  padding: 0.875rem 1.125rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(14, 165, 233, 0.08));
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.chain-reg-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.chain-reg-chart-panel,
+.chain-reg-summary-panel {
+  background: var(--glass-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.875rem;
+  padding: 1.25rem;
+}
+
+.chain-reg-chart-container {
+  height: 320px;
+}
+
+.chain-reg-summary-panel {
+  overflow-x: auto;
+}
+
+.chain-reg-summary-table {
+  width: 100%;
+  max-width: 720px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.95rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.chain-reg-summary-table th,
+.chain-reg-summary-table td {
+  padding: 0.8rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.chain-reg-summary-table thead th {
+  font-weight: 600;
+  color: #f8fafc;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.95), rgba(79, 70, 229, 0.9));
+  border-bottom: none;
+}
+
+.chain-reg-summary-table thead th:not(:last-child) {
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.chain-reg-summary-table tbody tr:hover {
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.chain-reg-summary-table tbody td:nth-child(2),
+.chain-reg-summary-table tbody td:nth-child(3),
+.chain-reg-summary-table tfoot td:nth-child(2),
+.chain-reg-summary-table tfoot td:nth-child(3) {
+  text-align: right;
+  font-family: monospace;
+}
+
+.chain-reg-summary-table tfoot td {
+  border-bottom: none;
+  background: rgba(51, 65, 85, 0.35);
+  color: var(--text-primary);
+}
+
+.chain-reg-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chain-reg-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  flex-shrink: 0;
 }
 
 .correlation-grid {

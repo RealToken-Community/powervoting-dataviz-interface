@@ -14,6 +14,14 @@ export interface PowerVotingData {
   powerVoting: string | number
 }
 
+type ChainId = 'gnosis' | 'ethereum' | 'polygon'
+
+const CHAIN_REG_FIELDS: Record<ChainId, string> = {
+  gnosis: 'totalBalanceRegGnosis',
+  ethereum: 'totalBalanceRegEthereum',
+  polygon: 'totalBalanceRegPolygon',
+}
+
 /** Retourne le solde REG on-chain pour une entrée (adresse), sans ré-attribuer la liquidité des pools. */
 function getOnchainRegBalance(entry: any): number {
   const source = entry?.sourceBalance
@@ -28,6 +36,23 @@ function getOnchainRegBalance(entry: any): number {
 
   const fallback = parseFloat(String(entry?.totalBalanceREG ?? entry?.totalBalance ?? 0))
   return isNaN(fallback) ? 0 : fallback
+}
+
+/** Retourne le solde REG wallet d'une entrée pour une blockchain donnée (hors liquidité pools). */
+function getChainRegBalance(entry: any, chain: ChainId): number {
+  const source = entry?.sourceBalance?.[chain]
+  if (source != null) {
+    const wallet = parseFloat(String(source.walletBalance ?? 0))
+    if (!isNaN(wallet)) return wallet
+  }
+
+  const flatKey = CHAIN_REG_FIELDS[chain]
+  if (entry?.[flatKey] != null && entry[flatKey] !== '') {
+    const flat = parseFloat(String(entry[flatKey]))
+    if (!isNaN(flat)) return flat
+  }
+
+  return 0
 }
 
 export const useDataStore = defineStore('data', () => {
@@ -181,6 +206,23 @@ export const useDataStore = defineStore('data', () => {
     })
 
     return bins
+  })
+
+  /** Totaux REG agrégés par blockchain (Gnosis, Ethereum, Polygon). */
+  const chainRegTotals = computed(() => {
+    if (onchainBalances.value.length === 0) return null
+
+    const totals = { gnosis: 0, ethereum: 0, polygon: 0 }
+    onchainBalances.value.forEach((entry) => {
+      totals.gnosis += getChainRegBalance(entry, 'gnosis')
+      totals.ethereum += getChainRegBalance(entry, 'ethereum')
+      totals.polygon += getChainRegBalance(entry, 'polygon')
+    })
+
+    const total = totals.gnosis + totals.ethereum + totals.polygon
+    if (total <= 0) return null
+
+    return totals
   })
 
   // Top holders
@@ -576,6 +618,7 @@ export const useDataStore = defineStore('data', () => {
     powerVotingStats,
     balanceDistribution,
     powerVotingDistribution,
+    chainRegTotals,
     topBalanceHolders,
     topPowerVoters,
     poolAnalysis,
